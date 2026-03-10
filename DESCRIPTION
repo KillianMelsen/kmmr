@@ -1,0 +1,17 @@
+Package: kmmr
+Type: Package
+Title: Kernel-based linear mixed models in R
+Version: 0.1
+Date: 2026-03-10
+Author: Killian A.C. Melsen
+Maintainer: Killian A.C. Melsen <killian.melsen@wur.nl>
+Description: Fits multivariate linear mixed models in R, with the analysis of plant breeding multi-environment trial data as the main application. Comes with the ability to use several types of linear and non-linear kernels as well as structured and unstructured covariance matrices.
+License: GPL (>= 3)
+Imports: 
+    Matrix,
+    methods,
+    Rcpp (>= 1.1.0),
+    stats
+LinkingTo: Rcpp, RcppArmadillo
+RoxygenNote: 7.3.3
+Encoding: UTF-8
