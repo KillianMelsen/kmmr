@@ -26,7 +26,7 @@ fit.kmmr <- kmmr(fixed = GY ~ -1 + Man:Env,
 library(asreml)
 asreml.options(workspace = "5000mb", pworkspace = "5000mb")
 vf <- cornfruit::svgk(D = ED[levels(d$Env), levels(d$Env)])
-init <- rep(0.1, 4)
+init <- rep(0.1, 2 + 1 + 1)
 type <- c("V", "V", "R", "V")
 cons <- c("P", "P", "U", "P")
 fit.asr <- asreml(fixed = GY ~ -1 + ManEnv,
@@ -36,6 +36,53 @@ fit.asr <- asreml(fixed = GY ~ -1 + ManEnv,
 
 summary(fit.asr)$varcomp[1:5, "component"] - fit.kmmr$k[, ncol(fit.kmmr$k)]
 fit.asr$loglik - fit.kmmr$LL[length(fit.kmmr$LL)]
+
+# Multiple variance Gaussian kernel ====
+fit.kmmr <- kmmr(fixed = GY ~ -1 + Man:Env,
+                 random = ~ re(~ corg(Man):gk(Env, base = ED):lk(Gen, base = Ki), vars = ~ Man:Env),
+                 residual = ~ units,
+                 data = d,
+                 tolConvLL = 0.01)
+
+# Checking match with ASReml/cornfruit:
+library(asreml)
+asreml.options(workspace = "5000mb", pworkspace = "5000mb")
+vf <- cornfruit::mvgk(D = ED[levels(d$Env), levels(d$Env)])
+init <- rep(0.1, 28 + 1 + 1)
+type <- c(rep("V", 28), "R", "V")
+cons <- c(rep("P", 28), "U", "P")
+fit.asr <- asreml(fixed = GY ~ -1 + ManEnv,
+                  random = ~ own(ManEnv, "vf", init, type, cons):vm(Gen, Ki),
+                  residual = ~ idv(units),
+                  data = d)
+
+range(summary(fit.asr)$varcomp[1:31, "component"] - fit.kmmr$k[, ncol(fit.kmmr$k)])
+fit.asr$loglik - fit.kmmr$LL[length(fit.kmmr$LL)]
+
+# Multiple variance linear kernel ====
+fit.kmmr <- kmmr(fixed = GY ~ -1 + Man:Env,
+                 random = ~ re(~ corg(Man):lk(Env, base = EC):lk(Gen, base = Ki), vars = ~ Man:Env),
+                 residual = ~ units,
+                 data = d,
+                 tolConvLL = 0.01)
+
+# Checking match with ASReml/cornfruit:
+library(asreml)
+asreml.options(workspace = "5000mb", pworkspace = "5000mb")
+vf <- cornfruit::mvlk(C = EC[levels(d$Env), levels(d$Env)])
+init <- rep(0.1, 28 + 1)
+type <- c(rep("V", 28), "R")
+cons <- c(rep("P", 28), "U")
+fit.asr <- asreml(fixed = GY ~ -1 + ManEnv,
+                  random = ~ own(ManEnv, "vf", init, type, cons):vm(Gen, Ki),
+                  residual = ~ idv(units),
+                  data = d)
+
+range(summary(fit.asr)$varcomp[1:30, "component"] - fit.kmmr$k[, ncol(fit.kmmr$k)])
+fit.asr$loglik - fit.kmmr$LL[length(fit.kmmr$LL)]
+
+
+
 
 # Gaussian kernel GBLUP ====
 # This one looks fine
@@ -52,6 +99,6 @@ fit.kmmr <- kmmr(fixed = GY ~ 1,
                  random = ~ re(~ gk(Gen, base = GD), vars = ~ 1),
                  residual = ~ units,
                  data = ds,
-                 tolConvLL = 0.01, maxit = 50)
+                 tolConvLL = 0.01, maxit = 100)
 
 

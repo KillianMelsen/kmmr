@@ -438,12 +438,21 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
       bound.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas pushing them across boundaries.
       npd.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the presence of non-PD corg matrices.
       
+      # Computing the proposed update so we can check for constraints:
+      kUpdate <- k[, iter, drop = FALSE] + delta
+      
       # Checking variances for changes that result in an increase larger than a factor 15 or decrease larger than a factor 1/15:
       # In other words, check that k.new >= 1/15 * k.old & k.new <= 15 * k.old
-      deltaFactor <- delta[vars, 1] / k[vars, iter]
-      if (any(abs(deltaFactor) > 15)) {
-        con.vars <- vars[abs(deltaFactor) > 15]
-        delta[con.vars, 1] <- sign(delta[con.vars, 1]) * 15 * k[con.vars, iter]
+      # deltaFactor <- delta[vars, 1] / k[vars, iter]
+      deltaFactor <- kUpdate[vars, 1] / k[vars, iter]
+      if (any(deltaFactor > 15 | deltaFactor < 1 / 15)) {
+        con.vars.up <- vars[deltaFactor > 15] # Indices of variances that go up with more than a factor 15
+        con.vars.down <- vars[deltaFactor < 1 / 15] # Indices of variances that go down with more than a factor 1 / 15
+        con.vars <- sort(c(con.vars.up, con.vars.down)) # All indices of constrained variances
+        # con.vars <- vars[deltaFactor > 15 | deltaFactor < 1 / 15]
+        delta[con.vars.up, 1] <- (14 - 1e-5) * k[con.vars.up, iter] # (k + d) / k = 15
+        delta[con.vars.down, 1] <- -(14 - 1e-5) / 15 * k[con.vars.down, iter] # (k + d) / k = 1 / 15
+        # delta[con.vars, 1] <- sign(delta[con.vars, 1]) * 15 * k[con.vars, iter]
         constrained <- TRUE
         checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
         constraintsUsed <- TRUE
@@ -532,7 +541,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
         # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
         con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.bws, bound.bws)))
         noncon <- setdiff(1:nrow(delta), con)
-        if (length(noncon) > 0) {
+        if (length(setdiff(noncon, which(isFixed == 1))) > 0) {
           nConstrained <- length(con)
           AIuu <- AI[noncon, noncon, drop = FALSE]
           uuisFixed <- isFixed[noncon]
