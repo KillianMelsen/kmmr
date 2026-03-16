@@ -1,21 +1,30 @@
 #' formCormatChol
 #'
 #' @param struc Character indicating which correlation structure must be formed from the parameters.
+#' @param p Numeric indicating the number of levels of this factor.
 #' @param params Numeric vector containing the parameters needed to form the correlation matrix.
 #' @param base Optional argument containing a numeric matrix to be used in forming the correlation matrix (distance matrix for Gaussian kernel, correlation matrix or kinship for linear kernel).
 #'
 #' @returns A list containing the formed correlation matrix as well as its upper triangular Cholesky decomposition.
 #' @keywords internal
-formCormatChol <- function(struc, params = NULL, base = NULL) {
+formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL) {
   if (struc == "corg") {
-    p <- (1 + sqrt(1 + 8 * length(params))) / 2
+    if (p != (1 + sqrt(1 + 8 * length(params))) / 2) {
+      stop("Number of factor levels and parameters for corg model do not match.")
+    }
     cormat <- diag(p)
     cormat[lower.tri(cormat)] <- params
+    cormat <- cormat + t(cormat) - diag(p)
+  } else if (struc == "cors") {
+    cormat <- diag(p)
+    cormat[lower.tri(cormat)] <- params[1]
     cormat <- cormat + t(cormat) - diag(p)
   } else if (struc == "gk") {
     cormat <- exp(-params[1] * base)
   } else if (struc == "lk") {
     cormat <- base
+  } else if (struc == "id") {
+    cormat <- diag(p)
   }
   cormatChol <- chol(cormat)
   return(list(cormat, cormatChol))
@@ -155,7 +164,10 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
       cormats <- vector("list", n.var) # One correlation matrix for every variable factor.
       logDetvarG <- numeric(n.var)
       for (i in i.var) {
-        result <- formCormatChol(struc = struc[i], params = k[indices[[1 + i]], iter], base = bases[[i]]) # Can we directly form the cholesky factor from the parameters and, if applicable, base matrices?
+        result <- formCormatChol(struc = struc[i], # Can we directly form the cholesky factor from the parameters and, if applicable, base matrices?
+                                 p = u.nlevels[i],
+                                 params = k[indices[[1 + i]], iter],
+                                 base = bases[[i]])
         cormats[[i]] <- result[[1]] # Correlation matrix
         cormatis[[i]] <- result[[2]] # Cholesky factor of correlation matrix
         logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Compute log determinants of all correlation matrices from cholesky factors
@@ -289,7 +301,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
           j <- u.forFactor[i] # Which factor does this correlation or bandwidth belong to?
           cormats1 <- cormats # Making a copy of the correlation matrices so we can replace the matrix of factor j with the indicator matrix or derivative of the GK.
           if (ur.types[i] == "R") {
-            icor <- u.indexCor[i] # This correlation is the icor-th correlation in factor j.
+            icor <- u.indexCor[[i]] # This correlation is the icor-th correlation in factor j.
             B <- matrix(0, u.nlevels[j], u.nlevels[j]) # Making the indicator matrix.
             B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
             B <- B + t(B)

@@ -15,6 +15,38 @@ d$ManEnv <- factor(paste(as.character(d$Man), as.character(d$Env), sep = ":"),
                    levels = c(paste0("R:", levels(d$Env)),
                               paste0("W:", levels(d$Env))))
 
+# corg:cors:lk ====
+ds <- droplevels(d[d$Env %in% c("Bol12", "Cam12", "Kar12"),])
+fit.kmmr <- kmmr(fixed = GY ~ -1 + Man:Env,
+                 random = ~ re(~ corg(Man):cors(Env):lk(Gen, Ki), vars = ~ Man),
+                 residual = ~ units,
+                 data = ds,
+                 tolConvLL = 0.01)
+
+# Checking match with ASReml/cornfruit:
+library(asreml)
+asreml.options(workspace = "5000mb", pworkspace = "5000mb")
+fit.asr <- asreml(fixed = GY ~ -1 + ManEnv,
+                  random = ~ corgh(Man):cor(Env):vm(Gen, Ki),
+                  residual = ~ idv(units),
+                  data = ds)
+
+# cors:lk ====
+ds <- droplevels(ds[ds$Man == "R",])
+fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
+                 random = ~ re(~ cors(Env):lk(Gen, Ki), vars = ~ 1),
+                 residual = ~ units,
+                 data = ds,
+                 tolConvLL = 0.01)
+
+# Checking match with ASReml/cornfruit:
+library(asreml)
+asreml.options(workspace = "5000mb", pworkspace = "5000mb")
+fit.asr <- asreml(fixed = GY ~ -1 + Env,
+                  random = ~ corv(Env):vm(Gen, Ki),
+                  residual = ~ idv(units),
+                  data = ds)
+
 # Single variance Gaussian kernel ====
 fit.kmmr <- kmmr(fixed = GY ~ -1 + Man:Env,
                  random = ~ re(~ corg(Man):gk(Env, base = ED):lk(Gen, base = Ki), vars = ~ Man),

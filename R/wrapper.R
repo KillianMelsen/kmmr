@@ -51,7 +51,7 @@ re <- function(formula, vars, ...) {
   nparams <- vapply(results, `[[`, numeric(1), "nparams")
   part <- vapply(results, `[[`, character(1), "part")
   types <- unlist(lapply(results, `[[`, "types"))
-  indexCor <- unlist(lapply(results, `[[`, "indexCor"))
+  indexCor <- unlist(lapply(results, `[[`, "indexCor"), recursive = FALSE)
   forFactor <- unlist(lapply(seq_along(results), function(i) {rep(i, results[[i]]$nparams)}))
   
   if (as.character(vars[2]) == "1") {
@@ -73,7 +73,7 @@ re <- function(formula, vars, ...) {
   types <- c(rep("V", nvars), na.omit(types))
   forFactor <- c(rep(0, nvars), forFactor)
   nparams <- c(nvars, nparams)
-  indexCor <- c(rep(0, nvars), na.omit(indexCor))
+  indexCor <- c(rep(0, nvars), indexCor[!is.na(indexCor)])
   
   indices <- vector("list", 1 + length(calls)) # We will fill this later after we figure out all factor structures.
   index <- 1
@@ -121,6 +121,44 @@ corg <- function(factor) {
               types = rep("R", nparams),
               indexCor = 1:nparams,
               part = "var"))
+}
+
+#' cors
+#'
+#' @param factor Data factor.
+#'
+#' @returns List with all information on this correlation structure.
+#' @keywords internal
+cors <- function(factor) {
+  levels <- levels(factor)
+  p <- length(levels)
+  nparams <- 1
+  return(list(base = NA,
+              levels = levels,
+              nlevels = p,
+              nparams = nparams,
+              types = rep("R", nparams),
+              indexCor = list(1:((p^2 - p) / 2)),
+              part = "var"))
+}
+
+#' id
+#'
+#' @param factor Data factor.
+#'
+#' @returns List with all information on this correlation structure.
+#' @keywords internal
+id <- function(factor) {
+  levels <- levels(factor)
+  p <- length(levels)
+  nparams <- 0
+  return(list(base = diag(p),
+              levels = levels,
+              nlevels = p,
+              nparams = nparams,
+              types = NA,
+              indexCor = NA,
+              part = "nvar"))
 }
 
 #' gk

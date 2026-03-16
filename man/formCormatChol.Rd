@@ -4,10 +4,12 @@
 \alias{formCormatChol}
 \title{formCormatChol}
 \usage{
-formCormatChol(struc, params = NULL, base = NULL)
+formCormatChol(struc, p = NULL, params = NULL, base = NULL)
 }
 \arguments{
 \item{struc}{Character indicating which correlation structure must be formed from the parameters.}
+
+\item{p}{Numeric indicating the number of levels of this factor.}
 
 \item{params}{Numeric vector containing the parameters needed to form the correlation matrix.}
 
