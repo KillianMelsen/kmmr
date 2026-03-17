@@ -618,6 +618,6 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
       iter <- iter + 1
     }
   }
-  return(list(LL = LL, k = k, AI = AI, scores = scores, b = b, u = u))
+  return(list(LL = LL, k = k, AI = AI, scores = scores, b = b, u = u, isFixed = isFixed))
 }
 

@@ -18,18 +18,22 @@ d$ManEnv <- factor(paste(as.character(d$Man), as.character(d$Env), sep = ":"),
 # corg:cors:lk ====
 ds <- droplevels(d[d$Env %in% c("Bol12", "Cam12", "Kar12"),])
 fit.kmmr <- kmmr(fixed = GY ~ -1 + Man:Env,
-                 random = ~ re(~ corg(Man):cors(Env):lk(Gen, Ki), vars = ~ Man),
+                 random = ~ re(~ corg(Man):corg(Env):lk(Gen, Ki), vars = ~ Man),
                  residual = ~ units,
                  data = ds,
                  tolConvLL = 0.01)
+summary(fit.kmmr)
+# summary(fit.kmmr)$varcomp
+# summary(fit.kmmr)$logLik
 
 # Checking match with ASReml/cornfruit:
 library(asreml)
 asreml.options(workspace = "5000mb", pworkspace = "5000mb")
 fit.asr <- asreml(fixed = GY ~ -1 + ManEnv,
-                  random = ~ corgh(Man):cor(Env):vm(Gen, Ki),
+                  random = ~ corgh(Man):corg(Env):vm(Gen, Ki),
                   residual = ~ idv(units),
                   data = ds)
+summary(fit.asr)$varcomp
 
 # cors:lk ====
 ds <- droplevels(ds[ds$Man == "R",])

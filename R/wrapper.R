@@ -89,6 +89,38 @@ re <- function(formula, vars, ...) {
   superfactor <- factor(do.call(paste, c(data[factorNames], sep = ":")), superlevels)
   Z <- sparse.model.matrix(~ -1 + superfactor)
   colnames(Z) <- superlevels
+  params <- character(length(types))
+  
+  # Figure out the labels for the variances:
+  h <- 1
+  if (applyvars[1] == 0) {
+    params[1] <- "vars{1}"
+    h <- h + 1
+  } else {
+    labels <- do.call(paste, c(rev(expand.grid(rev(levels[applyvars]))), sep = ":"))
+    p <- length(labels)
+    params[1:p] <- sprintf("vars{%s-%s}", paste(factorNames[applyvars], collapse = ":"), labels)
+    h <- h + p
+  }
+  
+  # Figure out the labels for the other factors/structures:
+  for (i in 1:length(factorNames)) {
+    if (nparams[i + 1] > 0) { # + 1 because we can skip the variances
+      p <- nparams[i + 1]
+      structure <- struc[i]
+      if (structure == "corg") {
+        labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
+        params[h:(h - 1 + p)] <- sprintf("corg{%s-%s}", factorNames[i], labels)
+        h <- h + p
+      } else if (structure == "cors") {
+        params[h] <- sprintf("cors{%s}", factorNames[i])
+        h <- h + 1
+      } else if (structure == "gk") {
+        params[h] <- sprintf("bw{%s}", factorNames[i])
+        h <- h + 1
+      }
+    }
+  }
   
   return(list(Z = Z,
               indices = indices,
@@ -101,7 +133,8 @@ re <- function(formula, vars, ...) {
               struc = struc,
               nparams = sum(nparams),
               i.var = i.var,
-              i.nvar = i.nvar))
+              i.nvar = i.nvar,
+              params = params))
 }
 
 #' corg
@@ -286,7 +319,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   nU <- length(res)
   
   # Lists to store all specifications:
-  Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <- u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar <- vector("list", nU)
+  Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <- u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar  <- vector("list", nU)
+  params <- vector("list", nU + 1)
   i <- 1
   for (i in 1:nU) {
     expr <- parse(text = res[i])[[1]]
@@ -304,6 +338,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     u.nparams[[i]] <- spec$nparams
     i.var[[i]] <- spec$i.var
     i.nvar[[i]] <- spec$i.nvar
+    params[[i]] <- sprintf("re%s(%s)", i, spec$params)
   }
   
   # Shifting indices if there are multiple random effects so we can use a single big vector k:
@@ -318,6 +353,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   S <- vector("list", nR)
   S[[1]] <- sparse.model.matrix(~ -1 + Units, data)
   ur.types <- c(unlist(u.types), "V") # This assumes just a single residual variance.
+  params[[nU + 1]] <- "residual(vars{units})"
   
   # Response matrix:
   y <- matrix(data[[response]])
@@ -356,6 +392,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                        ur.types = ur.types, u.nlevels = u.nlevels, u.forFactor = u.forFactor,
                        u.indexCor = u.indexCor, bases = bases, struc = struc, i.var = i.var,
                        i.nvar = i.nvar, isFixed = isFixed)
+  result$params <- unlist(params)
+  class(result) <- "kmmrFit"
   return(result)
 }
 
