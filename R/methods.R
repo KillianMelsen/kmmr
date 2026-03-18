@@ -1,11 +1,12 @@
 #' summary.kmmrFit
 #'
 #' @param object kmmrFit object.
+#' @param round Number of decimals to be printed for parameter estimates and SEs.
 #' @param ... Extra arguments.
 #' 
 #' @keywords internal
 #' @export
-summary.kmmrFit <- function(object, ...) {
+summary.kmmrFit <- function(object, round = 5, ...) {
   estimates <- object$k[, ncol(object$k)]
   ses <- rep(NA, length(estimates))
   ses[which(object$isFixed == 0)] <- sqrt(diag(solve(object$AI[which(object$isFixed == 0), which(object$isFixed == 0)])))
@@ -16,6 +17,7 @@ summary.kmmrFit <- function(object, ...) {
                                           Estimate = estimates,
                                           SE = ses,
                                           Fixed = fixed))
+  attr(outputData, "round") <- round
   class(outputData) <- c("summary.kmmrFit", "list")
   return(outputData)
   # output <- apply(outputData, 1, function(row) {
@@ -46,11 +48,12 @@ summary.kmmrFit <- function(object, ...) {
 print.summary.kmmrFit <- function(x, ...) {
   # Is bold text possible?
   ansi <- interactive() && !is.null(Sys.getenv("TERM"))
+  round <- attr(x, "round")
   
   # Formatting parameter estimates, SEs, etc.
   max_len <- max(nchar(x$varcomp$Parameter))
   output <- apply(x$varcomp, 1, function(row) {
-    sprintf(gettextf("%%-%ds %%-12.8f %%-12.8f %%-8s", max_len + 5),
+    sprintf(gettextf("%%-%ds %%-12.%df %%-12.%df %%-8s", max_len + 5, round, round),
             row["Parameter"],
             as.numeric(row["Estimate"]),
             as.numeric(row["SE"]),

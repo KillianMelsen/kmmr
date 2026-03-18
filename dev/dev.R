@@ -21,8 +21,9 @@ fit.kmmr <- kmmr(fixed = GY ~ -1 + Man:Env,
                  random = ~ re(~ corg(Man):corg(Env):lk(Gen, Ki), vars = ~ Man),
                  residual = ~ units,
                  data = ds,
-                 tolConvLL = 0.01)
-summary(fit.kmmr)
+                 tolConvLL = 0.0001)
+
+summary(fit.kmmr, round = 3)
 # summary(fit.kmmr)$varcomp
 # summary(fit.kmmr)$logLik
 

@@ -588,15 +588,20 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     duration <- as.numeric(stop - start, units = "secs")
     duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
     if (iter == 1) {
-      cat(sprintf("%9s %15s %20s \n", "Iteration", "LogLik", "Duration (hh:mm:ss)"))
+      ansi <- interactive() && !is.null(Sys.getenv("TERM"))
+      if (ansi) {
+        cat("\033[1m", sprintf("%-11s %-15s %-20s", "Iteration", "LogLik", "Duration (hh:mm:ss)"), "\033[0m", "\n", sep = "")
+      } else {
+        cat(sprintf("%-11s %-15s %-20s \n", "Iteration", "LogLik", "Duration (hh:mm:ss)"))
+      }
     }
     if (constraintsUsed) {
       msg <- paste0("(", paste(c(
         if (constraintsUsed) sprintf("%d constrained", nConstrained)
       ), collapse = " and "), ")")
-      cat(sprintf("%9d %15.3f %20s %5s %-s\n", iter, LL[iter], duration, "", msg))
+      cat(sprintf("%-11d %-15.3f %-20s %-5s %-s\n", iter, LL[iter], duration, "", msg), sep = "")
     } else {
-      cat(sprintf("%9d %15.3f %20s\n", iter, LL[iter], duration))
+      cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
     }
     #toc(log = T)
     
@@ -618,6 +623,6 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
       iter <- iter + 1
     }
   }
-  return(list(LL = LL, k = k, AI = AI, scores = scores, b = b, u = u, isFixed = isFixed))
+  return(list(LL = LL, k = k, AI = AI, scores = scores, b = b, u = u, isFixed = isFixed, converged = converged))
 }
 

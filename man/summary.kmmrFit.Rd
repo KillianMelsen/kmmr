@@ -4,10 +4,12 @@
 \alias{summary.kmmrFit}
 \title{summary.kmmrFit}
 \usage{
-\method{summary}{kmmrFit}(object, ...)
+\method{summary}{kmmrFit}(object, round = 5, ...)
 }
 \arguments{
 \item{object}{kmmrFit object.}
+
+\item{round}{Number of decimals to be printed for parameter estimates and SEs.}
 
 \item{...}{Extra arguments.}
 }
