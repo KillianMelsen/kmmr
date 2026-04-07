@@ -315,7 +315,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   X <- sparse.model.matrix(revInteractions(fixed), data)
   
   # Random effects:
-  res <- strsplit(as.character(random[2]), "[+]")[[1]]
+  res <- strsplit(as.character(random[2]), "\\s*\\+\\s*")[[1]]
   nU <- length(res)
   
   # Lists to store all specifications:
@@ -386,6 +386,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   }
   
   # Fitting:
+  browser()
   result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, H = H, useH = useH,
                        maxit = maxit, stepsize = stepsize, verbose = verbose,
                        tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,

@@ -79,44 +79,59 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
   intercept <- sum(X[, 1]) == nrow(X) # Is there an intercept?
   
   # Assume for now we have just one random and residual effect:
-  Z <- Z[[1]]
-  S <- S[[1]]
-  indices <- indices[[1]]
-  u.applyvars <- u.applyvars[[1]]
+  # Z <- Z[[1]]
+  # S <- S[[1]]
+  # indices <- indices[[1]]
+  # u.applyvars <- u.applyvars[[1]]
   # ur.types <- ur.types[[1]] # Already unlisted
-  u.nlevels <- u.nlevels[[1]]
-  u.forFactor <- u.forFactor[[1]]
-  u.indexCor <- u.indexCor[[1]]
-  bases <- bases[[1]]
-  struc <- struc[[1]]
-  i.var <- i.var[[1]]
-  i.nvar <- i.nvar[[1]]
+  # u.nlevels <- u.nlevels[[1]]
+  # u.forFactor <- u.forFactor[[1]]
+  # u.indexCor <- u.indexCor[[1]]
+  # bases <- bases[[1]]
+  # struc <- struc[[1]]
+  # i.var <- i.var[[1]]
+  # i.nvar <- i.nvar[[1]]
   # isFixed <- isFixed[[1]] # Already unlisted
   
   ## Computing determinants of matrices associated with non-variable terms before iterating ====
-  n.var <- length(i.var) # How many variable factors are there?
-  n.nvar <- length(i.nvar) # How many non-variable factors are there?
+  n.var <- numeric(nU)
+  n.nvar <- numeric(nU)
+  dim.var <- numeric(nU)
+  dim.nvar <- numeric(nU)
+  for (re in 1:nU) { # Start loop over random effects
+    n.var[re] <- length(i.var[[re]]) # How many variable factors are there?
+    n.nvar[re] <- length(i.nvar[[re]]) # How many non-variable factors are there?
+    dim.var <- prod(u.nlevels[[re]][i.var[[re]]])
+    dim.nvar <- prod(u.nlevels[[re]][i.nvar[[re]]])
+  } # End loop over random effects
   
-  if (n.nvar > 0) { # All of this can only be done if there are non-variable factors (such as a kinship/linear kernel for genotypes).
-    logDetnvarG <- numeric(n.nvar) # A log determinant for each non-variable base matrix (linear kernel).
-    for (i in i.nvar) {
-      logDetnvarG[i - n.var] <- -1 * sum(log(eigen(bases[[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices?
-    }
-    
-    # If the non-variable part of G consists of more than 1 factor we need to compute the total log determinant:
-    if (n.nvar > 1) {
-      u.levels.nvar <- u.nlevels[i.nvar]
-      logDetnvarGtotal <- 0
-      for (i in 1:n.nvar) {
-        logDetnvarGtotal <- logDetnvarGtotal + logDetnvarG[i] * prod(u.levels.nvar[-i])
+  nvarGi <- vector("list", nU)
+  logDetnvarGtotal <- numeric(nU)
+  for (re in 1:nU) { # Start loop over random effects
+    # n.var[re] <- length(i.var[[re]]) # How many variable factors are there?
+    # n.nvar[re] <- length(i.nvar[[re]]) # How many non-variable factors are there?
+    if (n.nvar[re] > 0) { # All of this can only be done if there are non-variable factors (such as a kinship/linear kernel for genotypes).
+      logDetnvarG <- numeric(n.nvar[re]) # A log determinant for each non-variable base matrix (linear kernel).
+      for (i in i.nvar[[re]]) {
+        logDetnvarG[i - n.var] <- -1 * sum(log(eigen(bases[[re]][[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices?
       }
-    } else {
-      logDetnvarGtotal <- logDetnvarG
+      
+      # If the non-variable part of G consists of more than 1 factor we need to compute the total log determinant:
+      if (n.nvar[re] > 1) {
+        # u.levels.nvar <- u.nlevels[[re]][i.nvar[[re]]]
+        logDetnvarGtotal[re] <- 0
+        for (i in 1:n.nvar[re]) {
+          # logDetnvarGtotal[re] <- logDetnvarGtotal[re] + logDetnvarG[i] * prod(u.levels.nvar[-i])
+          logDetnvarGtotal[re] <- logDetnvarGtotal[re] + logDetnvarG[i] * (dim.nvar / u.levels.nvar[i])
+        }
+      } else {
+        logDetnvarGtotal[re] <- logDetnvarG
+      }
+      
+      # Form the non-variable part of Gi using kronecker products before iterating if it exists:
+      nvarGi[[re]] <- Reduce(kronecker, bases[[re]][i.nvar[[re]]])
     }
-    
-    # Form the non-variable part of Gi using kronecker products before iterating if it exists:
-    nvarGi <- Reduce(kronecker, bases[i.nvar])
-  }
+  } # End loop over random effects
   
   ## Start iterating ====
   LL <- numeric(maxit + 1)
@@ -137,8 +152,8 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     #tic("Forming Wy and M = t(Wy) %*% Ri %*% Wy")
     if (iter == 1) {
       W <- X
-      for (i in 1:nU) {
-        W <- cbind(W, Z)
+      for (re in 1:nU) {
+        W <- cbind(W, Z[[re]])
       }
       Wy <- cbind(W, y)
     }
@@ -155,75 +170,83 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     #toc(log = T)
     
     ### Adding Gi to M ====
-    # Computing Gi every iteration:
     #tic("Computing Gi")
-    # Always the outer product of standard deviations first:
-    vars <- outer(sqrt(k[indices[[1]], iter]), sqrt(k[indices[[1]], iter]))
-    if (n.var > 0) { # Only form the correlation matrices for variable factors if there are variable factors.
-      cormatis <- vector("list", n.var) # One inverse correlation matrix for every variable factor.
-      cormats <- vector("list", n.var) # One correlation matrix for every variable factor.
-      logDetvarG <- numeric(n.var)
-      for (i in i.var) {
-        result <- formCormatChol(struc = struc[i], # Can we directly form the cholesky factor from the parameters and, if applicable, base matrices?
-                                 p = u.nlevels[i],
-                                 params = k[indices[[1 + i]], iter],
-                                 base = bases[[i]])
-        cormats[[i]] <- result[[1]] # Correlation matrix
-        cormatis[[i]] <- result[[2]] # Cholesky factor of correlation matrix
-        logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Compute log determinants of all correlation matrices from cholesky factors
-        cormatis[[i]] <- chol2inv(cormatis[[i]]) # Invert each correlation matrix using cholesky factor.
-      }
-      if (u.applyvars[1] == 0) { # If there is just a single variance.
-        sigmai <- (1 / as.numeric(vars)) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
-        # Form the log determinant of sigma:
-        u.nlevels.var <- u.nlevels[i.var]
-        if (n.var > 1) {
-          logDetvarGtotal <- 0
-          for (i in i.var) {
-            logDetvarGtotal <- logDetvarGtotal + logDetvarG[i] * prod(u.nlevels.var[-i])
+    # cormatis <- vector("list", nU)
+    cormats <- vector("list", nU)
+    sigmai <- vector("list", nU)
+    logDetvarGtotal <- numeric(nU)
+    M.start <- nX + 1
+    for (re in 1:nU) { # Start loop over random effects
+      # Computing Gi every iteration:
+      # Always the outer product of standard deviations first:
+      vars <- outer(sqrt(k[indices[[re]][[1]], iter]), sqrt(k[indices[[re]][[1]], iter]))
+      if (n.var[re] > 0) { # Only form the correlation matrices for variable factors if there are variable factors.
+        cormatis <- vector("list", n.var[re]) # One inverse correlation matrix for every variable factor.
+        cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
+        logDetvarG <- numeric(n.var[re])
+        for (i in i.var[[re]]) {
+          result <- formCormatChol(struc = struc[[re]][i], # Can we directly form the cholesky factor from the parameters and, if applicable, base matrices?
+                                   p = u.nlevels[[re]][i],
+                                   params = k[indices[[re]][[1 + i]], iter],
+                                   base = bases[[re]][[i]])
+          cormats[[re]][[i]] <- result[[1]] # Correlation matrix
+          cormatis[[i]] <- result[[2]] # Cholesky factor of correlation matrix
+          logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Compute log determinants of all correlation matrices from cholesky factors
+          cormatis[[i]] <- chol2inv(cormatis[[i]]) # Invert each correlation matrix using cholesky factor.
+        }
+        if (u.applyvars[[re]][1] == 0) { # If there is just a single variance.
+          sigmai[[re]] <- (1 / as.numeric(vars)) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
+          # Form the log determinant of sigma:
+          u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
+          if (n.var[re] > 1) {
+            logDetvarGtotal[re] <- 0
+            for (i in i.var[[re]]) {
+              logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+            }
+          } else {
+            logDetvarGtotal[re] <- logDetvarG
           }
-        } else {
-          logDetvarGtotal <- logDetvarG
+          logDetvarGtotal[re] <- prod(u.nlevels.var) * log(as.numeric(vars)) + logDetvarGtotal[re]
+        } else if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
+          sigmai[[re]] <- (1 / vars) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
+          # Form the log determinant of sigma:
+          u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
+          logDetvarGtotal[re] <- sum(log(diag(vars)))
+          for (i in i.var[[re]]) {
+            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+          }
+        } else { # If variances are applied to 1 or more factors, but not all factors.
+          sigmai[[re]] <- kronecker((1 / vars) * Reduce(kronecker, cormatis[u.applyvars[[re]]]), Reduce(kronecker, cormatis[-u.applyvars[[re]]])) # Form the inverse covariance matrix.
+          # Form the log determinant of sigma:
+          # First form the log determinant of the part with variances:
+          u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
+          u.nlevels.applyvar <- u.nlevels[[re]][u.applyvars[[re]]]
+          u.nlevels.napplyvar <- u.nlevels.var[-u.applyvars[[re]]]
+          logDetvarGtotal[re] <- sum(log(diag(vars)))
+          for (i in u.applyvars[[re]]) {
+            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.applyvar[-i]) # prod(numeric(0)) = 1
+          }
+          logDetvarGtotal[re] <- logDetvarGtotal[re] * prod(u.nlevels.napplyvar)
+          # Now we can form the full log determinant:
+          for (i in i.var[[re]][-u.applyvars[[re]]]) {
+            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+          }
         }
-        logDetvarGtotal <- prod(u.nlevels.var) * log(as.numeric(vars)) + logDetvarGtotal
-      } else if (all(u.applyvars == i.var)) { # If variances are applied to all variable factors.
-        sigmai <- (1 / vars) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
-        # Form the log determinant of sigma:
-        u.nlevels.var <- u.nlevels[i.var]
-        logDetvarGtotal <- sum(log(diag(vars)))
-        for (i in i.var) {
-          logDetvarGtotal <- logDetvarGtotal + logDetvarG[i] * prod(u.nlevels.var[-i])
-        }
-      } else { # If variances are applied to 1 or more factors, but not all factors.
-        sigmai <- kronecker((1 / vars) * Reduce(kronecker, cormatis[u.applyvars]), Reduce(kronecker, cormatis[-u.applyvars])) # Form the inverse covariance matrix.
-        # Form the log determinant of sigma:
-        # First form the log determinant of the part with variances:
-        u.nlevels.var <- u.nlevels[i.var]
-        u.nlevels.applyvar <- u.nlevels[u.applyvars]
-        u.nlevels.napplyvar <- u.nlevels.var[-u.applyvars]
-        logDetvarGtotal <- sum(log(diag(vars)))
-        for (i in u.applyvars) {
-          logDetvarGtotal <- logDetvarGtotal + logDetvarG[i] * prod(u.nlevels.applyvar[-i]) # prod(numeric(0)) = 1
-        }
-        logDetvarGtotal <- logDetvarGtotal * prod(u.nlevels.var[-u.applyvars])
-        # No we can form the full log determinant:
-        for (i in i.var[-u.applyvars]) {
-          logDetvarGtotal <- logDetvarGtotal + logDetvarG[i] * prod(u.nlevels.var[-i])
-        }
+      } else { # if there are no variable factors.
+        sigmai[[re]] <- 1 / vars
+        logDetvarGtotal[re] <- -1 * as.numeric(log(sigmai[[re]]))
       }
-    } else { # if there are no variable factors.
-      sigmai <- 1 / vars
-      logDetvarGtotal <- -1 * as.numeric(log(sigmai))
-    }
-    if (n.nvar > 0) {
-      Gi <- kronecker(sigmai, nvarGi) # This is a bit slow as well.
-    } else {
-      Gi <- sigmai
-    }
-    
-    # Now add to M:
-    dimGi <- prod(u.nlevels)
-    M[(nX + 1):(nX + dimGi), (nX + 1):(nX + dimGi)] <- M[(nX + 1):(nX + dimGi), (nX + 1):(nX + dimGi)] + Gi # This one is also slow
+      if (n.nvar[re] > 0) {
+        Gi <- kronecker(sigmai[[re]], nvarGi[[re]]) # This is a bit slow as well.
+      } else {
+        Gi <- sigmai[[re]]
+      }
+      
+      # Now add to M:
+      dimGi <- prod(u.nlevels[[re]])
+      M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] <- M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] + Gi # This one is also slow
+      M.start <- M.start + dimGi
+    } # End loop over random effects.
     #toc(log = T)
     
     ### Cholesky decomposition of M ====
@@ -232,7 +255,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     #toc(log = T)
     yPy <- Mchol[nrow(Mchol), ncol(Mchol)]^2
     Mchol_XZ <- Mchol[1:(nrow(Mchol) - 1), 1:(ncol(Mchol) - 1)]
-    My <- Mchol[1:(nrow(Mchol) - 1), ncol(Mchol):ncol(Mchol), drop = FALSE]
+    My <- Mchol[1:(nrow(Mchol) - 1), ncol(Mchol), drop = FALSE]
     
     ### Computing the log-likelihood ====
     #tic("Computing log-likelihood")
@@ -240,8 +263,12 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     logDetC <- 2 * sum(log(diag(Mchol_XZ)))
     
     # Computing logDetG:
-    dim.var <- prod(u.nlevels[i.var])
-    dim.nvar <- prod(u.nlevels[i.nvar])
+    logDetG <- 0
+    for (re in 1:nU) { # Start loop over random effects
+      
+    } # End loop over random effects
+    dim.var <- prod(u.nlevels[[re]][i.var[[re]]])
+    dim.nvar <- prod(u.nlevels[[re]][i.nvar[[re]]])
     if (n.nvar > 0) {
       logDetG <- dim.nvar * logDetvarGtotal + dim.var * logDetnvarGtotal
     } else {
