@@ -27,18 +27,18 @@ combis <- c(paste(levels(ds$Env)[1], levels(ds$Gen), sep = ":"),
 ds$EnvGen <- factor(combis, combis, combis)
 
 # fit <- asreml(fixed = GY ~ 1,
-#               random = ~ idv(Man):vm(Gen, Ki) + idv(Env):vm(Gen, Ki),
+#               random = ~ corgv(Man):vm(Gen, Ki) + idv(Env):vm(Gen, Ki),
 #               residual = ~ idv(units),
 #               data = ds, maxit = 25)
 # 
 # summary(fit)$varcomp
 # fit$trace
-
+# Debug this, everything seems fine except the SE of the correlation. Checked stuff up to and incl. the first WV:
 fit.kmmr <- kmmr(fixed = GY ~ 1,
-                 random = ~ re(~ id(Man):lk(Gen, Ki), vars = ~ 1) + re(~ id(Env):lk(Gen, Ki), vars = ~ 1),
+                 random = ~ re(~ corg(Man):lk(Gen, Ki), vars = ~ 1) + re(~ id(Env):lk(Gen, Ki), vars = ~ 1),
                  residual = ~ units,
                  data = ds,
-                 maxit = 25)
+                 maxit = 25, init = c(0.2, 0.5, 0.5, 0.5))
 
 
 

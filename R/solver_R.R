@@ -64,7 +64,7 @@ formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL) {
 #' @importFrom methods as
 #' @importFrom Matrix nearPD
 solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolConvLL,
-                       indices, u.applyvars, ur.types, u.nlevels, u.forFactor, u.indexCor,
+                       indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                        bases, struc, i.var, i.nvar, isFixed) {
   ## Prelims ====
   k <- matrix(NA, length(init), maxit + 1) # Matrix of parameter estimates.
@@ -80,7 +80,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
   
   # Assume for now we have just one random and residual effect:
   # Z <- Z[[1]]
-  # S <- S[[1]]
+  S <- S[[1]]
   # indices <- indices[[1]]
   # u.applyvars <- u.applyvars[[1]]
   # ur.types <- ur.types[[1]] # Already unlisted
@@ -98,11 +98,15 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
   n.nvar <- numeric(nU)
   dim.var <- numeric(nU)
   dim.nvar <- numeric(nU)
+  u.nlevels.var <- vector("list", nU) 
+  u.nlevels.nvar <- vector("list", nU) 
   for (re in 1:nU) { # Start loop over random effects
     n.var[re] <- length(i.var[[re]]) # How many variable factors are there?
     n.nvar[re] <- length(i.nvar[[re]]) # How many non-variable factors are there?
-    dim.var <- prod(u.nlevels[[re]][i.var[[re]]])
-    dim.nvar <- prod(u.nlevels[[re]][i.nvar[[re]]])
+    u.nlevels.var[[re]] <- u.nlevels[[re]][i.var[[re]]] # Vector of levels for each variable factor for each random effect.
+    u.nlevels.nvar[[re]] <- u.nlevels[[re]][i.nvar[[re]]] # Vector of levels for each non-variable factor for each random effect.
+    dim.var[re] <- prod(u.nlevels.var[[re]]) # Total dimension of the variable part of each random effect.
+    dim.nvar[re] <- prod(u.nlevels.nvar[[re]]) # Total dimension of the non-variable part of each random effect.
   } # End loop over random effects
   
   nvarGi <- vector("list", nU)
@@ -113,7 +117,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     if (n.nvar[re] > 0) { # All of this can only be done if there are non-variable factors (such as a kinship/linear kernel for genotypes).
       logDetnvarG <- numeric(n.nvar[re]) # A log determinant for each non-variable base matrix (linear kernel).
       for (i in i.nvar[[re]]) {
-        logDetnvarG[i - n.var] <- -1 * sum(log(eigen(bases[[re]][[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices?
+        logDetnvarG[i - n.var[re]] <- -1 * sum(log(eigen(bases[[re]][[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices?
       }
       
       # If the non-variable part of G consists of more than 1 factor we need to compute the total log determinant:
@@ -122,7 +126,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
         logDetnvarGtotal[re] <- 0
         for (i in 1:n.nvar[re]) {
           # logDetnvarGtotal[re] <- logDetnvarGtotal[re] + logDetnvarG[i] * prod(u.levels.nvar[-i])
-          logDetnvarGtotal[re] <- logDetnvarGtotal[re] + logDetnvarG[i] * (dim.nvar / u.levels.nvar[i])
+          logDetnvarGtotal[re] <- logDetnvarGtotal[re] + logDetnvarG[i] * (dim.nvar[re] / u.nlevels.nvar[[re]][i])
         }
       } else {
         logDetnvarGtotal[re] <- logDetnvarG
@@ -197,31 +201,34 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
         if (u.applyvars[[re]][1] == 0) { # If there is just a single variance.
           sigmai[[re]] <- (1 / as.numeric(vars)) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
           # Form the log determinant of sigma:
-          u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
+          # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
           if (n.var[re] > 1) {
             logDetvarGtotal[re] <- 0
             for (i in i.var[[re]]) {
-              logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+              # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+              logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
             }
           } else {
             logDetvarGtotal[re] <- logDetvarG
           }
-          logDetvarGtotal[re] <- prod(u.nlevels.var) * log(as.numeric(vars)) + logDetvarGtotal[re]
+          # logDetvarGtotal[re] <- prod(u.nlevels.var) * log(as.numeric(vars)) + logDetvarGtotal[re]
+          logDetvarGtotal[re] <- dim.var[re] * log(as.numeric(vars)) + logDetvarGtotal[re]
         } else if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
           sigmai[[re]] <- (1 / vars) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
           # Form the log determinant of sigma:
-          u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
+          # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
           logDetvarGtotal[re] <- sum(log(diag(vars)))
           for (i in i.var[[re]]) {
-            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+            # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
           }
         } else { # If variances are applied to 1 or more factors, but not all factors.
           sigmai[[re]] <- kronecker((1 / vars) * Reduce(kronecker, cormatis[u.applyvars[[re]]]), Reduce(kronecker, cormatis[-u.applyvars[[re]]])) # Form the inverse covariance matrix.
           # Form the log determinant of sigma:
           # First form the log determinant of the part with variances:
-          u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
-          u.nlevels.applyvar <- u.nlevels[[re]][u.applyvars[[re]]]
-          u.nlevels.napplyvar <- u.nlevels.var[-u.applyvars[[re]]]
+          # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
+          u.nlevels.applyvar <- u.nlevels[[re]][u.applyvars[[re]]] # Numbers of levels for (variable, obviously) factors that have variances applied to them
+          u.nlevels.napplyvar <- u.nlevels.var[[re]][-u.applyvars[[re]]] # Number of levels for variable factors that do not have variances applied to them
           logDetvarGtotal[re] <- sum(log(diag(vars)))
           for (i in u.applyvars[[re]]) {
             logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.applyvar[-i]) # prod(numeric(0)) = 1
@@ -229,7 +236,8 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
           logDetvarGtotal[re] <- logDetvarGtotal[re] * prod(u.nlevels.napplyvar)
           # Now we can form the full log determinant:
           for (i in i.var[[re]][-u.applyvars[[re]]]) {
-            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+            # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
           }
         }
       } else { # if there are no variable factors.
@@ -265,15 +273,14 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     # Computing logDetG:
     logDetG <- 0
     for (re in 1:nU) { # Start loop over random effects
-      
+      # dim.var <- prod(u.nlevels[[re]][i.var[[re]]])
+      # dim.nvar <- prod(u.nlevels[[re]][i.nvar[[re]]])
+      if (n.nvar[re] > 0) {
+        logDetG <- logDetG + dim.nvar[re] * logDetvarGtotal[re] + dim.var[re] * logDetnvarGtotal[re]
+      } else {
+        logDetG <- logDetG + dim.nvar[re] * logDetvarGtotal[re]
+      }
     } # End loop over random effects
-    dim.var <- prod(u.nlevels[[re]][i.var[[re]]])
-    dim.nvar <- prod(u.nlevels[[re]][i.nvar[[re]]])
-    if (n.nvar > 0) {
-      logDetG <- dim.nvar * logDetvarGtotal + dim.var * logDetnvarGtotal
-    } else {
-      logDetG <- dim.nvar * logDetvarGtotal
-    }
     
     # Computing logDetR:
     if (useH) {
@@ -296,57 +303,68 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     ### Working variates ====
     #### Genetic working variates ====
     #tic("Genetic working variates")
-    Wu <- matrix(NA, n, nrow(k))
-    if (n.nvar > 0) {
-      umat <- matrix(u, nrow = dim.nvar, ncol = dim.var)
-    } else {
-      umat <- matrix(u, nrow = 1, ncol = dim.var)
-    }
-    umat_sigmai <- umat %*% sigmai
-    derivs <- vector("list", nrow(k) - 1)
-    for (i in 1:(nrow(k) - 1)) { # Assuming a single residual variance for now.
-      if (isFixed[i] == 1) {
-        Wu[, i] <- 0
+    Wu <- matrix(NA, n, nrow(k)) # Matrix for the working variates.
+    umat_sigmai <- vector("list", nU) # We will store these matrices for computing the scores later.
+    derivs <- vector("list", nU) # Same thing for all derivatives.
+    u.start <- 1
+    param <- 1 # Keeping track of which column/parameter of Wu we are working on.
+    for (re in 1:nU) { # Start of loop over random effects
+      dim.total <- dim.var[re] * dim.nvar[re]
+      if (n.nvar[re] > 0) {
+        umat <- matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = dim.nvar[re], ncol = dim.var[re])
       } else {
-        if (ur.types[i] == "V") {
-          if (u.applyvars[1] == 0) { # If there is only a single variance.
-            if (n.var > 0) {
-              derivs[[i]] <- Reduce(kronecker, cormats)
-            } else {
-              derivs[[i]] <- matrix(1)
-            }
-          } else { # If variances are applied to 1 or more factors.
-            A <- matrix(0, prod(u.nlevels[u.applyvars]), prod(u.nlevels[u.applyvars]))
-            A[i,] <- 0.5
-            if (all(u.applyvars == i.var)) { # If variances are applied to all variable factors.
-              derivs[[i]] <- (A + t(A)) * vars * Reduce(kronecker, cormats) / k[i, iter]
-            } else { # If variances are applied to 1 or more factors, but not all factors.
-              derivs[[i]] <- kronecker((A + t(A)) * vars * Reduce(kronecker, cormats[u.applyvars]) / k[i, iter], Reduce(kronecker, cormats[-u.applyvars]))
-            }
-          }
-        } else if (ur.types[i] %in% c("R", "B")) {
-          j <- u.forFactor[i] # Which factor does this correlation or bandwidth belong to?
-          cormats1 <- cormats # Making a copy of the correlation matrices so we can replace the matrix of factor j with the indicator matrix or derivative of the GK.
-          if (ur.types[i] == "R") {
-            icor <- u.indexCor[[i]] # This correlation is the icor-th correlation in factor j.
-            B <- matrix(0, u.nlevels[j], u.nlevels[j]) # Making the indicator matrix.
-            B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
-            B <- B + t(B)
-            cormats1[[j]] <- B # Replacing with the indicator matrix.
-          } else if (ur.types[i] == "B") {
-            cormats1[[j]] <- -1 * bases[[j]] * cormats1[[j]] # d/dh exp(-h * D) = -D * exp(-h * D)
-          }
-          if (u.applyvars[1] == 0) {
-            derivs[[i]] <- as.numeric(vars) * Reduce(kronecker, cormats1)
-          } else if (all(u.applyvars == i.var)) {
-            derivs[[i]] <- vars * Reduce(kronecker, cormats1)
-          } else {
-            derivs[[i]] <- kronecker(vars * Reduce(kronecker, cormats1[u.applyvars]), Reduce(kronecker, cormats1[-u.applyvars]))
-          }
-        }
-        Wu[, i] <- as.matrix(Z %*% matrix(umat_sigmai %*% derivs[[i]]))
+        umat <- matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = 1, ncol = dim.var[re])
       }
-    }
+      u.start <- u.start + dim.total
+      umat_sigmai[[re]] <- umat %*% sigmai[[re]]
+      derivs[[re]] <- vector("list", u.nparams[[re]])
+      
+      for (i in 1:u.nparams[[re]]) {
+        if (isFixed[param] == 1) {
+          Wu[, param] <- 0
+          param <- param + 1
+        } else {
+          if (ur.types[param] == "V") {
+            if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
+              if (n.var[re] > 0) {
+                derivs[[re]][[i]] <- Reduce(kronecker, cormats[[re]])
+              } else {
+                derivs[[re]][[i]] <- matrix(1)
+              }
+            } else { # If variances are applied to 1 or more factors.
+              A <- matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]))
+              A[i,] <- 0.5
+              if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
+                derivs[[re]][[i]] <- (A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter]
+              } else { # If variances are applied to 1 or more factors, but not all factors.
+                derivs[[re]][[i]] <- kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))
+              }
+            }
+          } else if (ur.types[param] %in% c("R", "B")) {
+            j <- u.forFactor[[re]][i] # Which factor does this correlation or bandwidth belong to?
+            cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the indicator matrix or derivative of the GK.
+            if (ur.types[param] == "R") {
+              icor <- u.indexCor[[re]][[i]] # This correlation is the icor-th correlation in factor j.
+              B <- matrix(0, u.nlevels[[re]][j], u.nlevels[[re]][j]) # Making the indicator matrix.
+              B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
+              B <- B + t(B)
+              cormats1[[j]] <- B # Replacing with the indicator matrix.
+            } else if (ur.types[param] == "B") {
+              cormats1[[j]] <- -1 * bases[[re]][[j]] * cormats1[[j]] # d/dh exp(-h * D) = -D * exp(-h * D)
+            }
+            if (u.applyvars[[re]][1] == 0) {
+              derivs[[re]][[i]] <- as.numeric(vars[[re]]) * Reduce(kronecker, cormats1)
+            } else if (all(u.applyvars[[re]] == i.var[[re]])) {
+              derivs[[re]][[i]] <- vars[[re]] * Reduce(kronecker, cormats1)
+            } else {
+              derivs[[re]][[i]] <- kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]]))
+            }
+          }
+          Wu[, param] <- as.matrix(Z[[re]] %*% matrix(umat_sigmai[[re]] %*% derivs[[re]][[i]]))
+          param <- param + 1
+        }
+      }
+    } # End of loop over random effects
     #toc(log = T)
     
     #### Residual working variates ====
@@ -361,7 +379,9 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     
     ### Computing the AI matrix ====
     #tic("Computing the AI matrix and its inverse")
+    # XWjxZWj <- Matrix::t(W) %*% Ri %*% Wu
     XWjxZWj <- Matrix::t(W) %*% Wu * (1 / k[nrow(k), iter])
+    # WiWj <- t(Wu) %*% Ri %*% Wu
     WiWj <- t(Wu) %*% Wu * (1 / k[nrow(k), iter])
     # We are trying to solve C %*% buWu = XWjxZWj
     # We already have R where R^T %*% R = C (cholesky decomposition of C)
@@ -390,39 +410,47 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
     # mixed linear models using average information"
     #### Genetic scores ====
-    if (n.nvar > 0) {
-      traces <- matrix(0, nrow(sigmai), ncol(sigmai))
-      for (i in 1:nrow(sigmai)) {
-        for (j in 1:ncol(sigmai)) {
-          if (j >= i) { # Only do the upper triangle
-            rstart <- (nX + 1 + (i - 1) * dim.nvar)
-            rend <- rstart - 1 + dim.nvar
-            cstart <- (nX + 1 + (j - 1) * dim.nvar)
-            cend <- cstart - 1 + dim.nvar
-            traces[i, j] <- sum(nvarGi * Ci[rstart:rend, cstart:cend])
+    scores <- matrix(0, nrow(k), 1)
+    corner <- nX + 1
+    param <- 1
+    for (re in 1:nU) { # Start of loop over random effects
+      if (n.nvar[re] > 0) {
+        traces <- matrix(0, nrow(sigmai[[re]]), ncol(sigmai[[re]]))
+        
+        for (i in 1:nrow(sigmai[[re]])) {
+          for (j in 1:ncol(sigmai[[re]])) {
+            if (j >= i) { # Only do the upper triangle
+              rstart <- (corner + (i - 1) * dim.nvar[re])
+              rend <- rstart - 1 + dim.nvar[re]
+              cstart <- (corner + (j - 1) * dim.nvar[re])
+              cend <- cstart - 1 + dim.nvar[re]
+              traces[i, j] <- sum(nvarGi[[re]] * Ci[rstart:rend, cstart:cend])
+            }
           }
         }
-      }
-      # traces[lower.tri(traces)] <- traces[upper.tri(traces)] # Copy upper to lower triangle. This becomes non-symmetric?????
-      if (nrow(traces) > 1) {
-        traces <- traces + t(traces) - diag(diag(traces))
-      }
-    } else {
-      traces <- Ci[(nX + 1):nrow(Ci), (nX + 1):ncol(Ci)]
-    }
-    scores <- matrix(0, nrow(k), 1)
-    if (n.nvar > 0) {
-      basisScores <- -0.5 * (dim.nvar * sigmai - sigmai %*% traces %*% sigmai - t(umat_sigmai) %*% nvarGi %*% umat_sigmai) # Last term maybe on the GPU?
-    } else {
-      basisScores <- -0.5 * (sigmai - sigmai %*% traces %*% sigmai - t(umat_sigmai) %*% umat_sigmai) # Last term maybe on the GPU?
-    }
-    for (i in 1:length(derivs)) {
-      if (isFixed[i] == 1) {
-        scores[i, 1] <- 0
+        corner <- corner + dim.var[re] * dim.nvar[re]
+        if (nrow(traces) > 1) {
+          traces <- traces + t(traces) - diag(diag(traces))
+        }
       } else {
-        scores[i, 1] <- sum(derivs[[i]] * basisScores)
+        traces <- Ci[corner:(corner - 1 + dim.var[re]), corner:(corner - 1 + dim.var[re])]
+        corner <- corner + dim.var[re]
       }
-    }
+      
+      if (n.nvar[re] > 0) {
+        basisScores <- -0.5 * (dim.nvar[re] * sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - t(umat_sigmai[[re]]) %*% nvarGi[[re]] %*% umat_sigmai[[re]]) # Last term maybe on the GPU?
+      } else {
+        basisScores <- -0.5 * (sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - t(umat_sigmai[[re]]) %*% umat_sigmai[[re]]) # Last term maybe on the GPU?
+      }
+      for (i in 1:length(derivs[[re]])) {
+        if (isFixed[param] == 1) {
+          scores[param, 1] <- 0
+        } else {
+          scores[param, 1] <- sum(derivs[[re]][[i]] * basisScores)
+        }
+        param <- param + 1
+      }
+    } # End of loop over random effects.
     #toc(log = T)
     
     #### Residual scores ====
