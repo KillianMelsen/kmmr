@@ -179,11 +179,12 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     cormats <- vector("list", nU)
     sigmai <- vector("list", nU)
     logDetvarGtotal <- numeric(nU)
+    vars <- vector("list", nU)
     M.start <- nX + 1
     for (re in 1:nU) { # Start loop over random effects
       # Computing Gi every iteration:
       # Always the outer product of standard deviations first:
-      vars <- outer(sqrt(k[indices[[re]][[1]], iter]), sqrt(k[indices[[re]][[1]], iter]))
+      vars[[re]] <- outer(sqrt(k[indices[[re]][[1]], iter]), sqrt(k[indices[[re]][[1]], iter]))
       if (n.var[re] > 0) { # Only form the correlation matrices for variable factors if there are variable factors.
         cormatis <- vector("list", n.var[re]) # One inverse correlation matrix for every variable factor.
         cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
@@ -199,7 +200,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
           cormatis[[i]] <- chol2inv(cormatis[[i]]) # Invert each correlation matrix using cholesky factor.
         }
         if (u.applyvars[[re]][1] == 0) { # If there is just a single variance.
-          sigmai[[re]] <- (1 / as.numeric(vars)) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
+          sigmai[[re]] <- (1 / as.numeric(vars[[re]])) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
           # Form the log determinant of sigma:
           # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
           if (n.var[re] > 1) {
@@ -212,24 +213,24 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
             logDetvarGtotal[re] <- logDetvarG
           }
           # logDetvarGtotal[re] <- prod(u.nlevels.var) * log(as.numeric(vars)) + logDetvarGtotal[re]
-          logDetvarGtotal[re] <- dim.var[re] * log(as.numeric(vars)) + logDetvarGtotal[re]
+          logDetvarGtotal[re] <- dim.var[re] * log(as.numeric(vars[[re]])) + logDetvarGtotal[re]
         } else if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
-          sigmai[[re]] <- (1 / vars) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
+          sigmai[[re]] <- (1 / vars[[re]]) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
           # Form the log determinant of sigma:
           # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
-          logDetvarGtotal[re] <- sum(log(diag(vars)))
+          logDetvarGtotal[re] <- sum(log(diag(vars[[re]])))
           for (i in i.var[[re]]) {
             # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
             logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
           }
         } else { # If variances are applied to 1 or more factors, but not all factors.
-          sigmai[[re]] <- kronecker((1 / vars) * Reduce(kronecker, cormatis[u.applyvars[[re]]]), Reduce(kronecker, cormatis[-u.applyvars[[re]]])) # Form the inverse covariance matrix.
+          sigmai[[re]] <- kronecker((1 / vars[[re]]) * Reduce(kronecker, cormatis[u.applyvars[[re]]]), Reduce(kronecker, cormatis[-u.applyvars[[re]]])) # Form the inverse covariance matrix.
           # Form the log determinant of sigma:
           # First form the log determinant of the part with variances:
           # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
           u.nlevels.applyvar <- u.nlevels[[re]][u.applyvars[[re]]] # Numbers of levels for (variable, obviously) factors that have variances applied to them
           u.nlevels.napplyvar <- u.nlevels.var[[re]][-u.applyvars[[re]]] # Number of levels for variable factors that do not have variances applied to them
-          logDetvarGtotal[re] <- sum(log(diag(vars)))
+          logDetvarGtotal[re] <- sum(log(diag(vars[[re]])))
           for (i in u.applyvars[[re]]) {
             logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.applyvar[-i]) # prod(numeric(0)) = 1
           }
@@ -241,7 +242,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
           }
         }
       } else { # if there are no variable factors.
-        sigmai[[re]] <- 1 / vars
+        sigmai[[re]] <- 1 / vars[[re]]
         logDetvarGtotal[re] <- -1 * as.numeric(log(sigmai[[re]]))
       }
       if (n.nvar[re] > 0) {

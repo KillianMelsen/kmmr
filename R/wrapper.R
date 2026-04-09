@@ -256,7 +256,7 @@ lk <- function(factor, base) {
 #' @importFrom stats na.omit
 #' @importFrom Matrix sparse.model.matrix
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
-                 maxit = 20, stepsize = c(0.3, 0.5, 0.75, rep(1, maxit - 3)), weights = NULL,
+                 maxit = 20, stepsize = c(0.5, 0.75, rep(1, maxit - 2)), weights = NULL,
                  init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE) {
   
   # Basic argument checking:
@@ -317,6 +317,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   # Random effects:
   res <- strsplit(as.character(random[2]), "\\s*\\+\\s*")[[1]]
   nU <- length(res)
+  stepsize <- stepsize^nU
   
   # Lists to store all specifications:
   Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <- u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar  <- vector("list", nU)
@@ -386,7 +387,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   }
   
   # Fitting:
-  browser()
+  # browser()
   result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, H = H, useH = useH,
                        maxit = maxit, stepsize = stepsize, verbose = verbose,
                        tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
