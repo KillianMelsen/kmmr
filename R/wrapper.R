@@ -41,18 +41,25 @@ re <- function(formula, vars, ...) {
   results <- lapply(calls, function(call) {
     eval(parse(text = call), envir = data)
   })
+  isStack <- unlist(lapply(results, function(element) {"sizeOfStack" %in% names(element)}))
   
-  struc <- gsub("(.*)\\(.*$", "\\1", calls) # What are the correlation structures for this factor?
+  # struc <- gsub("(.*)\\(.*$", "\\1", calls) # What are the correlation structures for this factor?
+  struc <- c(list(gsub("(.*)\\(.*$", "\\1", strsplit(gsub("stack\\(\\s*~\\s*(.*)\\)", "\\1", calls[isStack]), "\\s*\\+\\s*")[[1]])),
+             gsub("(.*)\\(.*$", "\\1", calls[!isStack]))
+  
   factorNames <- gsub(".*\\(([^,\\)]+).*$", "\\1", calls) # Which factors are we evaluating?
   
   bases <- lapply(results, `[[`, "base")
   levels <- lapply(results, `[[`, "levels")
   nlevels <- vapply(results, `[[`, numeric(1), "nlevels")
-  nparams <- vapply(results, `[[`, numeric(1), "nparams")
+  # nparams <- vapply(results, `[[`, numeric(1), "nparams")
+  nparams <- lapply(results, `[[`, "nparams")
   part <- vapply(results, `[[`, character(1), "part")
-  types <- unlist(lapply(results, `[[`, "types"))
-  indexCor <- unlist(lapply(results, `[[`, "indexCor"), recursive = FALSE)
+  # types <- unlist(lapply(results, `[[`, "types"))
+  types <- lapply(results, `[[`, "types")
+  indexCor <- lapply(results, `[[`, "indexCor")
   forFactor <- unlist(lapply(seq_along(results), function(i) {rep(i, results[[i]]$nparams)}))
+  # We need to fix the forFactor...
   
   if (as.character(vars[2]) == "1") {
     applyvars <- 0
@@ -237,6 +244,37 @@ lk <- function(factor, base) {
               part = "nvar"))
 }
 
+#' stack
+#'
+#' @param formula The formula for the stacked correlation matrices
+#'
+#' @returns A structure suitable for the stacked correlation matrices
+#' @keywords internal
+stack <- function(formula) {
+  calls <- strsplit(as.character(formula[2]), "\\s*\\+\\s*")[[1]]
+  results <- lapply(calls, function(call) {
+    eval(parse(text = call), envir = data)
+  })
+  bases <- lapply(results, `[[`, "base")
+  levels <- unique(lapply(results, `[[`, "levels")) # Every element of this list should be the same, so unique() should return a list of length 1
+  stopifnot(length(levels) == 1)
+  nlevels <- unique(vapply(results, `[[`, numeric(1), "nlevels")) # Every element of this vector should be the same, so unique() should return a single number
+  stopifnot(length(nlevels) == 1)
+  nparams <- lapply(results, `[[`, "nparams")
+  types <- lapply(results, `[[`, "types")
+  indexCor <- lapply(results, `[[`, "indexCor")
+  # part <- vapply(results, `[[`, character(1), "part")
+  stackResults <- list(base = bases,
+                       levels = unlist(levels),
+                       nlevels = nlevels,
+                       nparams = nparams,
+                       types = types,
+                       indexCor = indexCor,
+                       part = "var", # Stacks are by definition in the variable part of the random effect
+                       sizeOfStack = length(calls))
+  return(stackResults)
+}
+
 #' kmmr
 #'
 #' @param fixed Formular for the fixed effects.
@@ -315,7 +353,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   X <- sparse.model.matrix(revInteractions(fixed), data)
   
   # Random effects:
-  res <- strsplit(as.character(random[2]), "\\s*\\+\\s*")[[1]]
+  res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\()", perl = TRUE)[[1]] # split the full random argument into separate re() calls.
   nU <- length(res)
   stepsize <- stepsize^nU
   

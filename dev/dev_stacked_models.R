@@ -18,7 +18,7 @@ d$ManEnv <- factor(paste(as.character(d$Man), as.character(d$Env), sep = ":"),
                    levels = c(paste0("R:", levels(d$Env)),
                               paste0("W:", levels(d$Env))))
 
-ds <- droplevels(d[d$Env %in% c("Bol12", "Kar12", "Cam12", "Deb12") & d$Man == "R",])
+ds <- droplevels(d[d$Env %in% c("Bol12", "Kar12", "Cam12") & d$Man == "R",])
 EC1 <- exp(-0.05 * ED[levels(ds$Env), levels(ds$Env)])
 EC2 <- exp(-1.00 * ED[levels(ds$Env), levels(ds$Env)])
 
@@ -53,6 +53,10 @@ summary(fit1)$varcomp
 summary(fit2)$varcomp
 
 # Running manually through the kmmr solver ====
+# fit <- kmmr(fixed = GY ~ -1 + Env,
+#             random = ~ re(~ stack(~ lk(Env, EC1) + corg(Env)):lk(Gen, Ki), vars = ~ 1),
+#             residual = ~ units,
+#             data = ds)
 
 # Data preparation:
 y <- matrix(ds$GY)
