@@ -42,11 +42,22 @@ re <- function(formula, vars, ...) {
     eval(parse(text = call), envir = data)
   })
   isStack <- unlist(lapply(results, function(element) {"sizeOfStack" %in% names(element)}))
+  if (any(isStack)) {
+    if (sum(isStack) > 1) {
+      stop("Only one stack per random effect allowed.")
+    }
+    if (!(all(isStack == c(TRUE, rep(FALSE, length(isStack) - 1))))) {
+      stop("The stack must come first in the random effect specification.")
+    }
+    sos <- results[[which(isStack)]]$sizeOfStack
+  }
   
-  # struc <- gsub("(.*)\\(.*$", "\\1", calls) # What are the correlation structures for this factor?
-  struc <- c(list(gsub("(.*)\\(.*$", "\\1", strsplit(gsub("stack\\(\\s*~\\s*(.*)\\)", "\\1", calls[isStack]), "\\s*\\+\\s*")[[1]])),
-             gsub("(.*)\\(.*$", "\\1", calls[!isStack]))
-  
+  if (any(isStack)) {
+    struc <- c(list(gsub("(.*)\\(.*$", "\\1", strsplit(gsub("stack\\(\\s*~\\s*(.*)\\)", "\\1", calls[isStack]), "\\s*\\+\\s*")[[1]])),
+               gsub("(.*)\\(.*$", "\\1", calls[!isStack]))
+  } else {
+    struc <- gsub("(.*)\\(.*$", "\\1", calls) # What are the correlation structures for this factor?
+  }
   factorNames <- gsub(".*\\(([^,\\)]+).*$", "\\1", calls) # Which factors are we evaluating?
   
   bases <- lapply(results, `[[`, "base")
@@ -57,16 +68,38 @@ re <- function(formula, vars, ...) {
   part <- vapply(results, `[[`, character(1), "part")
   # types <- unlist(lapply(results, `[[`, "types"))
   types <- lapply(results, `[[`, "types")
+  # indexCor <- unlist(lapply(results, `[[`, "indexCor"), recursive = FALSE) # I don't think we ever needed this recursive = FALSE...
   indexCor <- lapply(results, `[[`, "indexCor")
-  forFactor <- unlist(lapply(seq_along(results), function(i) {rep(i, results[[i]]$nparams)}))
-  # We need to fix the forFactor...
+  forFactor <- lapply(seq_along(results), function(i) {
+    if (isStack[i]) {
+      lapply(results[[i]]$nparams, function(x) rep(i, x))
+    } else {
+      rep(i, results[[i]]$nparams)
+    }
+    })
+  if (any(isStack)) {
+    # Parameters that are part of a stack have an associated stackLayer number
+    stackLayer <- c(unlist(lapply(seq_along(nparams[[which(isStack)]]), function(i) {rep(i, nparams[[which(isStack)]][[i]])})),
+                    unlist(lapply(nparams[which(!isStack)], function(x) {rep(0, x)})))
+  } else {
+    # 0 Means the parameter is not part of a stack
+    stackLayer <- unlist(lapply(nparams, function(x) {rep(0, x)}))
+  }
   
   if (as.character(vars[2]) == "1") {
     applyvars <- 0
-    nvars <- 1
+    if (any(isStack)) {
+      nvars <- sos
+    } else {
+      nvars <- 1
+    }
   } else {
     applyvars <- which(factorNames %in% strsplit(as.character(vars[2]), "[:]")[[1]])
-    nvars <- prod(nlevels[applyvars])
+    if (any(isStack)) {
+      nvars <- prod(nlevels[applyvars]) * sos
+    } else {
+      nvars <- prod(nlevels[applyvars])
+    }
   }
   
   # Determine which part of the random effect is variable and which part is non-variable:
@@ -77,12 +110,18 @@ re <- function(formula, vars, ...) {
   }
   
   # Now we can add the variances to all vectors:
-  types <- c(rep("V", nvars), na.omit(types))
-  forFactor <- c(rep(0, nvars), forFactor)
-  nparams <- c(nvars, nparams)
-  indexCor <- c(rep(0, nvars), indexCor[!is.na(indexCor)])
+  types <- c(rep("V", nvars), na.omit(unlist(types)))
+  if (any(isStack)) {
+    stackLayer <- c(rep(1:sos, each = nvars / sos), stackLayer)
+  } else {
+    stackLayer <- c(rep(0, nvars), stackLayer)
+  }
+  forFactor <- c(rep(0, nvars), unlist(forFactor))
+  nparams <- c(nvars, unlist(lapply(seq_along(nparams), function(i) {sum(unlist(nparams[i]))})))
+  # indexCor <- c(rep(0, nvars), indexCor[!is.na(indexCor)]) # Don't think we ever needed this [!is.na(indexCor)] either, could have just used na.omit(). Seems like this was left over from when indexCor was still a list early on.
+  indexCor <- c(rep(0, nvars), na.omit(unlist(indexCor)))
   
-  indices <- vector("list", 1 + length(calls)) # We will fill this later after we figure out all factor structures.
+  indices <- vector("list", 1 + length(calls))
   index <- 1
   for (i in 1:(1 + length(calls))) {
     if (nparams[i] > 0) {
@@ -101,13 +140,25 @@ re <- function(formula, vars, ...) {
   # Figure out the labels for the variances:
   h <- 1
   if (applyvars[1] == 0) {
-    params[1] <- "vars{1}"
-    h <- h + 1
+    if (any(isStack)) {
+      params[1:nvars] <- sprintf("vars{1|stack-%d}", 1:sos)
+      h <- h + nvars
+    } else {
+      params[1] <- "vars{1}"
+      h <- h + 1
+    }
   } else {
     labels <- do.call(paste, c(rev(expand.grid(rev(levels[applyvars]))), sep = ":"))
     p <- length(labels)
-    params[1:p] <- sprintf("vars{%s-%s}", paste(factorNames[applyvars], collapse = ":"), labels)
-    h <- h + p
+    if (any(isStack)) {
+      for (s in 1:sos) {
+        params[h:(h - 1 + p)] <- sprintf("vars{%s-%s|stack-%d}", paste(factorNames[applyvars], collapse = ":"), labels, s)
+        h <- h + p
+      }
+    } else {
+      params[1:p] <- sprintf("vars{%s-%s}", paste(factorNames[applyvars], collapse = ":"), labels)
+      h <- h + p
+    }
   }
   
   # Figure out the labels for the other factors/structures:
