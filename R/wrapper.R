@@ -117,7 +117,12 @@ re <- function(formula, vars, ...) {
     stackLayer <- c(rep(0, nvars), stackLayer)
   }
   forFactor <- c(rep(0, nvars), unlist(forFactor))
-  nparams <- c(nvars, unlist(lapply(seq_along(nparams), function(i) {sum(unlist(nparams[i]))})))
+  if (any(isStack)) {
+    nparams[[which(isStack)]] <- unlist(nparams[[which(isStack)]])
+  }
+  nparams.list <- c(list(nvars), nparams)
+  # nparams <- c(nvars, unlist(lapply(seq_along(nparams), function(i) {sum(nparams[[i]])})))
+  nparams <- unlist(lapply(nparams.list, sum))
   # indexCor <- c(rep(0, nvars), indexCor[!is.na(indexCor)]) # Don't think we ever needed this [!is.na(indexCor)] either, could have just used na.omit(). Seems like this was left over from when indexCor was still a list early on.
   indexCor <- c(rep(0, nvars), na.omit(unlist(indexCor)))
   
@@ -164,18 +169,36 @@ re <- function(formula, vars, ...) {
   # Figure out the labels for the other factors/structures:
   for (i in 1:length(factorNames)) {
     if (nparams[i + 1] > 0) { # + 1 because we can skip the variances
-      p <- nparams[i + 1]
-      structure <- struc[i]
-      if (structure == "corg") {
-        labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
-        params[h:(h - 1 + p)] <- sprintf("corg{%s-%s}", factorNames[i], labels)
-        h <- h + p
-      } else if (structure == "cors") {
-        params[h] <- sprintf("cors{%s}", factorNames[i])
-        h <- h + 1
-      } else if (structure == "gk") {
-        params[h] <- sprintf("bw{%s}", factorNames[i])
-        h <- h + 1
+      if (isStack[i]) {
+        for (s in 1:sos) {
+          p <- nparams.list[[i + 1]][s]
+          structure <- struc[[i]][s]
+          if (structure == "corg") {
+            labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
+            params[h:(h - 1 + p)] <- sprintf("corg{%s-%s|stack-%d}", factorNames[i], labels, s)
+            h <- h + p
+          } else if (structure == "cors") {
+            params[h] <- sprintf("cors{%s|stack-%d}", factorNames[i], s)
+            h <- h + 1
+          } else if (structure == "gk") {
+            params[h] <- sprintf("bw{%s|stack-%d}", factorNames[i], s)
+            h <- h + 1
+          }
+        }
+      } else {
+        p <- nparams[i + 1]
+        structure <- struc[i]
+        if (structure == "corg") {
+          labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
+          params[h:(h - 1 + p)] <- sprintf("corg{%s-%s}", factorNames[i], labels)
+          h <- h + p
+        } else if (structure == "cors") {
+          params[h] <- sprintf("cors{%s}", factorNames[i])
+          h <- h + 1
+        } else if (structure == "gk") {
+          params[h] <- sprintf("bw{%s}", factorNames[i])
+          h <- h + 1
+        }
       }
     }
   }
@@ -189,7 +212,9 @@ re <- function(formula, vars, ...) {
               indexCor = indexCor,
               bases = bases,
               struc = struc,
+              isStack = isStack,
               nparams = sum(nparams),
+              nparams.list = nparams.list,
               i.var = i.var,
               i.nvar = i.nvar,
               params = params))
