@@ -55,7 +55,7 @@ summary(fit2)$varcomp
 
 # Running manually through the kmmr solver ====
 # fit <- kmmr(fixed = GY ~ -1 + Env,
-#             random = ~ re(~ stack(~ gk(Env, ED) + corg(Env)):lk(Gen, Ki), vars = ~ 1),
+#             random = ~ re(~ lk(Gen, Ki)) + re(~ stack(~ gk(Env, ED) + corg(Env)):lk(Gen, Ki)),
 #             residual = ~ units,
 #             data = ds)
 

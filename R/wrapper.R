@@ -35,7 +35,7 @@ revInteractions <- function(form) {
 #' @keywords internal
 #' @importFrom stats na.omit
 #' @importFrom Matrix sparse.model.matrix
-re <- function(formula, vars, ...) {
+re <- function(formula, vars = ~ 1, ...) {
   data <- list(...)$data
   calls <- strsplit(as.character(formula[2]), ":")[[1]] # vector of function calls for each structure/factor.
   results <- lapply(calls, function(call) {
@@ -123,8 +123,20 @@ re <- function(formula, vars, ...) {
   nparams.list <- c(list(nvars), nparams)
   # nparams <- c(nvars, unlist(lapply(seq_along(nparams), function(i) {sum(nparams[[i]])})))
   nparams <- unlist(lapply(nparams.list, sum))
-  # indexCor <- c(rep(0, nvars), indexCor[!is.na(indexCor)]) # Don't think we ever needed this [!is.na(indexCor)] either, could have just used na.omit(). Seems like this was left over from when indexCor was still a list early on.
-  indexCor <- c(rep(0, nvars), na.omit(unlist(indexCor)))
+  
+  # Possible option for indexCor handling:
+  # We need to unlist exactly twice to handle corg() and cors() structures appropriately.
+  # There is probably a more elegant way to do this...
+  # This is because corg() returns indexCor as a vector as each parameter is associated
+  # with exactly one correlation.
+  # cors() on the other hand returns indexCor as a list containing a  vector because the single
+  # parameter is associated with all correlations.
+  # If we unlist exactly twice we will get a single vector for corg(), and a list of vectors
+  # for cors.
+  indexCor <- unlist(unlist(indexCor, recursive = FALSE), recursive = FALSE)
+  # Here we omit NAs (for liner kernels with no associated parameters for example)
+  indexCor <- indexCor[!is.na(indexCor)] # [!is.na(indexCor)] works for both a list (cors) and a vector (corg)
+  indexCor <- c(rep(0, nvars), indexCor) # And finally adding the 0s for the variances. This also works for both lists and vectors.
   
   indices <- vector("list", 1 + length(calls))
   index <- 1
@@ -434,7 +446,9 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   stepsize <- stepsize^nU
   
   # Lists to store all specifications:
-  Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <- u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar  <- vector("list", nU)
+  Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <-
+    u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar  <-
+    u.isStack <- u.nparams.list <- vector("list", nU)
   params <- vector("list", nU + 1)
   i <- 1
   for (i in 1:nU) {
@@ -454,6 +468,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     i.var[[i]] <- spec$i.var
     i.nvar[[i]] <- spec$i.nvar
     params[[i]] <- sprintf("re%s(%s)", i, spec$params)
+    u.isStack[[i]] <- spec$isStack
+    u.nparams.list[[i]] <- spec$nparams.list
   }
   
   # Shifting indices if there are multiple random effects so we can use a single big vector k:
