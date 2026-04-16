@@ -57,6 +57,8 @@ formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL) {
 #' @param i.var Which factors have variable covariance structures?
 #' @param i.nvar Which factors have non-variable covariance structures?
 #' @param isFixed Which parameters are fixed and should not be estimated?
+#' @param u.isStack Are factors within random effects made up of a stack of structures?
+#' @param u.nparams.list Number of parameters per factor/random effect in list format.
 #'
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
@@ -65,7 +67,7 @@ formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL) {
 #' @importFrom Matrix nearPD
 solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolConvLL,
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
-                       bases, struc, i.var, i.nvar, isFixed) {
+                       bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list) {
   ## Prelims ====
   k <- matrix(NA, length(init), maxit + 1) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
@@ -183,78 +185,118 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     M.start <- nX + 1
     for (re in 1:nU) { # Start loop over random effects
       # Computing Gi every iteration:
-      # Always the outer product of standard deviations first:
-      vars[[re]] <- outer(sqrt(k[indices[[re]][[1]], iter]), sqrt(k[indices[[re]][[1]], iter]))
-      if (n.var[re] > 0) { # Only form the correlation matrices for variable factors if there are variable factors.
-        cormatis <- vector("list", n.var[re]) # One inverse correlation matrix for every variable factor.
-        cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
-        logDetvarG <- numeric(n.var[re])
-        for (i in i.var[[re]]) {
-          result <- formCormatChol(struc = struc[[re]][i], # Can we directly form the cholesky factor from the parameters and, if applicable, base matrices?
-                                   p = u.nlevels[[re]][i],
-                                   params = k[indices[[re]][[1 + i]], iter],
-                                   base = bases[[re]][[i]])
-          cormats[[re]][[i]] <- result[[1]] # Correlation matrix
-          cormatis[[i]] <- result[[2]] # Cholesky factor of correlation matrix
-          logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Compute log determinants of all correlation matrices from cholesky factors
-          cormatis[[i]] <- chol2inv(cormatis[[i]]) # Invert each correlation matrix using cholesky factor.
+      if (any(u.isStack[[re]])) { # If there is a stack in the random effect
+        # Determining which factor is a stack and the size of the stack:
+        i.stack <- which(u.isStack[[re]])
+        sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
+        # Always the outer products of standard deviations for each stack first:
+        vars[[re]] <- vector("list", sos)
+        nvars <- length(indices[[re]][[1]]) / sos
+        for (s in 1:sos) {
+          vars[[re]][[s]] <- outer(sqrt(k[indices[[re]][[1]][(s * nvars - nvars + 1):(s * nvars)], iter]),
+                                   sqrt(k[indices[[re]][[1]][(s * nvars - nvars + 1):(s * nvars)], iter]))
         }
-        if (u.applyvars[[re]][1] == 0) { # If there is just a single variance.
-          sigmai[[re]] <- (1 / as.numeric(vars[[re]])) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
-          # Form the log determinant of sigma:
-          # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
-          if (n.var[re] > 1) {
-            logDetvarGtotal[re] <- 0
+        if (n.var[re] > 0) { # This should always be the case for a random effect with a stack
+          cormatis <- vector("list", n.var[re]) # One inverse correlation matrix for every variable factor.
+          cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
+          logDetvarG <- numeric(n.var[re])
+          for (i in i.var[[re]]) { # Loop to form the covariance stack and correlation matrices
+            # The first variable factor has to be the one with a stack:
+            if (i == i.stack) {
+              # We need to calculate the complete weighed sum of the structures using the variances:
+              sigmai <- matrix(0, u.nlevels.var[[re]][i.var[[re]][i.stack]], u.nlevels.var[[re]][i.var[[re]][i.stack]])
+              cormats[[re]][[i]] <- vector("list", sos)
+              indices.start <- 1
+              for (s in 1:sos) {
+                indices.stack <- (indices.start):(indices.start - 1 + u.nparams.list[[re]][[1 + i]][s])
+                result <- formCormatChol(struc = struc[[re]][[i]][s],
+                                         p = u.nlevels[[re]][i],
+                                         params = k[indices[[re]][[1 + i]][indices.stack], iter],
+                                         base = bases[[re]][[i]][[s]])
+                indices.start <- indices.start + u.nparams.list[[re]][[1 + i]][s]
+                cormats[[re]][[i]][[s]] <- result[[1]] # Correlation matrix
+                sigmai <- sigmai + 1 / vars[[re]][[s]] * chol2inv(result[[2]])
+              }
+            } else {
+              # Do the variable structures that are not part of the stack
+            }
+          }
+        }
+        
+      } else { # If there is no stack in the random effect
+        # Always the outer product of standard deviations first:
+        vars[[re]] <- outer(sqrt(k[indices[[re]][[1]], iter]), sqrt(k[indices[[re]][[1]], iter]))
+        if (n.var[re] > 0) { # Only form the correlation matrices for variable factors if there are variable factors.
+          cormatis <- vector("list", n.var[re]) # One inverse correlation matrix for every variable factor.
+          cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
+          logDetvarG <- numeric(n.var[re])
+          for (i in i.var[[re]]) { # Loop to form the correlations matrices
+            result <- formCormatChol(struc = struc[[re]][i], # Can we directly form the cholesky factor from the parameters and, if applicable, base matrices?
+                                     p = u.nlevels[[re]][i],
+                                     params = k[indices[[re]][[1 + i]], iter],
+                                     base = bases[[re]][[i]])
+            cormats[[re]][[i]] <- result[[1]] # Correlation matrix
+            cormatis[[i]] <- result[[2]] # Cholesky factor of correlation matrix
+            logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Compute log determinants of all correlation matrices from cholesky factors
+            cormatis[[i]] <- chol2inv(cormatis[[i]]) # Invert each correlation matrix using cholesky factor.
+          }
+          if (u.applyvars[[re]][1] == 0) { # If there is just a single variance.
+            sigmai[[re]] <- (1 / as.numeric(vars[[re]])) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
+            # Form the log determinant of sigma:
+            # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
+            if (n.var[re] > 1) {
+              logDetvarGtotal[re] <- 0
+              for (i in i.var[[re]]) {
+                # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+                logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
+              }
+            } else {
+              logDetvarGtotal[re] <- logDetvarG
+            }
+            # logDetvarGtotal[re] <- prod(u.nlevels.var) * log(as.numeric(vars)) + logDetvarGtotal[re]
+            logDetvarGtotal[re] <- dim.var[re] * log(as.numeric(vars[[re]])) + logDetvarGtotal[re]
+          } else if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
+            sigmai[[re]] <- (1 / vars[[re]]) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
+            # Form the log determinant of sigma:
+            # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
+            logDetvarGtotal[re] <- sum(log(diag(vars[[re]])))
             for (i in i.var[[re]]) {
               # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
               logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
             }
-          } else {
-            logDetvarGtotal[re] <- logDetvarG
+          } else { # If variances are applied to 1 or more factors, but not all factors.
+            sigmai[[re]] <- kronecker((1 / vars[[re]]) * Reduce(kronecker, cormatis[u.applyvars[[re]]]), Reduce(kronecker, cormatis[-u.applyvars[[re]]])) # Form the inverse covariance matrix.
+            # Form the log determinant of sigma:
+            # First form the log determinant of the part with variances:
+            # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
+            u.nlevels.applyvar <- u.nlevels[[re]][u.applyvars[[re]]] # Numbers of levels for (variable, obviously) factors that have variances applied to them
+            u.nlevels.napplyvar <- u.nlevels.var[[re]][-u.applyvars[[re]]] # Number of levels for variable factors that do not have variances applied to them
+            logDetvarGtotal[re] <- sum(log(diag(vars[[re]])))
+            for (i in u.applyvars[[re]]) {
+              logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.applyvar[-i]) # prod(numeric(0)) = 1
+            }
+            logDetvarGtotal[re] <- logDetvarGtotal[re] * prod(u.nlevels.napplyvar)
+            # Now we can form the full log determinant:
+            for (i in i.var[[re]][-u.applyvars[[re]]]) {
+              # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
+              logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
+            }
           }
-          # logDetvarGtotal[re] <- prod(u.nlevels.var) * log(as.numeric(vars)) + logDetvarGtotal[re]
-          logDetvarGtotal[re] <- dim.var[re] * log(as.numeric(vars[[re]])) + logDetvarGtotal[re]
-        } else if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
-          sigmai[[re]] <- (1 / vars[[re]]) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
-          # Form the log determinant of sigma:
-          # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
-          logDetvarGtotal[re] <- sum(log(diag(vars[[re]])))
-          for (i in i.var[[re]]) {
-            # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
-            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
-          }
-        } else { # If variances are applied to 1 or more factors, but not all factors.
-          sigmai[[re]] <- kronecker((1 / vars[[re]]) * Reduce(kronecker, cormatis[u.applyvars[[re]]]), Reduce(kronecker, cormatis[-u.applyvars[[re]]])) # Form the inverse covariance matrix.
-          # Form the log determinant of sigma:
-          # First form the log determinant of the part with variances:
-          # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
-          u.nlevels.applyvar <- u.nlevels[[re]][u.applyvars[[re]]] # Numbers of levels for (variable, obviously) factors that have variances applied to them
-          u.nlevels.napplyvar <- u.nlevels.var[[re]][-u.applyvars[[re]]] # Number of levels for variable factors that do not have variances applied to them
-          logDetvarGtotal[re] <- sum(log(diag(vars[[re]])))
-          for (i in u.applyvars[[re]]) {
-            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.applyvar[-i]) # prod(numeric(0)) = 1
-          }
-          logDetvarGtotal[re] <- logDetvarGtotal[re] * prod(u.nlevels.napplyvar)
-          # Now we can form the full log determinant:
-          for (i in i.var[[re]][-u.applyvars[[re]]]) {
-            # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
-            logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
-          }
+        } else { # if there are no variable factors.
+          sigmai[[re]] <- 1 / vars[[re]]
+          logDetvarGtotal[re] <- -1 * as.numeric(log(sigmai[[re]]))
         }
-      } else { # if there are no variable factors.
-        sigmai[[re]] <- 1 / vars[[re]]
-        logDetvarGtotal[re] <- -1 * as.numeric(log(sigmai[[re]]))
+        if (n.nvar[re] > 0) {
+          Gi <- kronecker(sigmai[[re]], nvarGi[[re]]) # This is a bit slow as well.
+        } else {
+          Gi <- sigmai[[re]]
+        }
+        
+        # Now add to M:
+        dimGi <- prod(u.nlevels[[re]])
+        M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] <- M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] + Gi # This one is also slow
+        M.start <- M.start + dimGi
       }
-      if (n.nvar[re] > 0) {
-        Gi <- kronecker(sigmai[[re]], nvarGi[[re]]) # This is a bit slow as well.
-      } else {
-        Gi <- sigmai[[re]]
-      }
-      
-      # Now add to M:
-      dimGi <- prod(u.nlevels[[re]])
-      M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] <- M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] + Gi # This one is also slow
-      M.start <- M.start + dimGi
     } # End loop over random effects.
     #toc(log = T)
     
