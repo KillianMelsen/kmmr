@@ -18,7 +18,7 @@ d$ManEnv <- factor(paste(as.character(d$Man), as.character(d$Env), sep = ":"),
                    levels = c(paste0("R:", levels(d$Env)),
                               paste0("W:", levels(d$Env))))
 
-ds <- droplevels(d[d$Env %in% c("Bol12", "Kar12", "Cam12") & d$Man == "R",])
+ds <- droplevels(d[d$Env %in% c("Bol12", "Kar12", "Cam12"),])# & d$Man == "R",])
 ED <- ED[levels(ds$Env), levels(ds$Env)]
 EC1 <- exp(-0.05 * ED)
 EC2 <- exp(-1.00 * ED)

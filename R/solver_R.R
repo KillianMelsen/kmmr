@@ -4,10 +4,11 @@
 #' @param p Numeric indicating the number of levels of this factor.
 #' @param params Numeric vector containing the parameters needed to form the correlation matrix.
 #' @param base Optional argument containing a numeric matrix to be used in forming the correlation matrix (distance matrix for Gaussian kernel, correlation matrix or kinship for linear kernel).
+#' @param doChol Logical indicating whether a cholesky decomposition of the correlation matrix should be computed (for obtaining the log determinant and inverse).
 #'
 #' @returns A list containing the formed correlation matrix as well as its upper triangular Cholesky decomposition.
 #' @keywords internal
-formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL) {
+formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL, doChol = TRUE) {
   if (struc == "corg") {
     if (p != (1 + sqrt(1 + 8 * length(params))) / 2) {
       stop("Number of factor levels and parameters for corg model do not match.")
@@ -26,7 +27,11 @@ formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL) {
   } else if (struc == "id") {
     cormat <- diag(p)
   }
-  cormatChol <- chol(cormat)
+  if (doChol) {
+    cormatChol <- chol(cormat)
+  } else {
+    cormatChol <- NULL
+  }
   return(list(cormat, cormatChol))
 }
 
@@ -204,7 +209,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
             # The first variable factor has to be the one with a stack:
             if (i == i.stack) {
               # We need to calculate the complete weighed sum of the structures using the variances:
-              sigmai <- matrix(0, u.nlevels.var[[re]][i.var[[re]][i.stack]], u.nlevels.var[[re]][i.var[[re]][i.stack]])
+              covmat.stack <- matrix(0, u.nlevels.var[[re]][i.var[[re]][i]], u.nlevels.var[[re]][i.var[[re]][i]])
               cormats[[re]][[i]] <- vector("list", sos)
               indices.start <- 1
               for (s in 1:sos) {
@@ -212,16 +217,49 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
                 result <- formCormatChol(struc = struc[[re]][[i]][s],
                                          p = u.nlevels[[re]][i],
                                          params = k[indices[[re]][[1 + i]][indices.stack], iter],
-                                         base = bases[[re]][[i]][[s]])
+                                         base = bases[[re]][[i]][[s]],
+                                         doChol = FALSE)
                 indices.start <- indices.start + u.nparams.list[[re]][[1 + i]][s]
                 cormats[[re]][[i]][[s]] <- result[[1]] # Correlation matrix
-                sigmai <- sigmai + 1 / vars[[re]][[s]] * chol2inv(result[[2]])
+                covmat.stack <- covmat.stack + vars[[re]][[s]] * result[[1]] # We first construct sigma by summing all stack layers, then invert
               }
+              cormatis[[i]] <- chol(covmat.stack)
+              logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]])))
+              cormatis[[i]] <- chol2inv(cormatis[[i]])
             } else {
-              # Do the variable structures that are not part of the stack
+              # Do the remaining variable structures that are not part of the stack (there can only be a single stack in a random effect):
+              result <- formCormatChol(struc = struc[[re]][[i]],
+                                       p = u.nlevels[[re]][i],
+                                       params = k[indices[[re]][[1 + i]], iter],
+                                       base = bases[[re]][[i]],
+                                       doChol = TRUE)
+              cormats[[re]][[i]] <- result[[1]] # Correlation matrix
+              cormatis[[i]] <- result[[2]] # Cholesky factor of correlation matrix
+              logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Compute log determinants of all correlation matrices from cholesky factors
+              cormatis[[i]] <- chol2inv(cormatis[[i]]) # Invert each correlation matrix using cholesky factor.
             }
+          }# End of loop to form the covariance stack and variable correlation matrices
+          # This is where we construct the full sigmai and logDetvarGtotal, which is easier for random effects with a stack:
+          sigmai[[re]] <- Reduce(kronecker, cormatis) # The first entry of cormatis is actually the inverted stacked covariance matrix
+          if (n.var[re] > 1) {
+            logDetvarGtotal[re] <- 0
+            for (i in i.var[[re]]) {
+              logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
+            }
+          } else {
+            logDetvarGtotal[re] <- logDetvarG
           }
+        } # End of if (n.var[re] > 0), which should always be TRUE for random effects with a stack
+        if (n.nvar[re] > 0) {
+          Gi <- kronecker(sigmai[[re]], nvarGi[[re]]) # This is a bit slow as well.
+        } else {
+          Gi <- sigmai[[re]]
         }
+
+        # Now add to M:
+        dimGi <- prod(u.nlevels[[re]])
+        M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] <- M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] + Gi # This one is also slow
+        M.start <- M.start + dimGi
         
       } else { # If there is no stack in the random effect
         # Always the outer product of standard deviations first:
@@ -234,12 +272,13 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
             result <- formCormatChol(struc = struc[[re]][i], # Can we directly form the cholesky factor from the parameters and, if applicable, base matrices?
                                      p = u.nlevels[[re]][i],
                                      params = k[indices[[re]][[1 + i]], iter],
-                                     base = bases[[re]][[i]])
+                                     base = bases[[re]][[i]],
+                                     doChol = TRUE)
             cormats[[re]][[i]] <- result[[1]] # Correlation matrix
             cormatis[[i]] <- result[[2]] # Cholesky factor of correlation matrix
             logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Compute log determinants of all correlation matrices from cholesky factors
             cormatis[[i]] <- chol2inv(cormatis[[i]]) # Invert each correlation matrix using cholesky factor.
-          }
+          } # End of loop to form the correlations matrices
           if (u.applyvars[[re]][1] == 0) { # If there is just a single variance.
             sigmai[[re]] <- (1 / as.numeric(vars[[re]])) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
             # Form the log determinant of sigma:
