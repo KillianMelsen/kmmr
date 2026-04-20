@@ -339,6 +339,41 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     } # End loop over random effects.
     #toc(log = T)
     
+    # Temporary code to verify whether the fit from dev/dev_stacked_models_lkGen_plus_stackEnv-gk-corg_by_corgMan_by_lkGen.RData is processed correctly:
+    # G1 <- 3.0 * K
+    # G2 <- kronecker(kronecker(outer(sqrt(c(1.1, 1.2, 1.3)), sqrt(c(1.1, 1.2, 1.3))) * exp(-0.1*ED) + outer(sqrt(c(2.1, 2.2, 2.3)), sqrt(c(2.1, 2.2, 2.3))) * matrix(c(1.0, 0.4, 0.5, 0.4, 1.0, 0.6, 0.5, 0.6, 1.0), 3, 3), matrix(c(1.0, 0.8, 0.8, 1.0), 2, 2)), K)
+    # all.equal(Gi, solve(G2))
+    # all.equal(logDetvarGtotal[1], sum(log(eigen(matrix(3.0))$values)))
+    # all.equal(logDetvarGtotal[2], sum(log(eigen(kronecker(outer(sqrt(c(1.1, 1.2, 1.3)), sqrt(c(1.1, 1.2, 1.3))) * exp(-0.1*ED) + outer(sqrt(c(2.1, 2.2, 2.3)), sqrt(c(2.1, 2.2, 2.3))) * matrix(c(1.0, 0.4, 0.5, 0.4, 1.0, 0.6, 0.5, 0.6, 1.0), 3, 3), matrix(c(1.0, 0.8, 0.8, 1.0), 2, 2)))$values)))
+    # Zmat1 <- as.matrix(Z[[1]])
+    # Zmat2 <- as.matrix(Z[[2]])
+    # Zmat <- cbind(Zmat1, Zmat2)
+    # Xmat <- as.matrix(X)
+    # Cmat <- rbind(cbind(t(Xmat) %*% as.matrix(Ri) %*% Xmat,    t(Xmat) %*% as.matrix(Ri) %*% Zmat1,                t(Xmat) %*% as.matrix(Ri) %*% Zmat2),
+    #               cbind(t(Zmat1) %*% as.matrix(Ri) %*% Xmat,   t(Zmat1) %*% as.matrix(Ri) %*% Zmat1 + solve(G1),   t(Zmat1) %*% as.matrix(Ri) %*% Zmat2),
+    #               cbind(t(Zmat2) %*% as.matrix(Ri) %*% Xmat,   t(Zmat2) %*% as.matrix(Ri) %*% Zmat1,               t(Zmat2) %*% as.matrix(Ri) %*% Zmat2 + solve(G2)))
+    # all.equal(Cmat, M[-nrow(M), -ncol(M)])
+    # G <- rbind(cbind(G1, matrix(0, nrow(G1), ncol(G2))),
+    #            cbind(matrix(0, nrow(G2), ncol(G1)), G2))
+    # R <- solve(as.matrix(Ri))
+    # V <- Zmat %*% G %*% t(Zmat) + R
+    # Vi <- solve(V)
+    # P <- Vi - Vi %*% Xmat %*% solve(t(Xmat) %*% Vi %*% Xmat) %*% t(Xmat) %*% Vi
+    # G2.1 <- kronecker(kronecker(outer(sqrt(c(1.1, 1.2, 1.3)), sqrt(c(1.1, 1.2, 1.3))) * exp(-0.1*ED), matrix(c(1.0, 0.8, 0.8, 1.0), 2, 2)), K)
+    # G2.2 <- kronecker(kronecker(outer(sqrt(c(2.1, 2.2, 2.3)), sqrt(c(2.1, 2.2, 2.3))) * matrix(c(1.0, 0.4, 0.5, 0.4, 1.0, 0.6, 0.5, 0.6, 1.0), 3, 3), matrix(c(1.0, 0.8, 0.8, 1.0), 2, 2)), K)
+    # Znaive <- cbind(as.matrix(Z[[1]]), as.matrix(Z[[2]]), as.matrix(Z[[2]]))
+    # Gnaive <- rbind(cbind(G1, matrix(0, nrow(G1), ncol(G2.1)), matrix(0, nrow(G1), ncol(G2.2))),
+    #                 cbind(matrix(0, nrow(G2.1), ncol(G1)), G2.1, matrix(0, nrow(G2.1), ncol(G2.2))),
+    #                 cbind(matrix(0, nrow(G2.2), ncol(G1)), matrix(0, nrow(G2.2), ncol(G2.1)), G2.2))
+    # Vnaive <- Znaive %*% Gnaive %*% t(Znaive) + R
+    # Vnaivei <- solve(Vnaive)
+    # Pnaive <- Vnaivei - Vnaivei %*% Xmat %*% solve(t(Xmat) %*% Vnaivei %*% Xmat) %*% t(Xmat) %*% Vnaivei
+    # all.equal(yPy, as.numeric(t(y) %*% P %*% y))
+    # all.equal(yPy, as.numeric(t(y) %*% Pnaive %*% y))
+    # all.equal(P, Pnaive)
+    # all.equal(Vi, Vnaivei)
+    # dim(G); dim(Gnaive)
+    
     ### Cholesky decomposition of M ====
     #tic(msg = "Cholesky decomp of M")
     Mchol <- chol(M) # Upper triangular # This is good for the GPU
