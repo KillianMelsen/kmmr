@@ -196,7 +196,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
         sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
         # Always the outer products of standard deviations for each stack first:
         vars[[re]] <- vector("list", sos)
-        nvars <- length(indices[[re]][[1]]) / sos
+        nvars <- length(indices[[re]][[1]]) / sos # Number of variances per stack layer
         for (s in 1:sos) {
           vars[[re]][[s]] <- outer(sqrt(k[indices[[re]][[1]][(s * nvars - nvars + 1):(s * nvars)], iter]),
                                    sqrt(k[indices[[re]][[1]][(s * nvars - nvars + 1):(s * nvars)], iter]))
@@ -373,6 +373,23 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     # all.equal(P, Pnaive)
     # all.equal(Vi, Vnaivei)
     # dim(G); dim(Gnaive)
+    # Cnaive <- rbind(cbind(t(Xmat) %*% as.matrix(Ri) %*% Xmat,    t(Xmat) %*% as.matrix(Ri) %*% Zmat1,                t(Xmat) %*% as.matrix(Ri) %*% Zmat2,                   t(Xmat) %*% as.matrix(Ri) %*% Zmat2),
+    #                 cbind(t(Zmat1) %*% as.matrix(Ri) %*% Xmat,   t(Zmat1) %*% as.matrix(Ri) %*% Zmat1 + solve(G1),   t(Zmat1) %*% as.matrix(Ri) %*% Zmat2,                  t(Zmat1) %*% as.matrix(Ri) %*% Zmat2),
+    #                 cbind(t(Zmat2) %*% as.matrix(Ri) %*% Xmat,   t(Zmat2) %*% as.matrix(Ri) %*% Zmat1,               t(Zmat2) %*% as.matrix(Ri) %*% Zmat2 + solve(G2.1),    t(Zmat2) %*% as.matrix(Ri) %*% Zmat2),
+    #                 cbind(t(Zmat2) %*% as.matrix(Ri) %*% Xmat,   t(Zmat2) %*% as.matrix(Ri) %*% Zmat1,               t(Zmat2) %*% as.matrix(Ri) %*% Zmat2,                  t(Zmat2) %*% as.matrix(Ri) %*% Zmat2 + solve(G2.2)))
+    # system.time(LLstack <- -0.5 * (sum(log(eigen(R)$values)) + sum(log(eigen(G)$values)) + sum(log(eigen(Cmat)$values)) + as.numeric(t(y) %*% P %*% y)))
+    # system.time(LLnaive <- -0.5 * (sum(log(eigen(R)$values)) + sum(log(eigen(Gnaive)$values)) + sum(log(eigen(Cnaive)$values)) + as.numeric(t(y) %*% Pnaive %*% y)))
+    # RHS.stack <- rbind(t(Xmat) %*% as.matrix(Ri) %*% y, t(Zmat1) %*% as.matrix(Ri) %*% y, t(Zmat2) %*% as.matrix(Ri) %*% y)
+    # RHS.naive <- rbind(t(Xmat) %*% as.matrix(Ri) %*% y, t(Zmat1) %*% as.matrix(Ri) %*% y, t(Zmat2) %*% as.matrix(Ri) %*% y, t(Zmat2) %*% as.matrix(Ri) %*% y)
+    # system.time(bu.stack <- solve(Cmat) %*% RHS.stack)
+    # system.time(bu.naive <- solve(Cnaive) %*% RHS.naive)
+    # all.equal(bu[1:6], bu.stack[1:6], check.attributes = FALSE) # BLUEs
+    # all.equal(bu[1:6], bu.naive[1:6], check.attributes = FALSE) # BLUEs
+    # all.equal(bu[7:252], bu.stack[7:252], check.attributes = FALSE) # Main effect BLUPs
+    # all.equal(bu[7:252], bu.naive[7:252], check.attributes = FALSE) # Main effect BLUPs
+    # all.equal(bu[253:1728], bu.stack[253:1728], check.attributes = FALSE) # GxExM interaction BLUPs using stack of gk() and corg()
+    # all.equal(bu[253:1728], bu.naive[253:1728] + bu.naive[1729:3204], check.attributes = FALSE) # GxExM interaction BLUPs using separate effects for gk() and corg()
+    # all.equal(as.matrix(Z[[1]]) %*% K %*% solve(G1) %*% u[1:246, 1, drop = FALSE], Wu[, 1, drop = FALSE], check.attributes = FALSE)
     
     ### Cholesky decomposition of M ====
     #tic(msg = "Cholesky decomp of M")
@@ -436,49 +453,83 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
       umat_sigmai[[re]] <- umat %*% sigmai[[re]]
       derivs[[re]] <- vector("list", u.nparams[[re]])
       
-      for (i in 1:u.nparams[[re]]) {
-        if (isFixed[param] == 1) {
-          Wu[, param] <- 0
-          param <- param + 1
-        } else {
-          if (ur.types[param] == "V") {
-            if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
-              if (n.var[re] > 0) {
-                derivs[[re]][[i]] <- Reduce(kronecker, cormats[[re]])
-              } else {
-                derivs[[re]][[i]] <- matrix(1)
+      if (any(u.isStack[[re]])) { # If there is a stack in this random effect
+        # Determining which factor is a stack and the size of the stack:
+        i.stack <- which(u.isStack[[re]])
+        sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
+        nvars <- length(indices[[re]][[1]]) / sos # Number of variances per stack layer
+        for (i in 1:u.nparams[[re]]) {
+          if (isFixed[param] == 1) {
+            Wu[, param] <- 0
+            param <- param + 1
+          } else {
+            if (ur.types[param] == "V") {
+              # We need to figure out for which stack layer the current variance is:
+              s <- ceiling(i / nvars)
+              if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
+                derivs[[re]][[i]] <- Reduce(kronecker, c(cormats[[re]][[i.stack]][s], cormats[[re]][-i.stack])) # The stack is always the first factor.
+              } else { # If variances are applied to the factor in the stack.
+                # In this case u.applyvars[[re]] is always equal to 1.
+                A <- matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]))
+                A[i - (s - 1) * nvars,] <- 0.5 # we can't use i directly
+                if (n.var[re] > 1) { # If there are more variable factors besides the stack.
+                  derivs[[re]][[i]] <- kronecker((A + t(A)) * vars[[re]][[s]] * cormats[[re]][[u.applyvars[[re]]]][[s]] / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))
+                } else { # If the stack is the only variable factor.
+                  derivs[[re]][[i]] <- (A + t(A)) * vars[[re]][[s]] * cormats[[re]][[u.applyvars[[re]]]][[s]] / k[param, iter]
+                }
               }
-            } else { # If variances are applied to 1 or more factors.
-              A <- matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]))
-              A[i,] <- 0.5
-              if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
-                derivs[[re]][[i]] <- (A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter]
-              } else { # If variances are applied to 1 or more factors, but not all factors.
-                derivs[[re]][[i]] <- kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))
-              }
+            } else if (ur.types[param] %in% c("R", "B")) {
+              # To do...
             }
-          } else if (ur.types[param] %in% c("R", "B")) {
-            j <- u.forFactor[[re]][i] # Which factor does this correlation or bandwidth belong to?
-            cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the indicator matrix or derivative of the GK.
-            if (ur.types[param] == "R") {
-              icor <- u.indexCor[[re]][[i]] # This correlation is the icor-th correlation in factor j.
-              B <- matrix(0, u.nlevels[[re]][j], u.nlevels[[re]][j]) # Making the indicator matrix.
-              B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
-              B <- B + t(B)
-              cormats1[[j]] <- B # Replacing with the indicator matrix.
-            } else if (ur.types[param] == "B") {
-              cormats1[[j]] <- -1 * bases[[re]][[j]] * cormats1[[j]] # d/dh exp(-h * D) = -D * exp(-h * D)
-            }
-            if (u.applyvars[[re]][1] == 0) {
-              derivs[[re]][[i]] <- as.numeric(vars[[re]]) * Reduce(kronecker, cormats1)
-            } else if (all(u.applyvars[[re]] == i.var[[re]])) {
-              derivs[[re]][[i]] <- vars[[re]] * Reduce(kronecker, cormats1)
-            } else {
-              derivs[[re]][[i]] <- kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]]))
-            }
+            Wu[, param] <- as.matrix(Z[[re]] %*% matrix(umat_sigmai[[re]] %*% derivs[[re]][[i]]))
+            param <- param + 1
           }
-          Wu[, param] <- as.matrix(Z[[re]] %*% matrix(umat_sigmai[[re]] %*% derivs[[re]][[i]]))
-          param <- param + 1
+        } # End of loop over the parameters for this random effect.
+      } else { # If there is no stack
+        for (i in 1:u.nparams[[re]]) {
+          if (isFixed[param] == 1) {
+            Wu[, param] <- 0
+            param <- param + 1
+          } else {
+            if (ur.types[param] == "V") {
+              if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
+                if (n.var[re] > 0) {
+                  derivs[[re]][[i]] <- Reduce(kronecker, cormats[[re]])
+                } else {
+                  derivs[[re]][[i]] <- matrix(1)
+                }
+              } else { # If variances are applied to 1 or more factors.
+                A <- matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]))
+                A[i,] <- 0.5
+                if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
+                  derivs[[re]][[i]] <- (A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter]
+                } else { # If variances are applied to 1 or more factors, but not all factors.
+                  derivs[[re]][[i]] <- kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))
+                }
+              }
+            } else if (ur.types[param] %in% c("R", "B")) {
+              j <- u.forFactor[[re]][i] # Which factor does this correlation or bandwidth belong to?
+              cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the indicator matrix or derivative of the GK.
+              if (ur.types[param] == "R") {
+                icor <- u.indexCor[[re]][[i]] # This correlation is the icor-th correlation in factor j.
+                B <- matrix(0, u.nlevels[[re]][j], u.nlevels[[re]][j]) # Making the indicator matrix.
+                B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
+                B <- B + t(B)
+                cormats1[[j]] <- B # Replacing with the indicator matrix.
+              } else if (ur.types[param] == "B") {
+                cormats1[[j]] <- -1 * bases[[re]][[j]] * cormats1[[j]] # d/dh exp(-h * D) = -D * exp(-h * D)
+              }
+              if (u.applyvars[[re]][1] == 0) {
+                derivs[[re]][[i]] <- as.numeric(vars[[re]]) * Reduce(kronecker, cormats1)
+              } else if (all(u.applyvars[[re]] == i.var[[re]])) {
+                derivs[[re]][[i]] <- vars[[re]] * Reduce(kronecker, cormats1)
+              } else {
+                derivs[[re]][[i]] <- kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]]))
+              }
+            }
+            Wu[, param] <- as.matrix(Z[[re]] %*% matrix(umat_sigmai[[re]] %*% derivs[[re]][[i]]))
+            param <- param + 1
+          }
         }
       }
     } # End of loop over random effects

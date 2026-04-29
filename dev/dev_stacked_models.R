@@ -1,5 +1,5 @@
 library(asreml)
-asreml.options(workspace = "5000mb", pworkspace = "5000mb")
+asreml.options(workspace = "5000mb", pworkspace = "5000mb", wvr = TRUE, score = TRUE, step.size = 1)
 
 # Seed:
 set.seed(1997)
@@ -18,7 +18,7 @@ d$ManEnv <- factor(paste(as.character(d$Man), as.character(d$Env), sep = ":"),
                    levels = c(paste0("R:", levels(d$Env)),
                               paste0("W:", levels(d$Env))))
 
-ds <- droplevels(d[d$Env %in% c("Bol12", "Kar12", "Cam12"),])# & d$Man == "R",])
+ds <- droplevels(d[d$Env %in% c("Bol12", "Kar12", "Cam12") & d$Man == "R",])
 ED <- ED[levels(ds$Env), levels(ds$Env)]
 EC1 <- exp(-0.05 * ED)
 EC2 <- exp(-1.00 * ED)
@@ -30,13 +30,14 @@ vf <- function(order, kappa) {
   return(list(V, dVk1, dVk2))
 }
 
-init <- c(0.1, 0.1)
+init <- c(0.7698575, 0.7698575)
 type <- c("V", "V")
 cons <- c("P", "P")
 fit1 <- asreml(fixed = GY ~ -1 + Env,
                random = ~ own(Env, "vf", init, type, cons):vm(Gen, K),
                residual = ~ idv(units),
-               data = ds)
+               data = ds,
+               maxit = 1)
 
 EC1K <- kronecker(EC1, K, make.dimnames = TRUE)
 EC2K <- kronecker(EC2, K, make.dimnames = TRUE)
@@ -47,7 +48,8 @@ ds$EnvGen <- factor(paste(as.character(ds$Env), as.character(ds$Gen), sep = ":")
 fit2 <- asreml(fixed = GY ~ -1 + Env,
                random = ~ vm(EnvGen, EC1K) + vm(EnvGen, EC2K),
                residual = ~ idv(units),
-               data = ds)
+               data = ds,
+               maxit = 1)
 
 
 summary(fit1)$varcomp
@@ -85,7 +87,7 @@ M <- M0 * (1 / k[nrow(k), 1])
 sigmai <- solve(k[1, 1] * EC1 + k[2, 1] * EC2)
 logDetvarGtotal <- -1 * sum(log(eigen(sigmai)$values))
 Gi <- kronecker(sigmai, nvarGi)
-M[5:988, 5:988] <- M[5:988, 5:988] + Gi
+M[4:741, 4:741] <- M[4:741, 4:741] + Gi
 Mchol <- chol(M)
 yPy <- Mchol[nrow(Mchol), ncol(Mchol)]^2 # R <- solve(Ri); G <- solve(Gi); Vi <- solve(G + R); P <- Vi - Vi %*% X %*% solve(t(X) %*% Vi %*% X) %*% t(X) %*% Vi; all.equal(yPy, as.numeric(t(y) %*% P %*% y))
 Mchol_XZ <- Mchol[1:(nrow(Mchol) - 1), 1:(ncol(Mchol) - 1)]
@@ -95,8 +97,8 @@ logDetG <- nrow(nvarGi) * logDetvarGtotal + nrow(sigmai) * logDetnvarGtotal # al
 logDetR <- nrow(y) * log(k[nrow(k), 1]) # all.equal(logDetR, sum(log(eigen(solve(Ri))$values)))
 LL[1] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
 bu <- backsolve(Mchol_XZ, My)
-b <- bu[1:4, 1, drop = FALSE]
-u <- bu[5:nrow(bu), 1, drop = FALSE]
+b <- bu[1:3, 1, drop = FALSE]
+u <- bu[4:nrow(bu), 1, drop = FALSE]
 Wu <- matrix(NA, nrow(y), nrow(k))
 umat <- matrix(u, nrow = nrow(nvarGi), ncol = nrow(sigmai))
 umat_sigmai <- umat %*% sigmai
