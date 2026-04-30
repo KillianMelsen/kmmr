@@ -379,6 +379,8 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     #                 cbind(t(Zmat2) %*% as.matrix(Ri) %*% Xmat,   t(Zmat2) %*% as.matrix(Ri) %*% Zmat1,               t(Zmat2) %*% as.matrix(Ri) %*% Zmat2,                  t(Zmat2) %*% as.matrix(Ri) %*% Zmat2 + solve(G2.2)))
     # system.time(LLstack <- -0.5 * (sum(log(eigen(R)$values)) + sum(log(eigen(G)$values)) + sum(log(eigen(Cmat)$values)) + as.numeric(t(y) %*% P %*% y)))
     # system.time(LLnaive <- -0.5 * (sum(log(eigen(R)$values)) + sum(log(eigen(Gnaive)$values)) + sum(log(eigen(Cnaive)$values)) + as.numeric(t(y) %*% Pnaive %*% y)))
+    # all.equal(LLstack, LL[iter])
+    # all.equal(LLnaive, LL[iter])
     # RHS.stack <- rbind(t(Xmat) %*% as.matrix(Ri) %*% y, t(Zmat1) %*% as.matrix(Ri) %*% y, t(Zmat2) %*% as.matrix(Ri) %*% y)
     # RHS.naive <- rbind(t(Xmat) %*% as.matrix(Ri) %*% y, t(Zmat1) %*% as.matrix(Ri) %*% y, t(Zmat2) %*% as.matrix(Ri) %*% y, t(Zmat2) %*% as.matrix(Ri) %*% y)
     # system.time(bu.stack <- solve(Cmat) %*% RHS.stack)
@@ -389,7 +391,37 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     # all.equal(bu[7:252], bu.naive[7:252], check.attributes = FALSE) # Main effect BLUPs
     # all.equal(bu[253:1728], bu.stack[253:1728], check.attributes = FALSE) # GxExM interaction BLUPs using stack of gk() and corg()
     # all.equal(bu[253:1728], bu.naive[253:1728] + bu.naive[1729:3204], check.attributes = FALSE) # GxExM interaction BLUPs using separate effects for gk() and corg()
-    # all.equal(as.matrix(Z[[1]]) %*% K %*% solve(G1) %*% u[1:246, 1, drop = FALSE], Wu[, 1, drop = FALSE], check.attributes = FALSE)
+    # all.equal(as.matrix(Z[[1]]) %*% K %*% solve(G1) %*% u[1:246, 1, drop = FALSE], Wu[, 1, drop = FALSE], check.attributes = FALSE) # working variate wrt to main effect variance
+    # SM <- matrix(0, 3, 3); SM[1,] <- 0.5; SM <- SM + t(SM) # working variate wrt to the first interaction variance (var 1, stack layer 1)
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(SM * outer(sqrt(k[2:4, iter]), sqrt(k[2:4, iter])) * exp(-k[8, iter] * ED) / k[2, iter], matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 2, drop = F], check.attributes = F)
+    # SM <- matrix(0, 3, 3); SM[2,] <- 0.5; SM <- SM + t(SM) # working variate wrt to the second interaction variance (var 2, stack layer 1)
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(SM * outer(sqrt(k[2:4, iter]), sqrt(k[2:4, iter])) * exp(-k[8, iter] * ED) / k[3, iter], matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 3, drop = F], check.attributes = F)
+    # SM <- matrix(0, 3, 3); SM[3,] <- 0.5; SM <- SM + t(SM) # working variate wrt to the third interaction variance (var 3, stack layer 1)
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(SM * outer(sqrt(k[2:4, iter]), sqrt(k[2:4, iter])) * exp(-k[8, iter] * ED) / k[4, iter], matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 4, drop = F], check.attributes = F)
+    # # Now move to the three variances for the second layer of the stack:
+    # SM <- matrix(0, 3, 3); SM[1,] <- 0.5; SM <- SM + t(SM) # working variate wrt to the fourth interaction variance (var 1, stack layer 2)
+    # CE <- matrix(0, 3, 3); CE[lower.tri(CE)] <- k[9:11, iter]; CE <- CE + t(CE); diag(CE) <- 1
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(SM * outer(sqrt(k[5:7, iter]), sqrt(k[5:7, iter])) * CE / k[5, iter], matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 5, drop = F], check.attributes = F)
+    # SM <- matrix(0, 3, 3); SM[2,] <- 0.5; SM <- SM + t(SM) # working variate wrt to the fifth interaction variance (var 2, stack layer 2)
+    # CE <- matrix(0, 3, 3); CE[lower.tri(CE)] <- k[9:11, iter]; CE <- CE + t(CE); diag(CE) <- 1
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(SM * outer(sqrt(k[5:7, iter]), sqrt(k[5:7, iter])) * CE / k[6, iter], matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 6, drop = F], check.attributes = F)
+    # SM <- matrix(0, 3, 3); SM[3,] <- 0.5; SM <- SM + t(SM) # working variate wrt to the sixth interaction variance (var 3, stack layer 2)
+    # CE <- matrix(0, 3, 3); CE[lower.tri(CE)] <- k[9:11, iter]; CE <- CE + t(CE); diag(CE) <- 1
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(SM * outer(sqrt(k[5:7, iter]), sqrt(k[5:7, iter])) * CE / k[7, iter], matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 7, drop = F], check.attributes = F)
+    # # Checking the working variate wrt to the bandwidth:
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(outer(sqrt(k[2:4, iter]), sqrt(k[2:4, iter])) * -ED * exp(-k[8, iter] * ED), matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 8, drop = F], check.attributes = F)
+    # # checking the working variate wrt to the correlation of E1 and E2:
+    # B <- matrix(0, 3, 3); B[lower.tri(B)][1] <- 1; B <- B + t(B)
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(outer(sqrt(k[5:7, iter]), sqrt(k[5:7, iter])) * B, matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 9, drop = F], check.attributes = F)
+    # # checking the working variate wrt to the correlation of E1 and E3:
+    # B <- matrix(0, 3, 3); B[lower.tri(B)][2] <- 1; B <- B + t(B)
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(outer(sqrt(k[5:7, iter]), sqrt(k[5:7, iter])) * B, matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 10, drop = F], check.attributes = F)
+    # # checking the working variate wrt to the correlation of E2 and E3:
+    # B <- matrix(0, 3, 3); B[lower.tri(B)][3] <- 1; B <- B + t(B)
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(outer(sqrt(k[5:7, iter]), sqrt(k[5:7, iter])) * B, matrix(c(1.0, k[12, iter], k[12, iter], 1.0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 11, drop = F], check.attributes = F)
+    # # Checking the working variate wrt to the correlation between M1 and M2:
+    # CE <- matrix(0, 3, 3); CE[lower.tri(CE)] <- k[9:11, iter]; CE <- CE + t(CE); diag(CE) <- 1
+    # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(outer(sqrt(k[2:4, iter]), sqrt(k[2:4, iter])) * exp(-k[8, iter] * ED) + outer(sqrt(k[5:7, iter]), sqrt(k[5:7, iter])) * CE, matrix(c(0, 1, 1, 0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 12, drop = F], check.attributes = F)
     
     ### Cholesky decomposition of M ====
     #tic(msg = "Cholesky decomp of M")
@@ -479,7 +511,46 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
                 }
               }
             } else if (ur.types[param] %in% c("R", "B")) {
-              # To do...
+              j <- u.forFactor[[re]][i] # Which factor does this correlation or bandwidth belong to?
+              cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the indicator matrix or derivative of the GK.
+              if (j == i.stack) { # If we are looking at a parameter that is part of a structure in the stack
+                # We need to determine which layer of the stack this parameter appears in:
+                s <- findInterval(i - nvars * sos, c(0, cumsum(u.nparams.list[[re]][[j + 1]])), left.open = TRUE)
+                if (ur.types[param] == "R") {
+                  icor <- u.indexCor[[re]][[i]] # This correlation is the icor-th correlation in factor j.
+                  B <- matrix(0, u.nlevels[[re]][j], u.nlevels[[re]][j]) # Making the indicator matrix.
+                  B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
+                  B <- B + t(B)
+                  cormats1[[j]] <- B # Replacing with the indicator matrix.
+                } else if (ur.types[param] == "B") {
+                  cormats1[[j]] <- -1 * bases[[re]][[j]][[s]] * cormats1[[j]][[s]] # d/dh exp(-h * D) = -D * exp(-h * D)
+                }
+                # Now add the relevant variances to compute the final derivative.
+                # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
+                if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
+                  derivs[[re]][[i]] <- as.numeric(vars[[re]][[s]]) * Reduce(kronecker, cormats1)
+                } else { # If there is a variance for each level of the stacked factor.
+                  derivs[[re]][[i]] <- kronecker(vars[[re]][[s]] * cormats1[[i.stack]], Reduce(kronecker, cormats1[-i.stack]))
+                }
+              } else { # If we are looking at a parameter for a structure that is not part of the stack
+                if (ur.types[param] == "R") {
+                  icor <- u.indexCor[[re]][[i]] # This correlation is the icor-th correlation in factor j.
+                  B <- matrix(0, u.nlevels[[re]][j], u.nlevels[[re]][j]) # Making the indicator matrix.
+                  B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
+                  B <- B + t(B)
+                  cormats1[[j]] <- B # Replacing with the indicator matrix.
+                } else if (ur.types[param] == "B") {
+                  cormats1[[j]] <- -1 * bases[[re]][[j]] * cormats1[[j]] # d/dh exp(-h * D) = -D * exp(-h * D)
+                }
+                # Now add the relevant variances to compute the final derivative.
+                # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
+                if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
+                  covmat.stack <- Reduce(`+`, lapply(1:sos, function(s) {as.numeric(vars[[re]][[s]]) * cormats1[[i.stack]][[s]]}))
+                } else { # If there is a variance for each level of the stacked factor.
+                  covmat.stack <- Reduce(`+`, lapply(1:sos, function(s) {vars[[re]][[s]] * cormats1[[i.stack]][[s]]}))
+                }
+                derivs[[re]][[i]] <- kronecker(covmat.stack, Reduce(kronecker, cormats1[-i.stack]))
+              }
             }
             Wu[, param] <- as.matrix(Z[[re]] %*% matrix(umat_sigmai[[re]] %*% derivs[[re]][[i]]))
             param <- param + 1
