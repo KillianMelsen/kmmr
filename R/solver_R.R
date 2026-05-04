@@ -422,6 +422,13 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     # # Checking the working variate wrt to the correlation between M1 and M2:
     # CE <- matrix(0, 3, 3); CE[lower.tri(CE)] <- k[9:11, iter]; CE <- CE + t(CE); diag(CE) <- 1
     # all.equal(as.matrix(Z[[2]]) %*% kronecker(kronecker(outer(sqrt(k[2:4, iter]), sqrt(k[2:4, iter])) * exp(-k[8, iter] * ED) + outer(sqrt(k[5:7, iter]), sqrt(k[5:7, iter])) * CE, matrix(c(0, 1, 1, 0), 2, 2)), K) %*% solve(G2) %*% u[247:1722, 1, drop = F], Wu[, 12, drop = F], check.attributes = F)
+    # for (x in 1:11) {
+    #   DERIV <- kronecker(derivs[[2]][[x]], K)
+    #   s1 <- as.numeric(-0.5 * (sum(diag(DERIV %*% kronecker(sigmai[[2]], solve(K)))) - sum(diag((kronecker(sigmai[[2]], solve(K)) %*% DERIV %*% kronecker(sigmai[[2]], solve(K))) %*% Ci[253:1728, 253:1728])) - t(y) %*% P %*% Wu[, x + 1, drop = F]))
+    #   s2 <- as.numeric(scores[x + 1, 1])
+    #   cat(all.equal(s1, s2), " ")
+    #   cat(abs(s1 - s2), "\n")
+    # }
     
     ### Cholesky decomposition of M ====
     #tic(msg = "Cholesky decomp of M")
