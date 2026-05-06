@@ -829,23 +829,92 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
       kUpdate <- k[, iter, drop = FALSE] + delta
       
       # Checking whether all unstructured correlation matrices are PD:
-      if (any(struc == "corg")) {
-        for (i in which(struc == "corg")) {
-          cormats[[i]] <- diag(nrow(cormats[[i]]))
-          cormats[[i]][lower.tri(cormats[[i]])] <- kUpdate[indices[[1 + i]], 1]
-          cormats[[i]] <- cormats[[i]] + t(cormats[[i]]) - diag(nrow(cormats[[i]]))
-          ev <- eigen(cormats[[i]], only.values = TRUE)$values
-          if (min(ev) <= 0) {
-            nonPD <- TRUE
-            checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-            constraintsUsed <- TRUE
-            npd <- indices[[1 + i]]
-            npd.cors <- c(npd.cors, npd)
-            cormats[[i]] <- as.matrix(nearPD(cormats[[i]], corr = TRUE, posd.tol = 1e-3)$mat)
-            delta[npd, 1] <- cormats[[i]][lower.tri(cormats[[i]])] - k[npd, iter]
+      for (re in 1:nU) {
+        if (any(u.isStack[[re]])) {
+          i.stack <- which(u.isStack[[re]])
+          sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
+          
+          # First we check the stack:
+          if (any(struc[[re]][[i.stack]] == "corg")) {
+            s <- which(struc[[re]][[i.stack]] == "corg") # The stack can obviously only have a single unstructured correlation matrix, we just need to figure out where in the stack it is.
+            cormats[[re]][[i.stack]][[s]] <- diag(nrow(cormats[[re]][[i.stack]][[s]]))
+            if (s == 1) {
+              indices.start <- 1
+            } else {
+              indices.start <- sum(u.nparams.list[[re]][[1 + i.stack]][1:(s - 1)]) + 1
+            }
+            indices.stack <- (indices.start):(indices.start - 1 + u.nparams.list[[re]][[1 + i.stack]][s]) # We need to get the correct indices.
+            cormats[[re]][[i.stack]][[s]][lower.tri(cormats[[re]][[i.stack]][[s]])] <- kUpdate[indices[[re]][[1 + i.stack]][indices.stack], 1] # Now construct the proposed corg matrix.
+            cormats[[re]][[i.stack]][[s]] <- cormats[[re]][[i.stack]][[s]] + t(cormats[[re]][[i.stack]][[s]]) - diag(nrow(cormats[[re]][[i.stack]][[s]])) # Symmetrising.
+            ev <- eigen(cormats[[re]][[i.stack]][[s]], only.values = TRUE)$values
+            if (min(ev) <= 0) {
+              nonPD <- TRUE
+              checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+              constraintsUsed <- TRUE
+              npd <- indices[[re]][[1 + i.stack]][indices.stack]
+              npd.cors <- c(npd.cors, npd)
+              cormats[[re]][[i.stack]][[s]] <- as.matrix(nearPD(cormats[[re]][[i.stack]][[s]], corr = TRUE, posd.tol = 1e-3)$mat)
+              delta[npd, 1] <- cormats[[re]][[i.stack]][[s]][lower.tri(cormats[[re]][[i.stack]][[s]])] - k[npd, iter]
+            }
+          }
+          
+          # Then we check the remaining structures:
+          if (any(struc[[re]] == "corg")) { # Note that the entry for the stack will always be FALSE: list(c("gk", "corg"), "cors", "lk") == "corg" -> FALSE FALSE FALSE
+            for (i in which(struc[[re]] == "corg")) { # Same thing here, i will never be the index of the stack.
+              cormats[[re]][[i]] <- diag(nrow(cormats[[re]][[i]]))
+              cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] <- kUpdate[indices[[re]][[1 + i]], 1]
+              cormats[[re]][[i]] <- cormats[[re]][[i]] + t(cormats[[re]][[i]]) - diag(nrow(cormats[[re]][[i]]))
+              ev <- eigen(cormats[[re]][[i]], only.values = TRUE)$values
+              if (min(ev) <= 0) {
+                nonPD <- TRUE
+                checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+                constraintsUsed <- TRUE
+                npd <- indices[[re]][[1 + i]]
+                npd.cors <- c(npd.cors, npd)
+                cormats[[re]][[i]] <- as.matrix(nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat)
+                delta[npd, 1] <- cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] - k[npd, iter]
+              }
+            }
+          }
+        } else {
+          if (any(struc[[re]] == "corg")) {
+            for (i in which(struc[[re]] == "corg")) {
+              cormats[[re]][[i]] <- diag(nrow(cormats[[re]][[i]]))
+              cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] <- kUpdate[indices[[re]][[1 + i]], 1]
+              cormats[[re]][[i]] <- cormats[[re]][[i]] + t(cormats[[re]][[i]]) - diag(nrow(cormats[[re]][[i]]))
+              ev <- eigen(cormats[[re]][[i]], only.values = TRUE)$values
+              if (min(ev) <= 0) {
+                nonPD <- TRUE
+                checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+                constraintsUsed <- TRUE
+                npd <- indices[[re]][[1 + i]]
+                npd.cors <- c(npd.cors, npd)
+                cormats[[re]][[i]] <- as.matrix(nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat)
+                delta[npd, 1] <- cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] - k[npd, iter]
+              }
+            }
           }
         }
       }
+      
+      # Old code, which still assumed only a single random effect:
+      # if (any(struc == "corg")) {
+      #   for (i in which(struc == "corg")) {
+      #     cormats[[i]] <- diag(nrow(cormats[[i]]))
+      #     cormats[[i]][lower.tri(cormats[[i]])] <- kUpdate[indices[[1 + i]], 1]
+      #     cormats[[i]] <- cormats[[i]] + t(cormats[[i]]) - diag(nrow(cormats[[i]]))
+      #     ev <- eigen(cormats[[i]], only.values = TRUE)$values
+      #     if (min(ev) <= 0) {
+      #       nonPD <- TRUE
+      #       checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+      #       constraintsUsed <- TRUE
+      #       npd <- indices[[1 + i]]
+      #       npd.cors <- c(npd.cors, npd)
+      #       cormats[[i]] <- as.matrix(nearPD(cormats[[i]], corr = TRUE, posd.tol = 1e-3)$mat)
+      #       delta[npd, 1] <- cormats[[i]][lower.tri(cormats[[i]])] - k[npd, iter]
+      #     }
+      #   }
+      # }
       
       # Now that we have (1) constrained for excessive changes, (2) constrained for boundary
       # issues, and (3) constrained non-PD correlation matrices, we can recompute delta for any
