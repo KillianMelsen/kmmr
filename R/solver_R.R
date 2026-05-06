@@ -221,7 +221,11 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
                                          doChol = FALSE)
                 indices.start <- indices.start + u.nparams.list[[re]][[1 + i]][s]
                 cormats[[re]][[i]][[s]] <- result[[1]] # Correlation matrix
-                covmat.stack <- covmat.stack + vars[[re]][[s]] * result[[1]] # We first construct sigma by summing all stack layers, then invert
+                if (nvars == 1) {
+                  covmat.stack <- covmat.stack + as.numeric(vars[[re]][[s]]) * result[[1]] # We first construct sigma by summing all stack layers, then invert
+                } else {
+                  covmat.stack <- covmat.stack + vars[[re]][[s]] * result[[1]] # We first construct sigma by summing all stack layers, then invert
+                }
               }
               cormatis[[i]] <- chol(covmat.stack)
               logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]])))
@@ -249,7 +253,9 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
           } else {
             logDetvarGtotal[re] <- logDetvarG
           }
-        } # End of if (n.var[re] > 0), which should always be TRUE for random effects with a stack
+        } else { # End of if (n.var[re] > 0), which should always be TRUE for random effects with a stack
+          stop("Something is wrong, n.var[re] > 0 is FALSE for a random effect with a stack...")
+        }
         if (n.nvar[re] > 0) {
           Gi <- kronecker(sigmai[[re]], nvarGi[[re]]) # This is a bit slow as well.
         } else {
