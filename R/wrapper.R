@@ -39,7 +39,14 @@ re <- function(formula, vars = ~ 1, ...) {
   data <- list(...)$data
   calls <- strsplit(as.character(formula[2]), ":")[[1]] # vector of function calls for each structure/factor.
   results <- lapply(calls, function(call) {
-    eval(parse(text = call), envir = data)
+    callStack <- grepl("stack\\(.*", call)
+    if (callStack) {
+      expr <- parse(text = call)[[1]]
+      expr$data <- data
+      eval(expr)
+    } else {
+      eval(parse(text = call), envir = data)
+    }
   })
   isStack <- unlist(lapply(results, function(element) {"sizeOfStack" %in% names(element)}))
   if (any(isStack)) {
@@ -335,10 +342,12 @@ lk <- function(factor, base) {
 #' stack
 #'
 #' @param formula The formula for the stacked correlation matrices
+#' @param ... 
 #'
 #' @returns A structure suitable for the stacked correlation matrices
 #' @keywords internal
-stack <- function(formula) {
+stack <- function(formula, ...) {
+  data <- list(...)$data
   calls <- strsplit(as.character(formula[2]), "\\s*\\+\\s*")[[1]]
   results <- lapply(calls, function(call) {
     eval(parse(text = call), envir = data)

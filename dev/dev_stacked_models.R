@@ -1,5 +1,5 @@
 library(asreml)
-asreml.options(workspace = "5000mb", pworkspace = "5000mb", wvr = TRUE, score = TRUE, step.size = 1)
+asreml.options(workspace = "5000mb", pworkspace = "5000mb", wvr = TRUE, score = TRUE)
 
 # Seed:
 set.seed(1997)
