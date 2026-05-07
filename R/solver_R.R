@@ -74,6 +74,7 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                        bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list) {
   ## Prelims ====
+  browser()
   k <- matrix(NA, length(init), maxit + 1) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
   boundary <- numeric(length(init)) # Vector to hold how many times each parameter has crossed the boundary.
