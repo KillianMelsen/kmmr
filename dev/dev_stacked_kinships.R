@@ -7,18 +7,18 @@ set.seed(1997)
 # Loading example data (DROPS):
 d <- readRDS("dev/exampledata.rds")[, c("Gen", "Man", "Env", "GY")]
 d <- droplevels(d[d$Man == "R" & d$Env == "Bol12",])
-GD <- readRDS("dev/exampledata_GD.rds")[levels(d$Gen), levels(d$Gen)]
-K1 <- readRDS("dev/exampledata_K.rds")[levels(d$Gen), levels(d$Gen)]
-K2 <- exp(-0.1 * GD)
-K1i <- solve(K1)
-K2i <- solve(K2)
-attr(K1i, "INVERSE") <- TRUE
-attr(K2i, "INVERSE") <- TRUE
+# GD <- readRDS("dev/exampledata_GD.rds")[levels(d$Gen), levels(d$Gen)]
+# K1 <- readRDS("dev/exampledata_K.rds")[levels(d$Gen), levels(d$Gen)]
+# K2 <- exp(-0.1 * GD)
+# K1i <- solve(K1)
+# K2i <- solve(K2)
+# attr(K1i, "INVERSE") <- TRUE
+# attr(K2i, "INVERSE") <- TRUE
 
-fit.asr <- asreml(fixed = GY ~ 1,
-                  random = ~ vm(Gen, K1) + vm(Gen, K2),
-                  residual = ~ idv(units),
-                  data = d)
+# fit.asr <- asreml(fixed = GY ~ 1,
+#                   random = ~ vm(Gen, K1) + vm(Gen, K2),
+#                   residual = ~ idv(units),
+#                   data = d)
 
 # This doesn't work for whatever reason. It should work...
 # vf <- function(order, kappa) {
@@ -33,13 +33,13 @@ fit.asr <- asreml(fixed = GY ~ 1,
 #                residual = ~ idv(units),
 #                data = d)
 
-summary(fit.asr)$varcomp
+# summary(fit.asr)$varcomp
 
 # Works!
-fit <- kmmr(fixed = GY ~ 1,
-            random = ~ re(~ stack(~ lk(Gen, K1) + lk(Gen, K2)), vars = ~ 1),
-            residual = ~ units,
-            data = d)
+# fit <- kmmr(fixed = GY ~ 1,
+#             random = ~ re(~ stack(~ lk(Gen, K1) + lk(Gen, K2)), vars = ~ 1),
+#             residual = ~ units,
+#             data = d)
 
 # Trying with 10 chromosome specific kinship matrices
 M <- read.csv("~/repos/kernels_2026/DROPS/raw_data/7a-Genotyping_50K_41722.csv")
@@ -82,12 +82,20 @@ fit.kmmr <- kmmr(fixed = GY ~ 1,
                                          lk(Gen, Ks[[7]]) + lk(Gen, Ks[[8]]) + lk(Gen, Ks[[9]]) +
                                          lk(Gen, Ks[[10]])), vars = ~ 1),
                  residual = ~ units,
-                 data = d))
+                 data = d,
+                 tolConvLL = 1e-9))
 
 u.asr <- matrix(fit.asr$coefficients$random, nrow = 246)
 u.asr <- rowSums(u.asr)
 u.kmmr <- fit.kmmr$u
 plot(u.kmmr, u.asr); abline(0, 1, col = "red")
+
+plot(summary(fit.asr)$varcomp$component[1:11],
+     summary(fit.kmmr)$varcomp$Estimate)
+abline(0, 1, col = "red")
+
+summary(fit.asr)$varcomp$component[1:11] - summary(fit.kmmr)$varcomp$Estimate
+
 
 fit.1K <- asreml(fixed = GY ~ 1,
                  random = ~ vm(Gen, K1),

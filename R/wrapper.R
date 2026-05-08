@@ -140,7 +140,14 @@ re <- function(formula, vars = ~ 1, ...) {
   # parameter is associated with all correlations.
   # If we unlist exactly twice we will get a single vector for corg(), and a list of vectors
   # for cors.
-  indexCor <- unlist(unlist(indexCor, recursive = FALSE), recursive = FALSE)
+  # This ended up not working for something like re(~ cors(Env):lk(Gen, Ki), vars = ~ 1), I suspect
+  # because if there is no stack, unlisting twice means we are actually unlisting the cors indexCor list into a vector like for corg.
+  # I think a simple if statement will solve it.
+  if (any(isStack)) { # If there is a stack we need to unlist exactly twice.
+    indexCor <- unlist(unlist(indexCor, recursive = FALSE), recursive = FALSE)
+  } else { # If there is no stack we need to unlist only once to avoid unlisting the cors list(1:p)
+    indexCor <- unlist(indexCor, recursive = FALSE)
+  }
   # Here we omit NAs (for liner kernels with no associated parameters for example)
   indexCor <- indexCor[!is.na(indexCor)] # [!is.na(indexCor)] works for both a list (cors) and a vector (corg)
   indexCor <- c(rep(0, nvars), indexCor) # And finally adding the 0s for the variances. This also works for both lists and vectors.

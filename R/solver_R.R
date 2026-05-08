@@ -74,7 +74,6 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                        bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list) {
   ## Prelims ====
-  browser()
   k <- matrix(NA, length(init), maxit + 1) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
   boundary <- numeric(length(init)) # Vector to hold how many times each parameter has crossed the boundary.
@@ -544,7 +543,8 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
                 if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
                   derivs[[re]][[i]] <- as.numeric(vars[[re]][[s]]) * Reduce(kronecker, cormats1)
                 } else { # If there is a variance for each level of the stacked factor.
-                  derivs[[re]][[i]] <- kronecker(vars[[re]][[s]] * cormats1[[i.stack]], Reduce(kronecker, cormats1[-i.stack]))
+                  # derivs[[re]][[i]] <- kronecker(vars[[re]][[s]] * cormats1[[i.stack]], Reduce(kronecker, cormats1[-i.stack]))
+                  derivs[[re]][[i]] <- Reduce(kronecker, c(list(vars[[re]][[s]] * cormats1[[i.stack]]), cormats1[-i.stack]))
                 }
               } else { # If we are looking at a parameter for a structure that is not part of the stack
                 if (ur.types[param] == "R") {
