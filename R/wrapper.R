@@ -491,7 +491,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   # Shifting indices if there are multiple random effects so we can use a single big vector k:
   if (nU > 1) {
     for (i in 2:nU) {
-      indices[[i]] <- lapply(indices[[i]], function(x) x + u.nparams[[i - 1]])
+      # indices[[i]] <- lapply(indices[[i]], function(x) x + u.nparams[[i - 1]])
+      indices[[i]] <- lapply(indices[[i]], function(x) x + sum(unlist(u.nparams[1:(i - 1)])))
     }
   }
   

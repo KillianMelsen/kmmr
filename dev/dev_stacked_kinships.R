@@ -96,6 +96,20 @@ abline(0, 1, col = "red")
 
 summary(fit.asr)$varcomp$component[1:11] - summary(fit.kmmr)$varcomp$Estimate
 
+system.time(
+fit.kmmr2 <- kmmr(fixed = GY ~ 1,
+                  random = ~ re(~ lk(Gen, Ksi[[1]]), vars = ~ 1) +
+                    re(~ lk(Gen, Ksi[[2]]), vars = ~ 1) +
+                    re(~ lk(Gen, Ksi[[3]]), vars = ~ 1) +
+                    re(~ lk(Gen, Ksi[[4]]), vars = ~ 1) +
+                    re(~ lk(Gen, Ksi[[5]]), vars = ~ 1) +
+                    re(~ lk(Gen, Ksi[[6]]), vars = ~ 1) +
+                    re(~ lk(Gen, Ksi[[7]]), vars = ~ 1) +
+                    re(~ lk(Gen, Ksi[[8]]), vars = ~ 1) +
+                    re(~ lk(Gen, Ksi[[9]]), vars = ~ 1) +
+                    re(~ lk(Gen, Ksi[[10]]), vars = ~ 1),
+                  residual = ~ units,
+                  data = d))
 
 fit.1K <- asreml(fixed = GY ~ 1,
                  random = ~ vm(Gen, K1),
