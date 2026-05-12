@@ -360,6 +360,10 @@ stack <- function(formula, ...) {
     eval(parse(text = call), envir = data)
   })
   bases <- lapply(results, `[[`, "base")
+  inv <- lapply(bases, function(base) attributes(base)$INVERSE)
+  if (any(unlist(inv))) {
+    stop("Base matrices for linear kernels that are part of a stack should not be inverted!")
+  }
   levels <- unique(lapply(results, `[[`, "levels")) # Every element of this list should be the same, so unique() should return a list of length 1
   stopifnot(length(levels) == 1)
   nlevels <- unique(vapply(results, `[[`, numeric(1), "nlevels")) # Every element of this vector should be the same, so unique() should return a single number
@@ -399,7 +403,8 @@ stack <- function(formula, ...) {
 #' @importFrom Matrix sparse.model.matrix
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepsize = c(0.5, 0.75, rep(1, maxit - 2)), weights = NULL,
-                 init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE) {
+                 init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
+                 weights = NULL) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -444,6 +449,15 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     stop("The 'verbose' argument must be a logical.")
   } else if (length(verbose) > 1) {
     stop("The 'verbose' argument must have length 1.")
+  }
+  if (is.numeric(weights)) {
+    weightsIsMatrix <- is.matrix(weights)
+  } else if (is.character(weights)) {
+    if (!(weights %in% colnames(data))) {
+      stop("The 'weights' argument does not match a column name of the dataframe.")
+    }
+  } else if (!is.null(weights)) {
+    stop("The 'weights' argument must be the name of a column in the dataframe, numeric vector of weights, or numeric matrix of weights.")
   }
   
   # Getting the name of the response column:
@@ -507,12 +521,25 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   y <- matrix(data[[response]])
   
   if (is.null(weights)) {
-    useH <- FALSE
-    H <- NA
+    useW <- FALSE
+    weights <- NA
   } else {
-    useH <- TRUE
-    stop("Weights are not yet implemented.")
-    # Do something here.
+    useW <- TRUE
+    if (weightsIsMatrix) {
+      weights <- chol(weights) # Let's not worry about the full covariance matrix yet, in this case 'weights' would be omega^-1
+    } else {
+      # For the diagonal approximation, 'weights' is a vector containing the diagonal elements of omega^-1, see Damesa et al. 2017, https://doi.org/10.2134/agronj2016.07.0395
+      # In this case we can estimate the inverse residual correlation matrix Ri if needed, or just use an identity matrix for independent residuals so that Ri = I.
+      # Then multiply on the left and right with a diagonal matrix of the square roots of the original weights: weights %*% Ri %*% weights.
+      # Or maybe alternatively, solve(outer(diag(weights), diag(weights)) * Ri) to obtain the residual covariance matrix.
+      # (outer(diag(weights), diag(weights)) * Ri is the inverse residual covariance matrix).
+      # Note that any residual variances must be fixed to 1.0
+      if (is.numeric(weights)) {
+        weights <- diag(sqrt(weights))
+      } else {
+        weights <- diag(sqrt(data[[weights]]))
+      }
+    }
   }
   
   # Initial values:
@@ -535,7 +562,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   
   # Fitting:
   # browser()
-  result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, H = H, useH = useH,
+  result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, W = weights, useW = useW,
                        maxit = maxit, stepsize = stepsize, verbose = verbose,
                        tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
                        ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,

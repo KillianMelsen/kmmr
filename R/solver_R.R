@@ -45,8 +45,10 @@ formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL, doChol =
 #' @param Z List containing numeric random effect design matrices. One for each random effect.
 #' @param S List containing numeric residual covariance matrices.
 #' @param init Numeric vector of initial values for the parameters.
-#' @param H Numeric matrix of weights, i.e., standard errors or numbers of samples.
-#' @param useH Logical indicating whether to use weights or not.
+#' @param W Numeric matrix of weights. This can be based on the full covariance matrix $\Omega^{-1}$.
+#' Alternatively, for a diagonal approximation, the weights can be based on the reciprocals of known variances, i.e., the diagonal entries of $\Omega^{-1}$ or plot numbers.
+#' Note that 'W' is an upper triangular Cholesky factor if the full $\Omega^{-1}$ is used, or a diagonal matrix containing the square roots of the plot numbers or diagonal entris of $\Omega^{-1}$.
+#' @param useW Logical indicating whether to use weights or not.
 #' @param maxit Numeric value indicating the maximum number of iterations for the AI algorithm.
 #' @param stepsize Numeric vector indicating the scaling factor for parameter updates for each iteration.
 #' @param verbose  Logical indicating verbosity.
@@ -70,7 +72,7 @@ formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL, doChol =
 #' @keywords internal
 #' @importFrom methods as
 #' @importFrom Matrix nearPD
-solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolConvLL,
+solveLMM_R <- function(y, X, Z, S, init, W, useW, maxit, stepsize, verbose, tolConvLL,
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                        bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list) {
   ## Prelims ====
@@ -152,8 +154,11 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     start <- Sys.time()
     ### Compute Ri ====
     #tic("Computing Ri")
-    if (useH) {
-      # Add the weights 
+    if (useW) {
+      if (iter == 1) {
+        S <- t(W) %*% S %*% W
+      }
+      Ri <- 1 / k[nrow(k), iter] * S
     } else {
       Ri <- 1 / k[nrow(k), iter] * S # The residual variance is always last in kappa for now
     }
@@ -170,8 +175,9 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     }
     
     ### Computing M = t(Wy) %*% Ri %*% Wy
-    if (useH) {
-      # We need to compute the entire thing every time? Probably not for diagonal R...
+    if (useW) {
+      # We need to compute the entire thing every time? Hopefully not for diagonal R...
+      M <- as.matrix(Matrix::t(Wy) %*% Ri %*% Wy)
     } else {
       if (iter == 1) {
         M0 <- Matrix::t(Wy) %*% Wy # Slow, but very sparse so faster in C++, maybe use something like syrk()?
@@ -462,8 +468,9 @@ solveLMM_R <- function(y, X, Z, S, init, H, useH, maxit, stepsize, verbose, tolC
     } # End loop over random effects
     
     # Computing logDetR:
-    if (useH) {
-      # Do something here.
+    if (useW) {
+      # For now just assume a diagonal structure:
+      logDetR <- sum(log(diag(Ri))) * -1
     } else {
       logDetR <- n * log(k[nrow(k), iter])
     }
