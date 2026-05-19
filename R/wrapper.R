@@ -403,8 +403,7 @@ stack <- function(formula, ...) {
 #' @importFrom Matrix sparse.model.matrix
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepsize = c(0.5, 0.75, rep(1, maxit - 2)), weights = NULL,
-                 init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
-                 weights = NULL) {
+                 init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
