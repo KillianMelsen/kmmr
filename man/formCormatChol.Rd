@@ -4,7 +4,7 @@
 \alias{formCormatChol}
 \title{formCormatChol}
 \usage{
-formCormatChol(struc, p = NULL, params = NULL, base = NULL)
+formCormatChol(struc, p = NULL, params = NULL, base = NULL, doChol = TRUE)
 }
 \arguments{
 \item{struc}{Character indicating which correlation structure must be formed from the parameters.}
@@ -14,6 +14,8 @@ formCormatChol(struc, p = NULL, params = NULL, base = NULL)
 \item{params}{Numeric vector containing the parameters needed to form the correlation matrix.}
 
 \item{base}{Optional argument containing a numeric matrix to be used in forming the correlation matrix (distance matrix for Gaussian kernel, correlation matrix or kinship for linear kernel).}
+
+\item{doChol}{Logical indicating whether a cholesky decomposition of the correlation matrix should be computed (for obtaining the log determinant and inverse).}
 }
 \value{
 A list containing the formed correlation matrix as well as its upper triangular Cholesky decomposition.

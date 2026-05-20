@@ -4,7 +4,7 @@
 \alias{re}
 \title{re}
 \usage{
-re(formula, vars, ...)
+re(formula, vars = ~1, ...)
 }
 \arguments{
 \item{formula}{Random effect formula.}

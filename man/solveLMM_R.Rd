@@ -10,8 +10,8 @@ solveLMM_R(
   Z,
   S,
   init,
-  H,
-  useH,
+  weights,
+  useWeights,
   maxit,
   stepsize,
   verbose,
@@ -20,13 +20,16 @@ solveLMM_R(
   u.applyvars,
   ur.types,
   u.nlevels,
+  u.nparams,
   u.forFactor,
   u.indexCor,
   bases,
   struc,
   i.var,
   i.nvar,
-  isFixed
+  isFixed,
+  u.isStack,
+  u.nparams.list
 )
 }
 \arguments{
@@ -40,9 +43,11 @@ solveLMM_R(
 
 \item{init}{Numeric vector of initial values for the parameters.}
 
-\item{H}{Numeric matrix of weights, i.e., standard errors or numbers of samples.}
+\item{weights}{Numeric matrix of weights. This can be based on the full covariance matrix $\Omega^{-1}$.
+Alternatively, for a diagonal approximation, the weights can be based on the reciprocals of known variances, i.e., the diagonal entries of $\Omega^{-1}$ or plot numbers.
+Note that 'weights' is an upper triangular Cholesky factor if the full $\Omega^{-1}$ is used, or a diagonal matrix containing the square roots of the plot numbers or diagonal entries of $\Omega^{-1}$.}
 
-\item{useH}{Logical indicating whether to use weights or not.}
+\item{useWeights}{Logical indicating whether to use weights or not.}
 
 \item{maxit}{Numeric value indicating the maximum number of iterations for the AI algorithm.}
 
@@ -73,6 +78,10 @@ solveLMM_R(
 \item{i.nvar}{Which factors have non-variable covariance structures?}
 
 \item{isFixed}{Which parameters are fixed and should not be estimated?}
+
+\item{u.isStack}{Are factors within random effects made up of a stack of structures?}
+
+\item{u.nparams.list}{Number of parameters per factor/random effect in list format.}
 }
 \value{
 A list containing the log-likelihood, parameter estimates, average information matrix,

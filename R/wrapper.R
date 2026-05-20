@@ -400,7 +400,7 @@ stack <- function(formula, ...) {
 #' @returns A list with the results.
 #' @export
 #' @importFrom stats na.omit
-#' @importFrom Matrix sparse.model.matrix
+#' @importFrom Matrix sparse.model.matrix Matrix
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepsize = c(0.5, 0.75, rep(1, maxit - 2)), weights = NULL,
                  init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE) {
@@ -452,6 +452,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   if (is.numeric(weights)) {
     weightsIsMatrix <- is.matrix(weights)
   } else if (is.character(weights)) {
+    weightsIsMatrix <- FALSE
     if (!(weights %in% colnames(data))) {
       stop("The 'weights' argument does not match a column name of the dataframe.")
     }
@@ -520,10 +521,10 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   y <- matrix(data[[response]])
   
   if (is.null(weights)) {
-    useW <- FALSE
+    useWeights <- FALSE
     weights <- NA
   } else {
-    useW <- TRUE
+    useWeights <- TRUE
     if (weightsIsMatrix) {
       weights <- chol(weights) # Let's not worry about the full covariance matrix yet, in this case 'weights' would be omega^-1
     } else {
@@ -536,7 +537,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
       if (is.numeric(weights)) {
         weights <- diag(sqrt(weights))
       } else {
-        weights <- diag(sqrt(data[[weights]]))
+        weights <- Matrix(diag(sqrt(data[[weights]])))
       }
     }
   }
@@ -561,7 +562,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   
   # Fitting:
   # browser()
-  result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, W = weights, useW = useW,
+  result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, weights = weights, useWeights = useWeights,
                        maxit = maxit, stepsize = stepsize, verbose = verbose,
                        tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
                        ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,

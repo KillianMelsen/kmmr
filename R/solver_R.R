@@ -45,10 +45,10 @@ formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL, doChol =
 #' @param Z List containing numeric random effect design matrices. One for each random effect.
 #' @param S List containing numeric residual covariance matrices.
 #' @param init Numeric vector of initial values for the parameters.
-#' @param W Numeric matrix of weights. This can be based on the full covariance matrix $\Omega^{-1}$.
+#' @param weights Numeric matrix of weights. This can be based on the full covariance matrix $\Omega^{-1}$.
 #' Alternatively, for a diagonal approximation, the weights can be based on the reciprocals of known variances, i.e., the diagonal entries of $\Omega^{-1}$ or plot numbers.
-#' Note that 'W' is an upper triangular Cholesky factor if the full $\Omega^{-1}$ is used, or a diagonal matrix containing the square roots of the plot numbers or diagonal entris of $\Omega^{-1}$.
-#' @param useW Logical indicating whether to use weights or not.
+#' Note that 'weights' is an upper triangular Cholesky factor if the full $\Omega^{-1}$ is used, or a diagonal matrix containing the square roots of the plot numbers or diagonal entries of $\Omega^{-1}$.
+#' @param useWeights Logical indicating whether to use weights or not.
 #' @param maxit Numeric value indicating the maximum number of iterations for the AI algorithm.
 #' @param stepsize Numeric vector indicating the scaling factor for parameter updates for each iteration.
 #' @param verbose  Logical indicating verbosity.
@@ -72,7 +72,7 @@ formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL, doChol =
 #' @keywords internal
 #' @importFrom methods as
 #' @importFrom Matrix nearPD
-solveLMM_R <- function(y, X, Z, S, init, W, useW, maxit, stepsize, verbose, tolConvLL,
+solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, verbose, tolConvLL,
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                        bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list) {
   ## Prelims ====
@@ -154,14 +154,10 @@ solveLMM_R <- function(y, X, Z, S, init, W, useW, maxit, stepsize, verbose, tolC
     start <- Sys.time()
     ### Compute Ri ====
     #tic("Computing Ri")
-    if (useW) {
-      if (iter == 1) {
-        S <- t(W) %*% S %*% W
-      }
-      Ri <- 1 / k[nrow(k), iter] * S
-    } else {
-      Ri <- 1 / k[nrow(k), iter] * S # The residual variance is always last in kappa for now
+    if (useWeights & iter == 1) { # Apply weights in the first iteration if they need to be used.
+      S <- Matrix::t(weights) %*% S %*% weights
     }
+    Ri <- 1 / k[nrow(k), iter] * S # The residual variance is always last in kappa for now
     #toc(log = T)
     
     ### Forming W = [X Z y] ====
@@ -175,7 +171,7 @@ solveLMM_R <- function(y, X, Z, S, init, W, useW, maxit, stepsize, verbose, tolC
     }
     
     ### Computing M = t(Wy) %*% Ri %*% Wy
-    if (useW) {
+    if (useWeights) {
       # We need to compute the entire thing every time? Hopefully not for diagonal R...
       M <- as.matrix(Matrix::t(Wy) %*% Ri %*% Wy)
     } else {
@@ -377,9 +373,10 @@ solveLMM_R <- function(y, X, Z, S, init, W, useW, maxit, stepsize, verbose, tolC
     } # End loop over random effects
     
     # Computing logDetR:
-    if (useW) {
+    if (useWeights) {
       # For now just assume a diagonal structure:
-      logDetR <- sum(log(diag(Ri))) * -1
+      # logDetR <- sum(log(diag(Ri))) * -1 # diag() doesn't work with dgCMatrix...
+      logDetR <- sum(log(Ri@x)) * -1
     } else {
       logDetR <- n * log(k[nrow(k), iter])
     }
@@ -542,7 +539,7 @@ solveLMM_R <- function(y, X, Z, S, init, W, useW, maxit, stepsize, verbose, tolC
     if (isFixed[nrow(k)] == 1) {
       Wu[, nrow(k)] <- 0
     } else {
-      Wu[, nrow(k)] <- (1 / k[nrow(k), iter]) * e@x # I think this is always true for diagonal R, even with weights.
+      Wu[, nrow(k)] <- (1 / k[nrow(k), iter]) * e@x # I think this is always true for diagonal R (also for non-diagonal fixed R, if that would ever be the case), even with weights.
     }
     #toc(log = T)
     

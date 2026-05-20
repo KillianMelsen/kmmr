@@ -3,6 +3,7 @@
 S3method(print,summary.kmmrFit)
 S3method(summary,kmmrFit)
 export(kmmr)
+importFrom(Matrix,Matrix)
 importFrom(Matrix,nearPD)
 importFrom(Matrix,sparse.model.matrix)
 importFrom(Rcpp,evalCpp)
