@@ -545,10 +545,14 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     
     ### Computing the AI matrix ====
     #tic("Computing the AI matrix and its inverse")
-    # XWjxZWj <- Matrix::t(W) %*% Ri %*% Wu
-    XWjxZWj <- Matrix::t(W) %*% Wu * (1 / k[nrow(k), iter])
-    # WiWj <- t(Wu) %*% Ri %*% Wu
-    WiWj <- t(Wu) %*% Wu * (1 / k[nrow(k), iter])
+    if (useWeights) {
+      XWjxZWj <- Matrix::t(W) %*% Ri %*% Wu
+      WiWj <- t(Wu) %*% Ri %*% Wu
+    } else {
+      XWjxZWj <- Matrix::t(W) %*% Wu * (1 / k[nrow(k), iter])
+      WiWj <- t(Wu) %*% Wu * (1 / k[nrow(k), iter])
+    }
+    
     # We are trying to solve C %*% buWu = XWjxZWj
     # We already have R where R^T %*% R = C (cholesky decomposition of C)
     # So instead of :
