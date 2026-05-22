@@ -13,12 +13,12 @@ library(asreml)
 fit.asr <- asreml(fixed = GY ~ -1 + Env,
                   random = ~ corgh(Env):vm(Gen, Ki),
                   residual = ~ idv(units),
-                  data = d)
+                  data = d, maxit = 1)
 
 fit.asr.wt <- asreml(fixed = GY ~ -1 + Env,
                      random = ~ corgh(Env):vm(Gen, Ki),
                      residual = ~ units,
-                     data = d,
+                     data = d, maxit = 1,
                      weights = weight,
                      family = asr_gaussian(dispersion = 1.0))
 

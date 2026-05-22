@@ -13,7 +13,7 @@ attr(Ki, "INVERSE") <- TRUE
 # d <- droplevels(d[d$Man == "LN" & !(d$Env %in% excl),])
 d <- droplevels(d[d$Man == "LN" & d$Env %in% c("HAN_2015", "KAL_2015", "KIE_2015", "QLB_2015", "RHH_2015"),])
 
-fit.asr <- asreml(fixed = GY ~ -1 + Env,
+fit.asr.step <- asreml(fixed = GY ~ -1 + Env,
                   random = ~ facv(Env, 2):vm(Gen, Ki),
                   residual = ~ idv(units),
                   data = d,
@@ -24,6 +24,11 @@ p <- length(levels(d$Env))
 init <- as.numeric(fit.asr$trace[5:20,1,drop=F])
 isFixed <- init == 0
 k <- matrix(NA, 16, 20)
+rownames(k) <- c(sprintf("L%d1", 1:5),
+                 sprintf("L%d2", 1:5),
+                 sprintf("PSI%d", 1:5),
+                 "rvar")
+names(isFixed) <- rownames(k)
 LL <- numeric(20)
 k[, 1] <- init
 X <- model.matrix(GY ~ -1 + Env, d)
@@ -102,10 +107,12 @@ Wu[, 15] <- dGdPSI5 %*% Gi %*% u
 Wu[, 16] <- Ri %*% e
 
 AI <- t(Wu) %*% P %*% Wu / 2
+rownames(AI) <- colnames(AI) <- rownames(k)
 AIi <- matrix(0, nrow(AI), ncol(AI))
 AIi[!isFixed, !isFixed] <- solve(AI[!isFixed, !isFixed])
 
 scores <- matrix(0, nrow(k), 1)
+rownames(scores) <- rownames(k)
 scores[1, 1] <-  -0.5 * (sum(diag(dGdL11 %*% Gi)) - sum(diag((Gi %*% dGdL11 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 1])
 scores[2, 1] <-  -0.5 * (sum(diag(dGdL21 %*% Gi)) - sum(diag((Gi %*% dGdL21 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 2])
 scores[3, 1] <-  -0.5 * (sum(diag(dGdL31 %*% Gi)) - sum(diag((Gi %*% dGdL31 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 3])
@@ -126,18 +133,54 @@ scores[15, 1] <- -0.5 * (sum(diag(dGdPSI5 %*% Gi)) - sum(diag((Gi %*% dGdPSI5 %*
 
 scores[16, 1] <- -0.5 * (sum(diag(Ri)) - sum(diag((t(W) %*% Ri %*% Ri %*% W) %*% Ci)) - t(y) %*% P %*% Wu[, 16])
 
-delta <- fit.asr$trace[4,1] * AIi %*% scores
-
-# Our delta does not match asreml's delta.
-# The scores are identical, the AIi matrix is different, and the working variates also seem to be different. LL is also identical.
-# Also, the stepsize seems to be squared.
-AIi.asr <- as.matrix(fit.asr$ai[1:16, 1:16]); rownames(AIi.asr) <- colnames(AIi.asr) <- NULL
-Wu.asr <- as.matrix(fit.asr$wrkv)
-
 delta <- fit.asr$trace[4,1]^2 * AIi %*% scores
-delta.asr <- fit.asr$trace[4,1]^2 * AIi.asr %*% scores
-delta.asr.actual <- matrix(fit.asr$trace[5:20, 2] - fit.asr$trace[5:20, 1])
+rownames(delta) <- rownames(k)
+kUpdate <- k[, iter, drop = F] + delta
+con.total <- c()
 
+# Updated PSI2 is negative, so we need to constrain it:
+con <- 12
+con.total <- sort(unique(c(con.total, con)))
+delta[con,] <- 1e-5 - k[con, iter]
 
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
 
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
+
+# Now PSI1 and PSI5 are negative:
+con <- c(11, 15)
+con.total <- sort(unique(c(con.total, con)))
+delta[con,] <- 1e-5 - k[con, iter]
+
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
+
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
 
