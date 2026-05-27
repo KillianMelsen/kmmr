@@ -68,6 +68,7 @@ b <- bu[1:5, 1, drop = F]
 u <- bu[6:1015, 1, drop = F]
 e <- y - W %*% bu
 
+{
 dGdL11 <- kronecker(getLoadingDerivs(1, 1, L), K)
 dGdL21 <- kronecker(getLoadingDerivs(2, 1, L), K)
 dGdL31 <- kronecker(getLoadingDerivs(3, 1, L), K)
@@ -106,6 +107,7 @@ Wu[, 14] <- dGdPSI4 %*% Gi %*% u
 Wu[, 15] <- dGdPSI5 %*% Gi %*% u
 
 Wu[, 16] <- Ri %*% e
+}
 
 AI <- t(Wu) %*% P %*% Wu / 2
 rownames(AI) <- colnames(AI) <- rownames(k)
@@ -114,6 +116,7 @@ AIi[!isFixed, !isFixed] <- solve(AI[!isFixed, !isFixed])
 
 scores <- matrix(0, nrow(k), 1)
 rownames(scores) <- rownames(k)
+{
 scores[1, 1] <-  -0.5 * (sum(diag(dGdL11 %*% Gi)) - sum(diag((Gi %*% dGdL11 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 1])
 scores[2, 1] <-  -0.5 * (sum(diag(dGdL21 %*% Gi)) - sum(diag((Gi %*% dGdL21 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 2])
 scores[3, 1] <-  -0.5 * (sum(diag(dGdL31 %*% Gi)) - sum(diag((Gi %*% dGdL31 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 3])
@@ -133,6 +136,7 @@ scores[14, 1] <- -0.5 * (sum(diag(dGdPSI4 %*% Gi)) - sum(diag((Gi %*% dGdPSI4 %*
 scores[15, 1] <- -0.5 * (sum(diag(dGdPSI5 %*% Gi)) - sum(diag((Gi %*% dGdPSI5 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 15])
 
 scores[16, 1] <- -0.5 * (sum(diag(Ri)) - sum(diag((t(W) %*% Ri %*% Ri %*% W) %*% Ci)) - t(y) %*% P %*% Wu[, 16])
+}
 
 # Investigating differences between asreml AI matrix and my AI matrix:
 AIi.asr <- as.matrix(fit.asr$ai)[-17, -17]
@@ -140,8 +144,9 @@ rownames(AIi.asr) <- colnames(AIi.asr) <- colnames(AI)
 AI.asr <- matrix(0, 16, 16)
 rownames(AI.asr) <- colnames(AI.asr) <- colnames(AI)
 AI.asr[-6, -6] <- solve(AIi.asr[-6, -6])
-# Wu.asr <- as.matrix(fit.asr$wrkv[, -17])
-# all.equal((t(Wu.asr) %*% P %*% Wu.asr / 2)[-6,-6], AI[-6,-6], check.attributes = FALSE)
+Wu.asr <- as.matrix(fit.asr$wrkv[, -17])
+all.equal((t(Wu.asr) %*% P %*% Wu.asr / 2)[-6,-6], AI[-6,-6], check.attributes = FALSE)
+all.equal(as.numeric(fit.asr$score)[-17], as.numeric(scores))
 
 # Computing delta:
 # delta <- fit.asr$trace[4,1]^2 * AIi %*% scores
@@ -149,6 +154,11 @@ delta <- fit.asr$trace[4,1]^2 * AIi.asr %*% scores
 rownames(delta) <- rownames(k)
 kUpdate <- k[, iter, drop = F] + delta
 con.total <- c()
+
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
 
 # Updated PSI2 is negative, so we need to constrain it:
 # con <- 12
@@ -222,6 +232,7 @@ b <- bu[1:5, 1, drop = F]
 u <- bu[6:1015, 1, drop = F]
 e <- y - W %*% bu
 
+{
 dGdL11 <- kronecker(getLoadingDerivs(1, 1, L), K)
 dGdL21 <- kronecker(getLoadingDerivs(2, 1, L), K)
 dGdL31 <- kronecker(getLoadingDerivs(3, 1, L), K)
@@ -260,12 +271,14 @@ Wu[, 14] <- dGdPSI4 %*% Gi %*% u
 Wu[, 15] <- dGdPSI5 %*% Gi %*% u
 
 Wu[, 16] <- Ri %*% e
+}
 
 AI <- t(Wu) %*% P %*% Wu / 2
 rownames(AI) <- colnames(AI) <- rownames(k)
 AIi <- matrix(0, nrow(AI), ncol(AI))
 AIi[!isFixed, !isFixed] <- solve(AI[!isFixed, !isFixed])
 
+{
 scores <- matrix(0, nrow(k), 1)
 rownames(scores) <- rownames(k)
 scores[1, 1] <-  -0.5 * (sum(diag(dGdL11 %*% Gi)) - sum(diag((Gi %*% dGdL11 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 1])
@@ -287,6 +300,7 @@ scores[14, 1] <- -0.5 * (sum(diag(dGdPSI4 %*% Gi)) - sum(diag((Gi %*% dGdPSI4 %*
 scores[15, 1] <- -0.5 * (sum(diag(dGdPSI5 %*% Gi)) - sum(diag((Gi %*% dGdPSI5 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 15])
 
 scores[16, 1] <- -0.5 * (sum(diag(Ri)) - sum(diag((t(W) %*% Ri %*% Ri %*% W) %*% Ci)) - t(y) %*% P %*% Wu[, 16])
+}
 
 # Investigating differences between asreml AI matrix and my AI matrix:
 fit.asr <- asreml(fixed = GY ~ -1 + Env,
@@ -299,17 +313,27 @@ rownames(AIi.asr) <- colnames(AIi.asr) <- colnames(AI)
 AI.asr <- matrix(0, 16, 16)
 rownames(AI.asr) <- colnames(AI.asr) <- colnames(AI)
 AI.asr[-6, -6] <- solve(AIi.asr[-6, -6])
+Wu.asr <- as.matrix(fit.asr$wrkv[, -17])
+all.equal((t(Wu.asr) %*% P %*% Wu.asr / 2)[-6,-6], AI[-6,-6], check.attributes = FALSE)
+all.equal(as.numeric(fit.asr$score)[-17], as.numeric(scores))
 
 # Computing delta:
-delta <- fit.asr$trace[4,2]^2 * AIi %*% scores
+delta <- fit.asr$trace[4,2]^2 * AIi.asr %*% scores
 rownames(delta) <- rownames(k)
 kUpdate <- k[, iter, drop = F] + delta
 con.total <- c()
 
-# Updated PSI1 is negative, so we need to constrain it:
-con <- 11
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# Constrain the updates for PSI5 and L31:
+con <- c(3, 15)
 con.total <- sort(unique(c(con.total, con)))
-delta[con,] <- 1e-5 - k[con, iter]
+delta[con,] <- c(-2 * k[3, iter] - k[3, iter], # Maximum change in magnitude for sign-flipped loadings is 2
+                 1e-5 - k[15, iter]) # Variances can't go negative
 
 # Recompute delta for the unconstrained parameters:
 noncon <- setdiff(1:nrow(k), con.total)
@@ -326,8 +350,43 @@ AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
 deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
 delta[noncon, 1] <- deltauu
 
-# Recompute kUpdate, all seems fine:
+# Recompute kUpdate:
 kUpdate <- k[, iter, drop = F] + delta
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# Now constrain the update for PSI2:
+con <- c(12)
+con.total <- sort(unique(c(con.total, con)))
+delta[con,] <- c(1e-5 - k[12, iter]) # Variances can't go negative
+
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
+
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# Now it all seems fine:
 k[, iter + 1] <- kUpdate
 
 # Iteration 3 ====
@@ -355,6 +414,7 @@ b <- bu[1:5, 1, drop = F]
 u <- bu[6:1015, 1, drop = F]
 e <- y - W %*% bu
 
+{
 dGdL11 <- kronecker(getLoadingDerivs(1, 1, L), K)
 dGdL21 <- kronecker(getLoadingDerivs(2, 1, L), K)
 dGdL31 <- kronecker(getLoadingDerivs(3, 1, L), K)
@@ -393,12 +453,15 @@ Wu[, 14] <- dGdPSI4 %*% Gi %*% u
 Wu[, 15] <- dGdPSI5 %*% Gi %*% u
 
 Wu[, 16] <- Ri %*% e
+}
 
 AI <- t(Wu) %*% P %*% Wu / 2
 rownames(AI) <- colnames(AI) <- rownames(k)
+diag(AI)[1:10] <- diag(AI)[1:10] + 0.035 * diag(AI)[1:10]
 AIi <- matrix(0, nrow(AI), ncol(AI))
 AIi[!isFixed, !isFixed] <- solve(AI[!isFixed, !isFixed])
 
+{
 scores <- matrix(0, nrow(k), 1)
 rownames(scores) <- rownames(k)
 scores[1, 1] <-  -0.5 * (sum(diag(dGdL11 %*% Gi)) - sum(diag((Gi %*% dGdL11 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 1])
@@ -420,12 +483,92 @@ scores[14, 1] <- -0.5 * (sum(diag(dGdPSI4 %*% Gi)) - sum(diag((Gi %*% dGdPSI4 %*
 scores[15, 1] <- -0.5 * (sum(diag(dGdPSI5 %*% Gi)) - sum(diag((Gi %*% dGdPSI5 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 15])
 
 scores[16, 1] <- -0.5 * (sum(diag(Ri)) - sum(diag((t(W) %*% Ri %*% Ri %*% W) %*% Ci)) - t(y) %*% P %*% Wu[, 16])
+}
+
+# Investigating differences between asreml AI matrix and my AI matrix:
+fit.asr <- asreml(fixed = GY ~ -1 + Env,
+                  random = ~ facv(Env, 2):vm(Gen, Ki),
+                  residual = ~ idv(units),
+                  data = d,
+                  maxit = 3)
+# AIi.asr <- as.matrix(fit.asr$ai)[-17, -17]
+# rownames(AIi.asr) <- colnames(AIi.asr) <- colnames(AI)
+# AI.asr <- matrix(0, 16, 16)
+# rownames(AI.asr) <- colnames(AI.asr) <- colnames(AI)
+# AI.asr[-6, -6] <- solve(AIi.asr[-6, -6])
+# Wu.asr <- as.matrix(fit.asr$wrkv[, -17])
+# all.equal((t(Wu.asr) %*% P %*% Wu.asr / 2)[-6,-6], AI[-6,-6], check.attributes = FALSE)
+# all.equal(as.numeric(fit.asr$score)[-17], as.numeric(scores))
 
 # Computing delta:
-delta <- fit.asr$trace[4,1]^2 * AIi %*% scores
+delta <- 1 * AIi %*% scores
 rownames(delta) <- rownames(k)
 kUpdate <- k[, iter, drop = F] + delta
 con.total <- c()
+
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# Constrain the update for PSI5 again:
+con <- c(15)
+con.total <- sort(unique(c(con.total, con)))
+delta[con,] <- c(1e-5 - k[15, iter]) # Variances can't go negative
+
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
+
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# Constrain the update for PSI1:
+con <- c(11)
+con.total <- sort(unique(c(con.total, con)))
+delta[con,] <- c(1e-5 - k[11, iter]) # Variances can't go negative
+
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
+
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# All seems fine now:
 k[, iter + 1] <- kUpdate
 
 # Iteration 4 ====
@@ -453,6 +596,7 @@ b <- bu[1:5, 1, drop = F]
 u <- bu[6:1015, 1, drop = F]
 e <- y - W %*% bu
 
+{
 dGdL11 <- kronecker(getLoadingDerivs(1, 1, L), K)
 dGdL21 <- kronecker(getLoadingDerivs(2, 1, L), K)
 dGdL31 <- kronecker(getLoadingDerivs(3, 1, L), K)
@@ -491,12 +635,15 @@ Wu[, 14] <- dGdPSI4 %*% Gi %*% u
 Wu[, 15] <- dGdPSI5 %*% Gi %*% u
 
 Wu[, 16] <- Ri %*% e
+}
 
 AI <- t(Wu) %*% P %*% Wu / 2
 rownames(AI) <- colnames(AI) <- rownames(k)
+diag(AI)[1:10] <- diag(AI)[1:10] + 0.035 * diag(AI)[1:10]
 AIi <- matrix(0, nrow(AI), ncol(AI))
 AIi[!isFixed, !isFixed] <- solve(AI[!isFixed, !isFixed])
 
+{
 scores <- matrix(0, nrow(k), 1)
 rownames(scores) <- rownames(k)
 scores[1, 1] <-  -0.5 * (sum(diag(dGdL11 %*% Gi)) - sum(diag((Gi %*% dGdL11 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 1])
@@ -518,11 +665,503 @@ scores[14, 1] <- -0.5 * (sum(diag(dGdPSI4 %*% Gi)) - sum(diag((Gi %*% dGdPSI4 %*
 scores[15, 1] <- -0.5 * (sum(diag(dGdPSI5 %*% Gi)) - sum(diag((Gi %*% dGdPSI5 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 15])
 
 scores[16, 1] <- -0.5 * (sum(diag(Ri)) - sum(diag((t(W) %*% Ri %*% Ri %*% W) %*% Ci)) - t(y) %*% P %*% Wu[, 16])
+}
+
+# Investigating differences between asreml AI matrix and my AI matrix:
+fit.asr <- asreml(fixed = GY ~ -1 + Env,
+                  random = ~ facv(Env, 2):vm(Gen, Ki),
+                  residual = ~ idv(units),
+                  data = d,
+                  maxit = 4)
+# AIi.asr <- as.matrix(fit.asr$ai)[-17, -17]
+# rownames(AIi.asr) <- colnames(AIi.asr) <- colnames(AI)
+# AI.asr <- matrix(0, 16, 16)
+# rownames(AI.asr) <- colnames(AI.asr) <- colnames(AI)
+# AI.asr[-6, -6] <- solve(AIi.asr[-6, -6])
+# Wu.asr <- as.matrix(fit.asr$wrkv[, -17])
+# all.equal((t(Wu.asr) %*% P %*% Wu.asr / 2)[-6,-6], AI[-6,-6], check.attributes = FALSE)
+# all.equal(as.numeric(fit.asr$score)[-17], as.numeric(scores))
 
 # Computing delta:
-delta <- fit.asr$trace[4,1]^2 * AIi %*% scores
+delta <- 1 * AIi %*% scores
 rownames(delta) <- rownames(k)
 kUpdate <- k[, iter, drop = F] + delta
 con.total <- c()
+
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# Constrain the updates for PSI1, PSI5, L22, L32, L42:
+con <- c(7, 8, 9, 11, 15)
+con.total <- sort(unique(c(con.total, con)))
+delta[con,] <- c(-2 * k[7, iter] - k[7, iter], # Maximum change in magnitude for sign-flipped loadings is 2
+                 -2 * k[8, iter] - k[8, iter], # Maximum change in magnitude for sign-flipped loadings is 2
+                 -2 * k[9, iter] - k[9, iter], # Maximum change in magnitude for sign-flipped loadings is 2
+                 1e-5 - k[11, iter], # Variances can't go negative
+                 1e-5 - k[15, iter]) # Variances can't go negative
+
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
+
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# All seems fine now:
+k[, iter + 1] <- kUpdate
+
+# Iteration 5 ====
+iter <- 5
+R <- k[nrow(k), iter] * diag(nrow(d))
+logDetR <- sum(log(eigen(R)$values))
+Ri <- solve(R)
+L <- matrix(k[1:10, iter], 5, 2)
+PSI <- diag(k[11:15, iter])
+G <- kronecker(L %*% t(L) + PSI, K)
+logDetG <- sum(log(eigen(G)$values))
+Gi <- solve(G)
+V <- Z %*% G %*% t(Z) + R
+Vi <- solve(V)
+P <- Vi - Vi %*% X %*% solve(t(X) %*% Vi %*% X) %*% t(X) %*% Vi
+C <- rbind(cbind(t(X) %*% Ri %*% X, t(X) %*% Ri %*% Z),
+           cbind(t(Z) %*% Ri %*% X, t(Z) %*% Ri %*% Z + Gi))
+Ci <- solve(C)
+logDetC <- sum(log(eigen(C)$values))
+LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + t(y) %*% P %*% y)
+RHS <- rbind(t(X) %*% Ri %*% y,
+             t(Z) %*% Ri %*% y)
+bu <- Ci %*% RHS
+b <- bu[1:5, 1, drop = F]
+u <- bu[6:1015, 1, drop = F]
+e <- y - W %*% bu
+
+{
+  dGdL11 <- kronecker(getLoadingDerivs(1, 1, L), K)
+  dGdL21 <- kronecker(getLoadingDerivs(2, 1, L), K)
+  dGdL31 <- kronecker(getLoadingDerivs(3, 1, L), K)
+  dGdL41 <- kronecker(getLoadingDerivs(4, 1, L), K)
+  dGdL51 <- kronecker(getLoadingDerivs(5, 1, L), K)
+  
+  dGdL12 <- kronecker(getLoadingDerivs(1, 2, L), K)
+  dGdL22 <- kronecker(getLoadingDerivs(2, 2, L), K)
+  dGdL32 <- kronecker(getLoadingDerivs(3, 2, L), K)
+  dGdL42 <- kronecker(getLoadingDerivs(4, 2, L), K)
+  dGdL52 <- kronecker(getLoadingDerivs(5, 2, L), K)
+  
+  dGdPSI1 <- matrix(0, nrow(L), nrow(L)); dGdPSI1[1, 1] <- 1; dGdPSI1 <- kronecker(dGdPSI1, K)
+  dGdPSI2 <- matrix(0, nrow(L), nrow(L)); dGdPSI2[2, 2] <- 1; dGdPSI2 <- kronecker(dGdPSI2, K)
+  dGdPSI3 <- matrix(0, nrow(L), nrow(L)); dGdPSI3[3, 3] <- 1; dGdPSI3 <- kronecker(dGdPSI3, K)
+  dGdPSI4 <- matrix(0, nrow(L), nrow(L)); dGdPSI4[4, 4] <- 1; dGdPSI4 <- kronecker(dGdPSI4, K)
+  dGdPSI5 <- matrix(0, nrow(L), nrow(L)); dGdPSI5[5, 5] <- 1; dGdPSI5 <- kronecker(dGdPSI5, K)
+  
+  Wu <- matrix(0, nrow(d), nrow(k))
+  Wu[, 1] <- dGdL11 %*% Gi %*% u
+  Wu[, 2] <- dGdL21 %*% Gi %*% u
+  Wu[, 3] <- dGdL31 %*% Gi %*% u
+  Wu[, 4] <- dGdL41 %*% Gi %*% u
+  Wu[, 5] <- dGdL51 %*% Gi %*% u
+  
+  Wu[, 6] <-  0
+  Wu[, 7] <-  dGdL22 %*% Gi %*% u
+  Wu[, 8] <-  dGdL32 %*% Gi %*% u
+  Wu[, 9] <-  dGdL42 %*% Gi %*% u
+  Wu[, 10] <- dGdL52 %*% Gi %*% u
+  
+  Wu[, 11] <- dGdPSI1 %*% Gi %*% u
+  Wu[, 12] <- dGdPSI2 %*% Gi %*% u
+  Wu[, 13] <- dGdPSI3 %*% Gi %*% u
+  Wu[, 14] <- dGdPSI4 %*% Gi %*% u
+  Wu[, 15] <- dGdPSI5 %*% Gi %*% u
+  
+  Wu[, 16] <- Ri %*% e
+}
+
+AI <- t(Wu) %*% P %*% Wu / 2
+rownames(AI) <- colnames(AI) <- rownames(k)
+diag(AI)[1:10] <- diag(AI)[1:10] + 0.035 * diag(AI)[1:10]
+AIi <- matrix(0, nrow(AI), ncol(AI))
+AIi[!isFixed, !isFixed] <- solve(AI[!isFixed, !isFixed])
+
+{
+  scores <- matrix(0, nrow(k), 1)
+  rownames(scores) <- rownames(k)
+  scores[1, 1] <-  -0.5 * (sum(diag(dGdL11 %*% Gi)) - sum(diag((Gi %*% dGdL11 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 1])
+  scores[2, 1] <-  -0.5 * (sum(diag(dGdL21 %*% Gi)) - sum(diag((Gi %*% dGdL21 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 2])
+  scores[3, 1] <-  -0.5 * (sum(diag(dGdL31 %*% Gi)) - sum(diag((Gi %*% dGdL31 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 3])
+  scores[4, 1] <-  -0.5 * (sum(diag(dGdL41 %*% Gi)) - sum(diag((Gi %*% dGdL41 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 4])
+  scores[5, 1] <-  -0.5 * (sum(diag(dGdL51 %*% Gi)) - sum(diag((Gi %*% dGdL51 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 5])
+  
+  scores[6, 1] <-  0
+  scores[7, 1] <-  -0.5 * (sum(diag(dGdL22 %*% Gi)) - sum(diag((Gi %*% dGdL22 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 7])
+  scores[8, 1] <-  -0.5 * (sum(diag(dGdL32 %*% Gi)) - sum(diag((Gi %*% dGdL32 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 8])
+  scores[9, 1] <-  -0.5 * (sum(diag(dGdL42 %*% Gi)) - sum(diag((Gi %*% dGdL42 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 9])
+  scores[10, 1] <- -0.5 * (sum(diag(dGdL52 %*% Gi)) - sum(diag((Gi %*% dGdL52 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 10])
+  
+  scores[11, 1] <- -0.5 * (sum(diag(dGdPSI1 %*% Gi)) - sum(diag((Gi %*% dGdPSI1 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 11])
+  scores[12, 1] <- -0.5 * (sum(diag(dGdPSI2 %*% Gi)) - sum(diag((Gi %*% dGdPSI2 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 12])
+  scores[13, 1] <- -0.5 * (sum(diag(dGdPSI3 %*% Gi)) - sum(diag((Gi %*% dGdPSI3 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 13])
+  scores[14, 1] <- -0.5 * (sum(diag(dGdPSI4 %*% Gi)) - sum(diag((Gi %*% dGdPSI4 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 14])
+  scores[15, 1] <- -0.5 * (sum(diag(dGdPSI5 %*% Gi)) - sum(diag((Gi %*% dGdPSI5 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 15])
+  
+  scores[16, 1] <- -0.5 * (sum(diag(Ri)) - sum(diag((t(W) %*% Ri %*% Ri %*% W) %*% Ci)) - t(y) %*% P %*% Wu[, 16])
+}
+
+# Investigating differences between asreml AI matrix and my AI matrix:
+fit.asr <- asreml(fixed = GY ~ -1 + Env,
+                  random = ~ facv(Env, 2):vm(Gen, Ki),
+                  residual = ~ idv(units),
+                  data = d,
+                  maxit = 5)
+# AIi.asr <- as.matrix(fit.asr$ai)[-17, -17]
+# rownames(AIi.asr) <- colnames(AIi.asr) <- colnames(AI)
+# AI.asr <- matrix(0, 16, 16)
+# rownames(AI.asr) <- colnames(AI.asr) <- colnames(AI)
+# AI.asr[-6, -6] <- solve(AIi.asr[-6, -6])
+# Wu.asr <- as.matrix(fit.asr$wrkv[, -17])
+# all.equal((t(Wu.asr) %*% P %*% Wu.asr / 2)[-6,-6], AI[-6,-6], check.attributes = FALSE)
+# all.equal(as.numeric(fit.asr$score)[-17], as.numeric(scores))
+
+# Computing delta:
+delta <- 1 * AIi %*% scores
+rownames(delta) <- rownames(k)
+kUpdate <- k[, iter, drop = F] + delta
+con.total <- c()
+
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# Constrain the updates for PSI1, PSI5, L31:
+con <- c(3, 11, 15)
+con.total <- sort(unique(c(con.total, con)))
+delta[con,] <- c(-2 * k[3, iter] - k[3, iter], # Maximum change in magnitude for sign-flipped loadings is 2
+                 1e-5 - k[11, iter], # Variances can't go negative
+                 15 * k[15, iter] - k[15, iter]) # Variances can't increase more than 15x
+
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
+
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# All seems fine now:
+k[, iter + 1] <- kUpdate
+
+# Iteration 6 ====
+iter <- 6
+R <- k[nrow(k), iter] * diag(nrow(d))
+logDetR <- sum(log(eigen(R)$values))
+Ri <- solve(R)
+L <- matrix(k[1:10, iter], 5, 2)
+PSI <- diag(k[11:15, iter])
+G <- kronecker(L %*% t(L) + PSI, K)
+logDetG <- sum(log(eigen(G)$values))
+Gi <- solve(G)
+V <- Z %*% G %*% t(Z) + R
+Vi <- solve(V)
+P <- Vi - Vi %*% X %*% solve(t(X) %*% Vi %*% X) %*% t(X) %*% Vi
+C <- rbind(cbind(t(X) %*% Ri %*% X, t(X) %*% Ri %*% Z),
+           cbind(t(Z) %*% Ri %*% X, t(Z) %*% Ri %*% Z + Gi))
+Ci <- solve(C)
+logDetC <- sum(log(eigen(C)$values))
+LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + t(y) %*% P %*% y)
+RHS <- rbind(t(X) %*% Ri %*% y,
+             t(Z) %*% Ri %*% y)
+bu <- Ci %*% RHS
+b <- bu[1:5, 1, drop = F]
+u <- bu[6:1015, 1, drop = F]
+e <- y - W %*% bu
+
+{
+  dGdL11 <- kronecker(getLoadingDerivs(1, 1, L), K)
+  dGdL21 <- kronecker(getLoadingDerivs(2, 1, L), K)
+  dGdL31 <- kronecker(getLoadingDerivs(3, 1, L), K)
+  dGdL41 <- kronecker(getLoadingDerivs(4, 1, L), K)
+  dGdL51 <- kronecker(getLoadingDerivs(5, 1, L), K)
+  
+  dGdL12 <- kronecker(getLoadingDerivs(1, 2, L), K)
+  dGdL22 <- kronecker(getLoadingDerivs(2, 2, L), K)
+  dGdL32 <- kronecker(getLoadingDerivs(3, 2, L), K)
+  dGdL42 <- kronecker(getLoadingDerivs(4, 2, L), K)
+  dGdL52 <- kronecker(getLoadingDerivs(5, 2, L), K)
+  
+  dGdPSI1 <- matrix(0, nrow(L), nrow(L)); dGdPSI1[1, 1] <- 1; dGdPSI1 <- kronecker(dGdPSI1, K)
+  dGdPSI2 <- matrix(0, nrow(L), nrow(L)); dGdPSI2[2, 2] <- 1; dGdPSI2 <- kronecker(dGdPSI2, K)
+  dGdPSI3 <- matrix(0, nrow(L), nrow(L)); dGdPSI3[3, 3] <- 1; dGdPSI3 <- kronecker(dGdPSI3, K)
+  dGdPSI4 <- matrix(0, nrow(L), nrow(L)); dGdPSI4[4, 4] <- 1; dGdPSI4 <- kronecker(dGdPSI4, K)
+  dGdPSI5 <- matrix(0, nrow(L), nrow(L)); dGdPSI5[5, 5] <- 1; dGdPSI5 <- kronecker(dGdPSI5, K)
+  
+  Wu <- matrix(0, nrow(d), nrow(k))
+  Wu[, 1] <- dGdL11 %*% Gi %*% u
+  Wu[, 2] <- dGdL21 %*% Gi %*% u
+  Wu[, 3] <- dGdL31 %*% Gi %*% u
+  Wu[, 4] <- dGdL41 %*% Gi %*% u
+  Wu[, 5] <- dGdL51 %*% Gi %*% u
+  
+  Wu[, 6] <-  0
+  Wu[, 7] <-  dGdL22 %*% Gi %*% u
+  Wu[, 8] <-  dGdL32 %*% Gi %*% u
+  Wu[, 9] <-  dGdL42 %*% Gi %*% u
+  Wu[, 10] <- dGdL52 %*% Gi %*% u
+  
+  Wu[, 11] <- dGdPSI1 %*% Gi %*% u
+  Wu[, 12] <- dGdPSI2 %*% Gi %*% u
+  Wu[, 13] <- dGdPSI3 %*% Gi %*% u
+  Wu[, 14] <- dGdPSI4 %*% Gi %*% u
+  Wu[, 15] <- dGdPSI5 %*% Gi %*% u
+  
+  Wu[, 16] <- Ri %*% e
+}
+
+AI <- t(Wu) %*% P %*% Wu / 2
+rownames(AI) <- colnames(AI) <- rownames(k)
+diag(AI)[1:10] <- diag(AI)[1:10] + 0.035 * diag(AI)[1:10]
+AIi <- matrix(0, nrow(AI), ncol(AI))
+AIi[!isFixed, !isFixed] <- solve(AI[!isFixed, !isFixed])
+
+{
+  scores <- matrix(0, nrow(k), 1)
+  rownames(scores) <- rownames(k)
+  scores[1, 1] <-  -0.5 * (sum(diag(dGdL11 %*% Gi)) - sum(diag((Gi %*% dGdL11 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 1])
+  scores[2, 1] <-  -0.5 * (sum(diag(dGdL21 %*% Gi)) - sum(diag((Gi %*% dGdL21 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 2])
+  scores[3, 1] <-  -0.5 * (sum(diag(dGdL31 %*% Gi)) - sum(diag((Gi %*% dGdL31 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 3])
+  scores[4, 1] <-  -0.5 * (sum(diag(dGdL41 %*% Gi)) - sum(diag((Gi %*% dGdL41 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 4])
+  scores[5, 1] <-  -0.5 * (sum(diag(dGdL51 %*% Gi)) - sum(diag((Gi %*% dGdL51 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 5])
+  
+  scores[6, 1] <-  0
+  scores[7, 1] <-  -0.5 * (sum(diag(dGdL22 %*% Gi)) - sum(diag((Gi %*% dGdL22 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 7])
+  scores[8, 1] <-  -0.5 * (sum(diag(dGdL32 %*% Gi)) - sum(diag((Gi %*% dGdL32 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 8])
+  scores[9, 1] <-  -0.5 * (sum(diag(dGdL42 %*% Gi)) - sum(diag((Gi %*% dGdL42 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 9])
+  scores[10, 1] <- -0.5 * (sum(diag(dGdL52 %*% Gi)) - sum(diag((Gi %*% dGdL52 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 10])
+  
+  scores[11, 1] <- -0.5 * (sum(diag(dGdPSI1 %*% Gi)) - sum(diag((Gi %*% dGdPSI1 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 11])
+  scores[12, 1] <- -0.5 * (sum(diag(dGdPSI2 %*% Gi)) - sum(diag((Gi %*% dGdPSI2 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 12])
+  scores[13, 1] <- -0.5 * (sum(diag(dGdPSI3 %*% Gi)) - sum(diag((Gi %*% dGdPSI3 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 13])
+  scores[14, 1] <- -0.5 * (sum(diag(dGdPSI4 %*% Gi)) - sum(diag((Gi %*% dGdPSI4 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 14])
+  scores[15, 1] <- -0.5 * (sum(diag(dGdPSI5 %*% Gi)) - sum(diag((Gi %*% dGdPSI5 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 15])
+  
+  scores[16, 1] <- -0.5 * (sum(diag(Ri)) - sum(diag((t(W) %*% Ri %*% Ri %*% W) %*% Ci)) - t(y) %*% P %*% Wu[, 16])
+}
+
+# Investigating differences between asreml AI matrix and my AI matrix:
+fit.asr <- asreml(fixed = GY ~ -1 + Env,
+                  random = ~ facv(Env, 2):vm(Gen, Ki),
+                  residual = ~ idv(units),
+                  data = d,
+                  maxit = 6)
+# AIi.asr <- as.matrix(fit.asr$ai)[-17, -17]
+# rownames(AIi.asr) <- colnames(AIi.asr) <- colnames(AI)
+# AI.asr <- matrix(0, 16, 16)
+# rownames(AI.asr) <- colnames(AI.asr) <- colnames(AI)
+# AI.asr[-6, -6] <- solve(AIi.asr[-6, -6])
+# Wu.asr <- as.matrix(fit.asr$wrkv[, -17])
+# all.equal((t(Wu.asr) %*% P %*% Wu.asr / 2)[-6,-6], AI[-6,-6], check.attributes = FALSE)
+# all.equal(as.numeric(fit.asr$score)[-17], as.numeric(scores))
+
+# Computing delta:
+delta <- 1 * AIi %*% scores
+rownames(delta) <- rownames(k)
+kUpdate <- k[, iter, drop = F] + delta
+con.total <- c()
+
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# Constrain the updates for PSI5, L51:
+con <- c(5, 15)
+con.total <- sort(unique(c(con.total, con)))
+delta[con,] <- c(-2 * k[5, iter] - k[5, iter], # Maximum change in magnitude for sign-flipped loadings is 2
+                 15 * k[15, iter] - k[15, iter]) # Variances can't increase more than 15x
+
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
+
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
+# All seems fine now:
+k[, iter + 1] <- kUpdate
+
+# Iteration 7 ====
+iter <- 7
+R <- k[nrow(k), iter] * diag(nrow(d))
+logDetR <- sum(log(eigen(R)$values))
+Ri <- solve(R)
+L <- matrix(k[1:10, iter], 5, 2)
+PSI <- diag(k[11:15, iter])
+G <- kronecker(L %*% t(L) + PSI, K)
+logDetG <- sum(log(eigen(G)$values))
+Gi <- solve(G)
+V <- Z %*% G %*% t(Z) + R
+Vi <- solve(V)
+P <- Vi - Vi %*% X %*% solve(t(X) %*% Vi %*% X) %*% t(X) %*% Vi
+C <- rbind(cbind(t(X) %*% Ri %*% X, t(X) %*% Ri %*% Z),
+           cbind(t(Z) %*% Ri %*% X, t(Z) %*% Ri %*% Z + Gi))
+Ci <- solve(C)
+logDetC <- sum(log(eigen(C)$values))
+LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + t(y) %*% P %*% y)
+RHS <- rbind(t(X) %*% Ri %*% y,
+             t(Z) %*% Ri %*% y)
+bu <- Ci %*% RHS
+b <- bu[1:5, 1, drop = F]
+u <- bu[6:1015, 1, drop = F]
+e <- y - W %*% bu
+
+{
+  dGdL11 <- kronecker(getLoadingDerivs(1, 1, L), K)
+  dGdL21 <- kronecker(getLoadingDerivs(2, 1, L), K)
+  dGdL31 <- kronecker(getLoadingDerivs(3, 1, L), K)
+  dGdL41 <- kronecker(getLoadingDerivs(4, 1, L), K)
+  dGdL51 <- kronecker(getLoadingDerivs(5, 1, L), K)
+  
+  dGdL12 <- kronecker(getLoadingDerivs(1, 2, L), K)
+  dGdL22 <- kronecker(getLoadingDerivs(2, 2, L), K)
+  dGdL32 <- kronecker(getLoadingDerivs(3, 2, L), K)
+  dGdL42 <- kronecker(getLoadingDerivs(4, 2, L), K)
+  dGdL52 <- kronecker(getLoadingDerivs(5, 2, L), K)
+  
+  dGdPSI1 <- matrix(0, nrow(L), nrow(L)); dGdPSI1[1, 1] <- 1; dGdPSI1 <- kronecker(dGdPSI1, K)
+  dGdPSI2 <- matrix(0, nrow(L), nrow(L)); dGdPSI2[2, 2] <- 1; dGdPSI2 <- kronecker(dGdPSI2, K)
+  dGdPSI3 <- matrix(0, nrow(L), nrow(L)); dGdPSI3[3, 3] <- 1; dGdPSI3 <- kronecker(dGdPSI3, K)
+  dGdPSI4 <- matrix(0, nrow(L), nrow(L)); dGdPSI4[4, 4] <- 1; dGdPSI4 <- kronecker(dGdPSI4, K)
+  dGdPSI5 <- matrix(0, nrow(L), nrow(L)); dGdPSI5[5, 5] <- 1; dGdPSI5 <- kronecker(dGdPSI5, K)
+  
+  Wu <- matrix(0, nrow(d), nrow(k))
+  Wu[, 1] <- dGdL11 %*% Gi %*% u
+  Wu[, 2] <- dGdL21 %*% Gi %*% u
+  Wu[, 3] <- dGdL31 %*% Gi %*% u
+  Wu[, 4] <- dGdL41 %*% Gi %*% u
+  Wu[, 5] <- dGdL51 %*% Gi %*% u
+  
+  Wu[, 6] <-  0
+  Wu[, 7] <-  dGdL22 %*% Gi %*% u
+  Wu[, 8] <-  dGdL32 %*% Gi %*% u
+  Wu[, 9] <-  dGdL42 %*% Gi %*% u
+  Wu[, 10] <- dGdL52 %*% Gi %*% u
+  
+  Wu[, 11] <- dGdPSI1 %*% Gi %*% u
+  Wu[, 12] <- dGdPSI2 %*% Gi %*% u
+  Wu[, 13] <- dGdPSI3 %*% Gi %*% u
+  Wu[, 14] <- dGdPSI4 %*% Gi %*% u
+  Wu[, 15] <- dGdPSI5 %*% Gi %*% u
+  
+  Wu[, 16] <- Ri %*% e
+}
+
+AI <- t(Wu) %*% P %*% Wu / 2
+rownames(AI) <- colnames(AI) <- rownames(k)
+diag(AI)[1:10] <- diag(AI)[1:10] + 0.035 * diag(AI)[1:10]
+AIi <- matrix(0, nrow(AI), ncol(AI))
+AIi[!isFixed, !isFixed] <- solve(AI[!isFixed, !isFixed])
+
+{
+  scores <- matrix(0, nrow(k), 1)
+  rownames(scores) <- rownames(k)
+  scores[1, 1] <-  -0.5 * (sum(diag(dGdL11 %*% Gi)) - sum(diag((Gi %*% dGdL11 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 1])
+  scores[2, 1] <-  -0.5 * (sum(diag(dGdL21 %*% Gi)) - sum(diag((Gi %*% dGdL21 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 2])
+  scores[3, 1] <-  -0.5 * (sum(diag(dGdL31 %*% Gi)) - sum(diag((Gi %*% dGdL31 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 3])
+  scores[4, 1] <-  -0.5 * (sum(diag(dGdL41 %*% Gi)) - sum(diag((Gi %*% dGdL41 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 4])
+  scores[5, 1] <-  -0.5 * (sum(diag(dGdL51 %*% Gi)) - sum(diag((Gi %*% dGdL51 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 5])
+  
+  scores[6, 1] <-  0
+  scores[7, 1] <-  -0.5 * (sum(diag(dGdL22 %*% Gi)) - sum(diag((Gi %*% dGdL22 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 7])
+  scores[8, 1] <-  -0.5 * (sum(diag(dGdL32 %*% Gi)) - sum(diag((Gi %*% dGdL32 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 8])
+  scores[9, 1] <-  -0.5 * (sum(diag(dGdL42 %*% Gi)) - sum(diag((Gi %*% dGdL42 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 9])
+  scores[10, 1] <- -0.5 * (sum(diag(dGdL52 %*% Gi)) - sum(diag((Gi %*% dGdL52 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 10])
+  
+  scores[11, 1] <- -0.5 * (sum(diag(dGdPSI1 %*% Gi)) - sum(diag((Gi %*% dGdPSI1 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 11])
+  scores[12, 1] <- -0.5 * (sum(diag(dGdPSI2 %*% Gi)) - sum(diag((Gi %*% dGdPSI2 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 12])
+  scores[13, 1] <- -0.5 * (sum(diag(dGdPSI3 %*% Gi)) - sum(diag((Gi %*% dGdPSI3 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 13])
+  scores[14, 1] <- -0.5 * (sum(diag(dGdPSI4 %*% Gi)) - sum(diag((Gi %*% dGdPSI4 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 14])
+  scores[15, 1] <- -0.5 * (sum(diag(dGdPSI5 %*% Gi)) - sum(diag((Gi %*% dGdPSI5 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 15])
+  
+  scores[16, 1] <- -0.5 * (sum(diag(Ri)) - sum(diag((t(W) %*% Ri %*% Ri %*% W) %*% Ci)) - t(y) %*% P %*% Wu[, 16])
+}
+
+# Investigating differences between asreml AI matrix and my AI matrix:
+fit.asr <- asreml(fixed = GY ~ -1 + Env,
+                  random = ~ facv(Env, 2):vm(Gen, Ki),
+                  residual = ~ idv(units),
+                  data = d,
+                  maxit = 7)
+# AIi.asr <- as.matrix(fit.asr$ai)[-17, -17]
+# rownames(AIi.asr) <- colnames(AIi.asr) <- colnames(AI)
+# AI.asr <- matrix(0, 16, 16)
+# rownames(AI.asr) <- colnames(AI.asr) <- colnames(AI)
+# AI.asr[-6, -6] <- solve(AIi.asr[-6, -6])
+# Wu.asr <- as.matrix(fit.asr$wrkv[, -17])
+# all.equal((t(Wu.asr) %*% P %*% Wu.asr / 2)[-6,-6], AI[-6,-6], check.attributes = FALSE)
+# all.equal(as.numeric(fit.asr$score)[-17], as.numeric(scores))
+
+# Computing delta:
+delta <- 1 * AIi %*% scores
+rownames(delta) <- rownames(k)
+kUpdate <- k[, iter, drop = F] + delta
+con.total <- c()
+
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+
 
 
