@@ -175,13 +175,13 @@ fit.asr <- asreml(fixed = GY ~ -1 + Env,
                        random = ~ facv(Env, 2):vm(Gen, Ki),
                        residual = ~ idv(units),
                        data = d,
-                       maxit = 20)
+                       maxit = 1)
 
 # Manual:
 p <- length(levels(d$Env))
 # init <- as.numeric(fit.asr$trace[5:20,1,drop=F])
 init <- c(getInitFA(d = d, m = 2, response = "GY", factor = "Env"), var(d$GY) / 10 / 2)
-isFixed <- init == 0
+isFixed <- abs(init) < 1e-16
 k <- matrix(NA, 16, 20)
 rownames(k) <- c(sprintf("L%d1", 1:5),
                  sprintf("L%d2", 1:5),
@@ -197,7 +197,7 @@ y <- matrix(d$GY)
 
 # Iteration 1 ====
 iter <- 1
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 0.25)
+result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.00, isFixed = isFixed, stepSize = 0.25)
 LL[iter] <- result$LL
 delta <- result$delta
 AI <- result$AI
