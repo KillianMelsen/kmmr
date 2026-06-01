@@ -1,3 +1,8 @@
+# The only check/constrained we need to estimate loadings on the correlation scale is that
+# for each environment, the sum of squared loadings is smaller than say (1 - 1e-6). This ensures
+# that each unique variance is at least 1e-6. Ensuring the previous condition automatically ensures that the
+# inner products between loadings of different environments (correlations) are within -1 to 1.
+
 # Custom functions:
 rotateInitL <- function(L) {
   L.rotated <- L
@@ -23,17 +28,20 @@ rotateInitL <- function(L) {
 
 getInitFA <- function(d, m, response, factor) {
   covmat.phen <- cov(unstack(d, as.formula(paste0(response, " ~ ", factor))), use = "complete")
-  covmat.init <- matrix(0, nrow(covmat.phen), ncol(covmat.phen))
-  rownames(covmat.init) <- colnames(covmat.init) <- colnames(covmat.phen)
-  covmat.init[lower.tri(covmat.init)] <- cov2cor(covmat.phen)[lower.tri(covmat.phen)]
-  covmat.init <- covmat.init + t(covmat.init)
-  diag(covmat.init) <- diag(covmat.phen) / 10
-  vars <- diag(covmat.init)
-  fa.fit <- factanal(factors = m, covmat = covmat.init)
+  # cormat.phen <- cov2cor(covmat.phen)
+  # covmat.init <- matrix(0, nrow(covmat.phen), ncol(covmat.phen))
+  # rownames(covmat.init) <- colnames(covmat.init) <- colnames(covmat.phen)
+  # covmat.init[lower.tri(covmat.init)] <- cov2cor(covmat.phen)[lower.tri(covmat.phen)]
+  # covmat.init <- covmat.init + t(covmat.init)
+  # diag(covmat.init) <- diag(covmat.phen) / 10
+  vars <- diag(covmat.phen) / 10
+  fa.fit <- factanal(factors = m, covmat = covmat.phen)
   L <- fa.fit$loadings[,]
+  # L.rotated <- L
   L.rotated <- rotateInitL(L)$L.rotated
-  L.rotated <- diag(sqrt(vars)) %*% L.rotated
-  PSI <- vars * fa.fit$uniquenesses
+  # L.rotated <- diag(sqrt(vars)) %*% L.rotated
+  PSI <- vars
+  # PSI <- vars * fa.fit$uniquenesses
   init <- c(as.numeric(L.rotated),
             as.numeric(PSI))
   return(init)
@@ -51,8 +59,10 @@ runIteration <- function(k, y, K, Z, X, percPenalty, isFixed, stepSize) {
   logDetR <- sum(log(eigen(R)$values))
   Ri <- solve(R)
   L <- matrix(k[1:10, 1], 5, 2)
-  PSI <- diag(k[11:15, 1])
-  G <- kronecker(L %*% t(L) + PSI, K)
+  PSI <- diag(1 - diag(L %*% t(L)))
+  vars <- outer(sqrt(k[11:15, 1]), sqrt(k[11:15, 1]))
+  sigma <- vars * (L %*% t(L) + PSI)
+  G <- kronecker(sigma, K)
   logDetG <- sum(log(eigen(G)$values))
   Gi <- solve(G)
   V <- Z %*% G %*% t(Z) + R
@@ -71,23 +81,23 @@ runIteration <- function(k, y, K, Z, X, percPenalty, isFixed, stepSize) {
   e <- y - W %*% bu
   
   {
-    dGdL11 <- kronecker(getLoadingDerivs(1, 1, L), K)
-    dGdL21 <- kronecker(getLoadingDerivs(2, 1, L), K)
-    dGdL31 <- kronecker(getLoadingDerivs(3, 1, L), K)
-    dGdL41 <- kronecker(getLoadingDerivs(4, 1, L), K)
-    dGdL51 <- kronecker(getLoadingDerivs(5, 1, L), K)
+    dGdL11 <- kronecker(getLoadingDerivs(1, 1, L) * vars, K)
+    dGdL21 <- kronecker(getLoadingDerivs(2, 1, L) * vars, K)
+    dGdL31 <- kronecker(getLoadingDerivs(3, 1, L) * vars, K)
+    dGdL41 <- kronecker(getLoadingDerivs(4, 1, L) * vars, K)
+    dGdL51 <- kronecker(getLoadingDerivs(5, 1, L) * vars, K)
     
-    dGdL12 <- kronecker(getLoadingDerivs(1, 2, L), K)
-    dGdL22 <- kronecker(getLoadingDerivs(2, 2, L), K)
-    dGdL32 <- kronecker(getLoadingDerivs(3, 2, L), K)
-    dGdL42 <- kronecker(getLoadingDerivs(4, 2, L), K)
-    dGdL52 <- kronecker(getLoadingDerivs(5, 2, L), K)
+    dGdL12 <- 0
+    dGdL22 <- kronecker(getLoadingDerivs(2, 2, L) * vars, K)
+    dGdL32 <- kronecker(getLoadingDerivs(3, 2, L) * vars, K)
+    dGdL42 <- kronecker(getLoadingDerivs(4, 2, L) * vars, K)
+    dGdL52 <- kronecker(getLoadingDerivs(5, 2, L) * vars, K)
     
-    dGdPSI1 <- matrix(0, nrow(L), nrow(L)); dGdPSI1[1, 1] <- 1; dGdPSI1 <- kronecker(dGdPSI1, K)
-    dGdPSI2 <- matrix(0, nrow(L), nrow(L)); dGdPSI2[2, 2] <- 1; dGdPSI2 <- kronecker(dGdPSI2, K)
-    dGdPSI3 <- matrix(0, nrow(L), nrow(L)); dGdPSI3[3, 3] <- 1; dGdPSI3 <- kronecker(dGdPSI3, K)
-    dGdPSI4 <- matrix(0, nrow(L), nrow(L)); dGdPSI4[4, 4] <- 1; dGdPSI4 <- kronecker(dGdPSI4, K)
-    dGdPSI5 <- matrix(0, nrow(L), nrow(L)); dGdPSI5[5, 5] <- 1; dGdPSI5 <- kronecker(dGdPSI5, K)
+    dGdV1 <- matrix(0, nrow(L), nrow(L)); dGdV1[1,] <- 0.5; dGdV1 <- (dGdV1 + t(dGdV1)) * sigma / k[11, 1]; dGdV1 <- kronecker(dGdV1, K)
+    dGdV2 <- matrix(0, nrow(L), nrow(L)); dGdV2[2,] <- 0.5; dGdV2 <- (dGdV2 + t(dGdV2)) * sigma / k[12, 1]; dGdV2 <- kronecker(dGdV2, K)
+    dGdV3 <- matrix(0, nrow(L), nrow(L)); dGdV3[3,] <- 0.5; dGdV3 <- (dGdV3 + t(dGdV3)) * sigma / k[13, 1]; dGdV3 <- kronecker(dGdV3, K)
+    dGdV4 <- matrix(0, nrow(L), nrow(L)); dGdV4[4,] <- 0.5; dGdV4 <- (dGdV4 + t(dGdV4)) * sigma / k[14, 1]; dGdV4 <- kronecker(dGdV4, K)
+    dGdV5 <- matrix(0, nrow(L), nrow(L)); dGdV5[5,] <- 0.5; dGdV5 <- (dGdV5 + t(dGdV5)) * sigma / k[15, 1]; dGdV5 <- kronecker(dGdV5, K)
     
     Wu <- matrix(0, nrow(d), nrow(k))
     Wu[, 1] <- dGdL11 %*% Gi %*% u
@@ -102,11 +112,11 @@ runIteration <- function(k, y, K, Z, X, percPenalty, isFixed, stepSize) {
     Wu[, 9] <-  dGdL42 %*% Gi %*% u
     Wu[, 10] <- dGdL52 %*% Gi %*% u
     
-    Wu[, 11] <- dGdPSI1 %*% Gi %*% u
-    Wu[, 12] <- dGdPSI2 %*% Gi %*% u
-    Wu[, 13] <- dGdPSI3 %*% Gi %*% u
-    Wu[, 14] <- dGdPSI4 %*% Gi %*% u
-    Wu[, 15] <- dGdPSI5 %*% Gi %*% u
+    Wu[, 11] <- dGdV1 %*% Gi %*% u
+    Wu[, 12] <- dGdV2 %*% Gi %*% u
+    Wu[, 13] <- dGdV3 %*% Gi %*% u
+    Wu[, 14] <- dGdV4 %*% Gi %*% u
+    Wu[, 15] <- dGdV5 %*% Gi %*% u
     
     Wu[, 16] <- Ri %*% e
   }
@@ -132,11 +142,11 @@ runIteration <- function(k, y, K, Z, X, percPenalty, isFixed, stepSize) {
     scores[9, 1] <-  -0.5 * (sum(diag(dGdL42 %*% Gi)) - sum(diag((Gi %*% dGdL42 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 9])
     scores[10, 1] <- -0.5 * (sum(diag(dGdL52 %*% Gi)) - sum(diag((Gi %*% dGdL52 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 10])
     
-    scores[11, 1] <- -0.5 * (sum(diag(dGdPSI1 %*% Gi)) - sum(diag((Gi %*% dGdPSI1 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 11])
-    scores[12, 1] <- -0.5 * (sum(diag(dGdPSI2 %*% Gi)) - sum(diag((Gi %*% dGdPSI2 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 12])
-    scores[13, 1] <- -0.5 * (sum(diag(dGdPSI3 %*% Gi)) - sum(diag((Gi %*% dGdPSI3 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 13])
-    scores[14, 1] <- -0.5 * (sum(diag(dGdPSI4 %*% Gi)) - sum(diag((Gi %*% dGdPSI4 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 14])
-    scores[15, 1] <- -0.5 * (sum(diag(dGdPSI5 %*% Gi)) - sum(diag((Gi %*% dGdPSI5 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 15])
+    scores[11, 1] <- -0.5 * (sum(diag(dGdV1 %*% Gi)) - sum(diag((Gi %*% dGdV1 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 11])
+    scores[12, 1] <- -0.5 * (sum(diag(dGdV2 %*% Gi)) - sum(diag((Gi %*% dGdV2 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 12])
+    scores[13, 1] <- -0.5 * (sum(diag(dGdV3 %*% Gi)) - sum(diag((Gi %*% dGdV3 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 13])
+    scores[14, 1] <- -0.5 * (sum(diag(dGdV4 %*% Gi)) - sum(diag((Gi %*% dGdV4 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 14])
+    scores[15, 1] <- -0.5 * (sum(diag(dGdV5 %*% Gi)) - sum(diag((Gi %*% dGdV5 %*% Gi) %*% Ci[6:1015, 6:1015])) - t(y) %*% P %*% Wu[, 15])
     
     scores[16, 1] <- -0.5 * (sum(diag(Ri)) - sum(diag((t(W) %*% Ri %*% Ri %*% W) %*% Ci)) - t(y) %*% P %*% Wu[, 16])
   }
@@ -155,7 +165,7 @@ runIteration <- function(k, y, K, Z, X, percPenalty, isFixed, stepSize) {
   # delta <- fit.asr$trace[4,1]^2 * AIi %*% scores
   delta <- stepSize * AIi %*% scores
   rownames(delta) <- rownames(k)
-  return(list(LL = LL, delta = delta, AI = AI, scores = scores))
+  return(list(LL = LL, delta = delta, AI = AI, scores = scores, Wu = Wu))
 }
 
 library(asreml)
@@ -172,20 +182,20 @@ attr(Ki, "INVERSE") <- TRUE
 d <- droplevels(d[d$Man == "LN" & d$Env %in% c("HAN_2015", "KAL_2015", "KIE_2015", "QLB_2015", "RHH_2015"),])
 
 fit.asr <- asreml(fixed = GY ~ -1 + Env,
-                       random = ~ facv(Env, 2):vm(Gen, Ki),
+                       random = ~ sfa(Env, 2):vm(Gen, Ki),
                        residual = ~ idv(units),
                        data = d,
                        maxit = 1)
 
 # Manual:
 p <- length(levels(d$Env))
-# init <- as.numeric(fit.asr$trace[5:20,1,drop=F])
-init <- c(getInitFA(d = d, m = 2, response = "GY", factor = "Env"), var(d$GY) / 10 / 2)
+init <- as.numeric(fit.asr$trace[5:20,1,drop=F])
+# init <- c(getInitFA(d = d, m = 2, response = "GY", factor = "Env"), var(d$GY) / 10 / 2)
 isFixed <- abs(init) < 1e-16
 k <- matrix(NA, 16, 20)
 rownames(k) <- c(sprintf("L%d1", 1:5),
                  sprintf("L%d2", 1:5),
-                 sprintf("PSI%d", 1:5),
+                 sprintf("VAR%d", 1:5),
                  "rvar")
 names(isFixed) <- rownames(k)
 LL <- numeric(20)
@@ -197,7 +207,7 @@ y <- matrix(d$GY)
 
 # Iteration 1 ====
 iter <- 1
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.00, isFixed = isFixed, stepSize = 0.25)
+result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0, isFixed = isFixed, stepSize = 0.25)
 LL[iter] <- result$LL
 delta <- result$delta
 AI <- result$AI
@@ -661,7 +671,8 @@ k[, iter + 1] <- kUpdate
 
 # Converged!
 
-
+L.final.rot <- matrix(k[1:10, 15], 5, 2)
+PSI.final.rot <- diag(k[11:15, 15])
 
 
 
