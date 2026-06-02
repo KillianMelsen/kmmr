@@ -50,7 +50,8 @@ getInitFA <- function(d, m, response, factor) {
 getLoadingDerivs <- function(rowL, colL, L) {
   deriv <- matrix(0, nrow(L), nrow(L))
   deriv[rowL,] <- deriv[,rowL] <- L[, colL]
-  deriv[rowL, rowL] <- 2 * L[rowL, colL]
+  # deriv[rowL, rowL] <- 2 * L[rowL, colL]
+  deriv[rowL, rowL] <- 0
   return(deriv)
 }
 
@@ -165,7 +166,7 @@ runIteration <- function(k, y, K, Z, X, percPenalty, isFixed, stepSize) {
   # delta <- fit.asr$trace[4,1]^2 * AIi %*% scores
   delta <- stepSize * AIi %*% scores
   rownames(delta) <- rownames(k)
-  return(list(LL = LL, delta = delta, AI = AI, scores = scores, Wu = Wu))
+  return(list(LL = LL, delta = delta, AI = AI, scores = scores, Wu = Wu, u = u))
 }
 
 library(asreml)
@@ -185,7 +186,7 @@ fit.asr <- asreml(fixed = GY ~ -1 + Env,
                        random = ~ sfa(Env, 2):vm(Gen, Ki),
                        residual = ~ idv(units),
                        data = d,
-                       maxit = 1)
+                       maxit = 20)
 
 # Manual:
 p <- length(levels(d$Env))
@@ -207,7 +208,7 @@ y <- matrix(d$GY)
 
 # Iteration 1 ====
 iter <- 1
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0, isFixed = isFixed, stepSize = 0.25)
+result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 0.25)
 LL[iter] <- result$LL
 delta <- result$delta
 AI <- result$AI
@@ -220,60 +221,62 @@ mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
 (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
 mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# We need to constrain L22:
-con <- 7 # L22 is the 7th parameter
-con.total <- sort(unique(c(con.total, con)))
-delta[con,] <- c(-2 * k[7, iter] - k[7, iter]) # Sign-flipped loading can only go x2 in absolute value!
-# Recompute delta for the unconstrained parameters:
-noncon <- setdiff(1:nrow(k), con.total)
-uuisFixed <- isFixed[noncon]
-AIuu <- AI[noncon, noncon, drop = FALSE]
-AIff <- AI[con.total, con.total, drop = FALSE]
-AIuf <- AI[noncon, con.total, drop = FALSE]
-scoresuu <- scores[noncon, 1, drop = FALSE]
-scoresff <- scores[con.total, 1, drop = FALSE]
-deltaff <- delta[con.total, 1, drop = FALSE]
-AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-uunotFixed <- which(uuisFixed == 0)
-AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-delta[noncon, 1] <- deltauu
-# Recompute kUpdate:
-kUpdate <- k[, iter, drop = F] + delta
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# We now need to shrink all updates to other loadings, and also constrain PSI2 and PSI5:
-con <- c(1:6, 8:10, 12, 15)
-con.total <- sort(unique(c(con.total, con)))
-delta[con,] <- c(0.25 * delta[c(1:6, 8:10),], # Remaining loadings
-                 1 / 15 * k[12, iter] - k[12, iter],
-                 1 / 15 * k[15, iter] - k[15, iter])
-# Recompute delta for the unconstrained parameters:
-noncon <- setdiff(1:nrow(k), con.total)
-uuisFixed <- isFixed[noncon]
-AIuu <- AI[noncon, noncon, drop = FALSE]
-AIff <- AI[con.total, con.total, drop = FALSE]
-AIuf <- AI[noncon, con.total, drop = FALSE]
-scoresuu <- scores[noncon, 1, drop = FALSE]
-scoresff <- scores[con.total, 1, drop = FALSE]
-deltaff <- delta[con.total, 1, drop = FALSE]
-AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-uunotFixed <- which(uuisFixed == 0)
-AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-delta[noncon, 1] <- deltauu
-# Recompute kUpdate:
-kUpdate <- k[, iter, drop = F] + delta
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
+# # We need to constrain L22:
+# con <- 7 # L22 is the 7th parameter
+# con.total <- sort(unique(c(con.total, con)))
+# delta[con,] <- c(-2 * k[7, iter] - k[7, iter]) # Sign-flipped loading can only go x2 in absolute value!
+# # Recompute delta for the unconstrained parameters:
+# noncon <- setdiff(1:nrow(k), con.total)
+# uuisFixed <- isFixed[noncon]
+# AIuu <- AI[noncon, noncon, drop = FALSE]
+# AIff <- AI[con.total, con.total, drop = FALSE]
+# AIuf <- AI[noncon, con.total, drop = FALSE]
+# scoresuu <- scores[noncon, 1, drop = FALSE]
+# scoresff <- scores[con.total, 1, drop = FALSE]
+# deltaff <- delta[con.total, 1, drop = FALSE]
+# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+# uunotFixed <- which(uuisFixed == 0)
+# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+# delta[noncon, 1] <- deltauu
+# # Recompute kUpdate:
+# kUpdate <- k[, iter, drop = F] + delta
+# cbind(k[, iter, drop = F], kUpdate)
+# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+# mags[signflip] # All smaller than 2
+# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+# # We now need to shrink all updates to other loadings, and also constrain PSI2 and PSI5:
+# con <- c(1:6, 8:10, 12, 15)
+# con.total <- sort(unique(c(con.total, con)))
+# delta[con,] <- c(0.25 * delta[c(1:6, 8:10),], # Remaining loadings
+#                  1 / 15 * k[12, iter] - k[12, iter],
+#                  1 / 15 * k[15, iter] - k[15, iter])
+# # Recompute delta for the unconstrained parameters:
+# noncon <- setdiff(1:nrow(k), con.total)
+# uuisFixed <- isFixed[noncon]
+# AIuu <- AI[noncon, noncon, drop = FALSE]
+# AIff <- AI[con.total, con.total, drop = FALSE]
+# AIuf <- AI[noncon, con.total, drop = FALSE]
+# scoresuu <- scores[noncon, 1, drop = FALSE]
+# scoresff <- scores[con.total, 1, drop = FALSE]
+# deltaff <- delta[con.total, 1, drop = FALSE]
+# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+# uunotFixed <- which(uuisFixed == 0)
+# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+# delta[noncon, 1] <- deltauu
+# # Recompute kUpdate:
+# kUpdate <- k[, iter, drop = F] + delta
+# cbind(k[, iter, drop = F], kUpdate)
+# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+# mags[signflip] # All smaller than 2
+# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
 k[, iter + 1] <- kUpdate
 
 # Iteration 2 ====
@@ -292,59 +295,61 @@ mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
 (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
 mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# We need to constrain PSI5 again:
-con <- 15
-con.total <- sort(unique(c(con.total, con)))
-delta[con,] <- c(1 / 15 * k[15, iter] - k[15, iter]) # Variances can't go negative
-# Recompute delta for the unconstrained parameters:
-noncon <- setdiff(1:nrow(k), con.total)
-uuisFixed <- isFixed[noncon]
-AIuu <- AI[noncon, noncon, drop = FALSE]
-AIff <- AI[con.total, con.total, drop = FALSE]
-AIuf <- AI[noncon, con.total, drop = FALSE]
-scoresuu <- scores[noncon, 1, drop = FALSE]
-scoresff <- scores[con.total, 1, drop = FALSE]
-deltaff <- delta[con.total, 1, drop = FALSE]
-AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-uunotFixed <- which(uuisFixed == 0)
-AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-delta[noncon, 1] <- deltauu
-# Recompute kUpdate:
-kUpdate <- k[, iter, drop = F] + delta
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# We now also need to constrain L22 and PSI1:
-con <- c(7, 11)
-con.total <- sort(unique(c(con.total, con)))
-delta[con,] <- c(-2 * k[7, iter] - k[7, iter], # Maximum x2 for sign-flipped loadings
-                 1 / 15 * k[11, iter] - k[11, iter]) # Variances can't go negative
-# Recompute delta for the unconstrained parameters:
-noncon <- setdiff(1:nrow(k), con.total)
-uuisFixed <- isFixed[noncon]
-AIuu <- AI[noncon, noncon, drop = FALSE]
-AIff <- AI[con.total, con.total, drop = FALSE]
-AIuf <- AI[noncon, con.total, drop = FALSE]
-scoresuu <- scores[noncon, 1, drop = FALSE]
-scoresff <- scores[con.total, 1, drop = FALSE]
-deltaff <- delta[con.total, 1, drop = FALSE]
-AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-uunotFixed <- which(uuisFixed == 0)
-AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-delta[noncon, 1] <- deltauu
-# Recompute kUpdate:
-kUpdate <- k[, iter, drop = F] + delta
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
+# # We need to constrain PSI5 again:
+# con <- 15
+# con.total <- sort(unique(c(con.total, con)))
+# delta[con,] <- c(1 / 15 * k[15, iter] - k[15, iter]) # Variances can't go negative
+# # Recompute delta for the unconstrained parameters:
+# noncon <- setdiff(1:nrow(k), con.total)
+# uuisFixed <- isFixed[noncon]
+# AIuu <- AI[noncon, noncon, drop = FALSE]
+# AIff <- AI[con.total, con.total, drop = FALSE]
+# AIuf <- AI[noncon, con.total, drop = FALSE]
+# scoresuu <- scores[noncon, 1, drop = FALSE]
+# scoresff <- scores[con.total, 1, drop = FALSE]
+# deltaff <- delta[con.total, 1, drop = FALSE]
+# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+# uunotFixed <- which(uuisFixed == 0)
+# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+# delta[noncon, 1] <- deltauu
+# # Recompute kUpdate:
+# kUpdate <- k[, iter, drop = F] + delta
+# cbind(k[, iter, drop = F], kUpdate)
+# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+# mags[signflip] # All smaller than 2
+# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+# # We now also need to constrain L22 and PSI1:
+# con <- c(7, 11)
+# con.total <- sort(unique(c(con.total, con)))
+# delta[con,] <- c(-2 * k[7, iter] - k[7, iter], # Maximum x2 for sign-flipped loadings
+#                  1 / 15 * k[11, iter] - k[11, iter]) # Variances can't go negative
+# # Recompute delta for the unconstrained parameters:
+# noncon <- setdiff(1:nrow(k), con.total)
+# uuisFixed <- isFixed[noncon]
+# AIuu <- AI[noncon, noncon, drop = FALSE]
+# AIff <- AI[con.total, con.total, drop = FALSE]
+# AIuf <- AI[noncon, con.total, drop = FALSE]
+# scoresuu <- scores[noncon, 1, drop = FALSE]
+# scoresff <- scores[con.total, 1, drop = FALSE]
+# deltaff <- delta[con.total, 1, drop = FALSE]
+# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+# uunotFixed <- which(uuisFixed == 0)
+# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+# delta[noncon, 1] <- deltauu
+# # Recompute kUpdate:
+# kUpdate <- k[, iter, drop = F] + delta
+# cbind(k[, iter, drop = F], kUpdate)
+# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+# mags[signflip] # All smaller than 2
+# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
 k[, iter + 1] <- kUpdate
 
 # Iteration 3 ====
@@ -363,10 +368,80 @@ mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
 (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
 mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# PSI5 has gone negative for the third time now, fix to 1e-6:
-con <- 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
+# # PSI5 has gone negative for the third time now, fix to 1e-6:
+# con <- 15
+# con.total <- sort(unique(c(con.total, con)))
+# delta[con,] <- c(1e-6 - k[15, iter]) # Compute delta so PSI5 goes to 1e-6 and can be fixed.
+# # Recompute delta for the unconstrained parameters:
+# noncon <- setdiff(1:nrow(k), con.total)
+# uuisFixed <- isFixed[noncon]
+# AIuu <- AI[noncon, noncon, drop = FALSE]
+# AIff <- AI[con.total, con.total, drop = FALSE]
+# AIuf <- AI[noncon, con.total, drop = FALSE]
+# scoresuu <- scores[noncon, 1, drop = FALSE]
+# scoresff <- scores[con.total, 1, drop = FALSE]
+# deltaff <- delta[con.total, 1, drop = FALSE]
+# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+# uunotFixed <- which(uuisFixed == 0)
+# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+# delta[noncon, 1] <- deltauu
+# # Recompute kUpdate:
+# kUpdate <- k[, iter, drop = F] + delta
+# cbind(k[, iter, drop = F], kUpdate)
+# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+# mags[signflip] # All smaller than 2
+# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15, ignore PSI5 because it will be fixed anyway
+# isFixed[15] <- TRUE
+k[, iter + 1] <- kUpdate
+
+# Iteration 4 ====
+iter <- 4
+result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 0.25)
+LL[iter] <- result$LL
+deltaLL <- LL[iter] - LL[iter - 1]
+delta <- result$delta
+AI <- result$AI
+scores <- result$scores
+kUpdate <- k[, iter, drop = F] + delta
+con.total <- c()
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
+k[, iter + 1] <- kUpdate
+
+# Iteration 5 ====
+iter <- 5
+result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 0.5)
+LL[iter] <- result$LL
+deltaLL <- LL[iter] - LL[iter - 1]
+delta <- result$delta
+AI <- result$AI
+scores <- result$scores
+kUpdate <- k[, iter, drop = F] + delta
+con.total <- c()
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
+# # We need to constrain the loadings in row 5 to ensure PSI5 remains positive:
+con <- c(5, 10) # L51 and L52
 con.total <- sort(unique(c(con.total, con)))
-delta[con,] <- c(1e-6 - k[15, iter]) # Compute delta so PSI5 goes to 1e-6 and can be fixed.
+s <- sqrt((1 - 1e-6) / sum(kUpdate[con]^2)) # Scaling factor to ensure sum of squared loadings remains lower than 1-1e-6
+delta[con,] <- c(s * kUpdate[con] - k[con, iter]) # Sum of squared loadings must be lower than 1-1e-6
 # Recompute delta for the unconstrained parameters:
 noncon <- setdiff(1:nrow(k), con.total)
 uuisFixed <- isFixed[noncon]
@@ -388,70 +463,9 @@ signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
 mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
 (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
 mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15, ignore PSI5 because it will be fixed anyway
-isFixed[15] <- TRUE
-k[, iter + 1] <- kUpdate
-
-# Iteration 4 ====
-iter <- 4
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 0.25)
-LL[iter] <- result$LL
-deltaLL <- LL[iter] - LL[iter - 1]
-delta <- result$delta
-AI <- result$AI
-scores <- result$scores
-kUpdate <- k[, iter, drop = F] + delta
-con.total <- c()
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-k[, iter + 1] <- kUpdate
-
-# Iteration 5 ====
-iter <- 5
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 0.5)
-LL[iter] <- result$LL
-deltaLL <- LL[iter] - LL[iter - 1]
-delta <- result$delta
-AI <- result$AI
-scores <- result$scores
-kUpdate <- k[, iter, drop = F] + delta
-con.total <- c()
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# # We need to constrain PSI5 to stop it from going negative:
-# con <- 15 # PSI5 is the 15th parameter
-# con.total <- sort(unique(c(con.total, con)))
-# delta[con,] <- c(1 / 15 * k[15, iter] - k[15, iter]) # Variances can't go negative
-# # Recompute delta for the unconstrained parameters:
-# noncon <- setdiff(1:nrow(k), con.total)
-# uuisFixed <- isFixed[noncon]
-# AIuu <- AI[noncon, noncon, drop = FALSE]
-# AIff <- AI[con.total, con.total, drop = FALSE]
-# AIuf <- AI[noncon, con.total, drop = FALSE]
-# scoresuu <- scores[noncon, 1, drop = FALSE]
-# scoresff <- scores[con.total, 1, drop = FALSE]
-# deltaff <- delta[con.total, 1, drop = FALSE]
-# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-# uunotFixed <- which(uuisFixed == 0)
-# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-# delta[noncon, 1] <- deltauu
-# # Recompute kUpdate:
-# kUpdate <- k[, iter, drop = F] + delta
-# cbind(k[, iter, drop = F], kUpdate)
-# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-# mags[signflip] # All smaller than 2
-# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 k[, iter + 1] <- kUpdate
 
 # Iteration 6 ====
@@ -470,32 +484,37 @@ mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
 (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
 mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# # We need to constrain PSI5 again to stop it from going negative:
-# con <- 15 # PSI5 is the 15th parameter
-# con.total <- sort(unique(c(con.total, con)))
-# delta[con,] <- c(1 / 15 * k[15, iter] - k[15, iter]) # Variances can't go negative
-# # Recompute delta for the unconstrained parameters:
-# noncon <- setdiff(1:nrow(k), con.total)
-# uuisFixed <- isFixed[noncon]
-# AIuu <- AI[noncon, noncon, drop = FALSE]
-# AIff <- AI[con.total, con.total, drop = FALSE]
-# AIuf <- AI[noncon, con.total, drop = FALSE]
-# scoresuu <- scores[noncon, 1, drop = FALSE]
-# scoresff <- scores[con.total, 1, drop = FALSE]
-# deltaff <- delta[con.total, 1, drop = FALSE]
-# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-# uunotFixed <- which(uuisFixed == 0)
-# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-# delta[noncon, 1] <- deltauu
-# # Recompute kUpdate:
-# kUpdate <- k[, iter, drop = F] + delta
-# cbind(k[, iter, drop = F], kUpdate)
-# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-# mags[signflip] # All smaller than 2
-# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
+# We have to constrain the 5th row of L again:
+con <- c(5, 10) # L51 and L52
+con.total <- sort(unique(c(con.total, con)))
+s <- sqrt((1 - 1e-6) / sum(kUpdate[con]^2)) # Scaling factor to ensure sum of squared loadings remains lower than 1-1e-6
+delta[con,] <- c(s * kUpdate[con] - k[con, iter]) # Sum of squared loadings must be lower than 1-1e-6
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 k[, iter + 1] <- kUpdate
 
 # Iteration 7 ====
@@ -514,33 +533,38 @@ mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
 (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
 mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# # PSI5 went negative for the third time, we fix it at 1e-6:
-# con <- 15 # PSI5 is the 15th parameter
-# con.total <- sort(unique(c(con.total, con)))
-# delta[con,] <- c(1e-6 - k[15, iter]) # Variances can't go negative
-# # Recompute delta for the unconstrained parameters:
-# noncon <- setdiff(1:nrow(k), con.total)
-# uuisFixed <- isFixed[noncon]
-# AIuu <- AI[noncon, noncon, drop = FALSE]
-# AIff <- AI[con.total, con.total, drop = FALSE]
-# AIuf <- AI[noncon, con.total, drop = FALSE]
-# scoresuu <- scores[noncon, 1, drop = FALSE]
-# scoresff <- scores[con.total, 1, drop = FALSE]
-# deltaff <- delta[con.total, 1, drop = FALSE]
-# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-# uunotFixed <- which(uuisFixed == 0)
-# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-# delta[noncon, 1] <- deltauu
-# # Recompute kUpdate:
-# kUpdate <- k[, iter, drop = F] + delta
-# cbind(k[, iter, drop = F], kUpdate)
-# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-# mags[signflip] # All smaller than 2
-# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15, PSI5 is lower but will be fixed at 1e-6 from now on.
-# isFixed[15] <- TRUE
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
+# Same issue again for the third time, shrink one more time and fix at those values:
+con <- c(5, 10) # L51 and L52
+con.total <- sort(unique(c(con.total, con)))
+s <- sqrt((1 - 1e-6) / sum(kUpdate[con]^2)) # Scaling factor to ensure sum of squared loadings remains lower than 1-1e-6
+delta[con,] <- c(s * kUpdate[con] - k[con, iter]) # Sum of squared loadings must be lower than 1-1e-6
+# Recompute delta for the unconstrained parameters:
+noncon <- setdiff(1:nrow(k), con.total)
+uuisFixed <- isFixed[noncon]
+AIuu <- AI[noncon, noncon, drop = FALSE]
+AIff <- AI[con.total, con.total, drop = FALSE]
+AIuf <- AI[noncon, con.total, drop = FALSE]
+scoresuu <- scores[noncon, 1, drop = FALSE]
+scoresff <- scores[con.total, 1, drop = FALSE]
+deltaff <- delta[con.total, 1, drop = FALSE]
+AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+uunotFixed <- which(uuisFixed == 0)
+AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+delta[noncon, 1] <- deltauu
+# Recompute kUpdate:
+kUpdate <- k[, iter, drop = F] + delta
+cbind(k[, iter, drop = F], kUpdate)
+signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+mags[signflip] # All smaller than 2
+(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
+isFixed[con] <- TRUE
 k[, iter + 1] <- kUpdate
 
 # Iteration 8 ====
@@ -559,6 +583,8 @@ mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
 (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
 mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 k[, iter + 1] <- kUpdate
 
 # Iteration 9 ====
@@ -577,6 +603,8 @@ mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
 (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
 mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 k[, iter + 1] <- kUpdate
 
 # Iteration 10 ====
@@ -595,89 +623,19 @@ mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
 (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
 mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:10, 1], 5, 2)
+matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 k[, iter + 1] <- kUpdate
-
-# Iteration 11 ====
-iter <- 11
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 1)
-LL[iter] <- result$LL
-deltaLL <- LL[iter] - LL[iter - 1]
-delta <- result$delta
-AI <- result$AI
-scores <- result$scores
-kUpdate <- k[, iter, drop = F] + delta
-con.total <- c()
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-k[, iter + 1] <- kUpdate
-
-# Iteration 12 ====
-iter <- 12
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 1)
-LL[iter] <- result$LL
-deltaLL <- LL[iter] - LL[iter - 1]
-delta <- result$delta
-AI <- result$AI
-scores <- result$scores
-kUpdate <- k[, iter, drop = F] + delta
-con.total <- c()
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-k[, iter + 1] <- kUpdate
-
-# Iteration 13 ====
-iter <- 13
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0, isFixed = isFixed, stepSize = 1)
-LL[iter] <- result$LL
-deltaLL <- LL[iter] - LL[iter - 1]
-delta <- result$delta
-AI <- result$AI
-scores <- result$scores
-kUpdate <- k[, iter, drop = F] + delta
-con.total <- c()
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-k[, iter + 1] <- kUpdate
-
-# Iteration 14 ====
-iter <- 14
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0, isFixed = isFixed, stepSize = 1)
-LL[iter] <- result$LL
-deltaLL <- LL[iter] - LL[iter - 1]
-delta <- result$delta
-AI <- result$AI
-scores <- result$scores
-kUpdate <- k[, iter, drop = F] + delta
-con.total <- c()
-cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-k[, iter + 1] <- kUpdate
-
 # Converged!
 
-L.final.rot <- matrix(k[1:10, 15], 5, 2)
-PSI.final.rot <- diag(k[11:15, 15])
+L.asr <- matrix(summary(fit.asr)$varcomp[1:10, 1], 5, 2)
+L.kmmr <- matrix(k[1:10, iter + 1], 5, 2)
 
+vars.asr <- as.numeric(summary(fit.asr)$varcomp[11:15, 1])
+vars.kmmr <- as.numeric(k[11:15, iter + 1])
 
-
-
-
+cor.asr <- L.asr %*% t(L.asr); diag(cor.asr) <- 1
+cor.kmmr <- L.kmmr %*% t(L.kmmr); diag(cor.kmmr) <- 1
 
 
 
