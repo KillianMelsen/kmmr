@@ -165,7 +165,7 @@ attr(Ki, "INVERSE") <- TRUE
 d <- droplevels(d[d$Man == "LN",])
 m <- 2
 fit.asr <- asreml(fixed = GY ~ -1 + Env,
-                       random = ~ sfa(Env, m):vm(Gen, Ki),
+                       random = ~ sfa(Env, 3):vm(Gen, Ki),
                        residual = ~ idv(units),
                        data = d,
                        maxit = 20)
@@ -205,60 +205,6 @@ mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
 L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
-# # We need to constrain L22:
-# con <- 7 # L22 is the 7th parameter
-# con.total <- sort(unique(c(con.total, con)))
-# delta[con,] <- c(-2 * k[7, iter] - k[7, iter]) # Sign-flipped loading can only go x2 in absolute value!
-# # Recompute delta for the unconstrained parameters:
-# noncon <- setdiff(1:nrow(k), con.total)
-# uuisFixed <- isFixed[noncon]
-# AIuu <- AI[noncon, noncon, drop = FALSE]
-# AIff <- AI[con.total, con.total, drop = FALSE]
-# AIuf <- AI[noncon, con.total, drop = FALSE]
-# scoresuu <- scores[noncon, 1, drop = FALSE]
-# scoresff <- scores[con.total, 1, drop = FALSE]
-# deltaff <- delta[con.total, 1, drop = FALSE]
-# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-# uunotFixed <- which(uuisFixed == 0)
-# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-# delta[noncon, 1] <- deltauu
-# # Recompute kUpdate:
-# kUpdate <- k[, iter, drop = F] + delta
-# cbind(k[, iter, drop = F], kUpdate)
-# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-# mags[signflip] # All smaller than 2
-# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# # We now need to shrink all updates to other loadings, and also constrain PSI2 and PSI5:
-# con <- c(1:6, 8:10, 12, 15)
-# con.total <- sort(unique(c(con.total, con)))
-# delta[con,] <- c(0.25 * delta[c(1:6, 8:10),], # Remaining loadings
-#                  1 / 15 * k[12, iter] - k[12, iter],
-#                  1 / 15 * k[15, iter] - k[15, iter])
-# # Recompute delta for the unconstrained parameters:
-# noncon <- setdiff(1:nrow(k), con.total)
-# uuisFixed <- isFixed[noncon]
-# AIuu <- AI[noncon, noncon, drop = FALSE]
-# AIff <- AI[con.total, con.total, drop = FALSE]
-# AIuf <- AI[noncon, con.total, drop = FALSE]
-# scoresuu <- scores[noncon, 1, drop = FALSE]
-# scoresff <- scores[con.total, 1, drop = FALSE]
-# deltaff <- delta[con.total, 1, drop = FALSE]
-# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-# uunotFixed <- which(uuisFixed == 0)
-# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-# delta[noncon, 1] <- deltauu
-# # Recompute kUpdate:
-# kUpdate <- k[, iter, drop = F] + delta
-# cbind(k[, iter, drop = F], kUpdate)
-# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-# mags[signflip] # All smaller than 2
-# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
 k[, iter + 1] <- kUpdate
 
 # Iteration 2 ====
@@ -279,59 +225,6 @@ mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
 L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
-# # We need to constrain PSI5 again:
-# con <- 15
-# con.total <- sort(unique(c(con.total, con)))
-# delta[con,] <- c(1 / 15 * k[15, iter] - k[15, iter]) # Variances can't go negative
-# # Recompute delta for the unconstrained parameters:
-# noncon <- setdiff(1:nrow(k), con.total)
-# uuisFixed <- isFixed[noncon]
-# AIuu <- AI[noncon, noncon, drop = FALSE]
-# AIff <- AI[con.total, con.total, drop = FALSE]
-# AIuf <- AI[noncon, con.total, drop = FALSE]
-# scoresuu <- scores[noncon, 1, drop = FALSE]
-# scoresff <- scores[con.total, 1, drop = FALSE]
-# deltaff <- delta[con.total, 1, drop = FALSE]
-# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-# uunotFixed <- which(uuisFixed == 0)
-# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-# delta[noncon, 1] <- deltauu
-# # Recompute kUpdate:
-# kUpdate <- k[, iter, drop = F] + delta
-# cbind(k[, iter, drop = F], kUpdate)
-# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-# mags[signflip] # All smaller than 2
-# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-# # We now also need to constrain L22 and PSI1:
-# con <- c(7, 11)
-# con.total <- sort(unique(c(con.total, con)))
-# delta[con,] <- c(-2 * k[7, iter] - k[7, iter], # Maximum x2 for sign-flipped loadings
-#                  1 / 15 * k[11, iter] - k[11, iter]) # Variances can't go negative
-# # Recompute delta for the unconstrained parameters:
-# noncon <- setdiff(1:nrow(k), con.total)
-# uuisFixed <- isFixed[noncon]
-# AIuu <- AI[noncon, noncon, drop = FALSE]
-# AIff <- AI[con.total, con.total, drop = FALSE]
-# AIuf <- AI[noncon, con.total, drop = FALSE]
-# scoresuu <- scores[noncon, 1, drop = FALSE]
-# scoresff <- scores[con.total, 1, drop = FALSE]
-# deltaff <- delta[con.total, 1, drop = FALSE]
-# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-# uunotFixed <- which(uuisFixed == 0)
-# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-# delta[noncon, 1] <- deltauu
-# # Recompute kUpdate:
-# kUpdate <- k[, iter, drop = F] + delta
-# cbind(k[, iter, drop = F], kUpdate)
-# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-# mags[signflip] # All smaller than 2
-# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
 k[, iter + 1] <- kUpdate
 
 # Iteration 3 ====
@@ -352,33 +245,6 @@ mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
 L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
-# # PSI5 has gone negative for the third time now, fix to 1e-6:
-# con <- 15
-# con.total <- sort(unique(c(con.total, con)))
-# delta[con,] <- c(1e-6 - k[15, iter]) # Compute delta so PSI5 goes to 1e-6 and can be fixed.
-# # Recompute delta for the unconstrained parameters:
-# noncon <- setdiff(1:nrow(k), con.total)
-# uuisFixed <- isFixed[noncon]
-# AIuu <- AI[noncon, noncon, drop = FALSE]
-# AIff <- AI[con.total, con.total, drop = FALSE]
-# AIuf <- AI[noncon, con.total, drop = FALSE]
-# scoresuu <- scores[noncon, 1, drop = FALSE]
-# scoresff <- scores[con.total, 1, drop = FALSE]
-# deltaff <- delta[con.total, 1, drop = FALSE]
-# AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
-# uunotFixed <- which(uuisFixed == 0)
-# AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-# deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
-# delta[noncon, 1] <- deltauu
-# # Recompute kUpdate:
-# kUpdate <- k[, iter, drop = F] + delta
-# cbind(k[, iter, drop = F], kUpdate)
-# signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-# mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-# (meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
-# mags[signflip] # All smaller than 2
-# (varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15, ignore PSI5 because it will be fixed anyway
-# isFixed[15] <- TRUE
 k[, iter + 1] <- kUpdate
 
 # Iteration 4 ====
@@ -498,11 +364,13 @@ mags[signflip] # All smaller than 2
 (varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
 L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
-# We have to constrain the 5th row of L again:
-con <- c(5, 10) # L51 and L52
+# We have to constrain the 3rd and 13th row of L again:
+con <- c(3, 17, 13, 27)
 con.total <- sort(unique(c(con.total, con)))
-s <- sqrt((1 - 1e-6) / sum(kUpdate[con]^2)) # Scaling factor to ensure sum of squared loadings remains lower than 1-1e-6
-delta[con,] <- c(s * kUpdate[con] - k[con, iter]) # Sum of squared loadings must be lower than 1-1e-6
+sL3 <- sqrt((1 - 1e-6) / sum(kUpdate[con[1:2]]^2)) # Scaling factor to ensure sum of squared loadings remains lower than 1-1e-6
+sL13 <- sqrt((1 - 1e-6) / sum(kUpdate[con[3:4]]^2)) # Scaling factor to ensure sum of squared loadings remains lower than 1-1e-6
+delta[con,] <- c(sL3 * kUpdate[con[1:2]] - k[con[1:2], iter],
+                 sL13 * kUpdate[con[3:4]] - k[con[3:4], iter]) # Sum of squared loadings must be lower than 1-1e-6
 # Recompute delta for the unconstrained parameters:
 noncon <- setdiff(1:nrow(k), con.total)
 uuisFixed <- isFixed[noncon]
@@ -520,18 +388,18 @@ delta[noncon, 1] <- deltauu
 # Recompute kUpdate:
 kUpdate <- k[, iter, drop = F] + delta
 cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+signflip <- matrix(sign(k[1:28, iter]) * sign(kUpdate[1:28,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:28, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:28]])) # Smaller than 10
 mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-L <- matrix(kUpdate[1:10, 1], 5, 2)
+(varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 k[, iter + 1] <- kUpdate
 
 # Iteration 7 ====
 iter <- 7
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 1)
+result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 0.5, m = m)
 LL[iter] <- result$LL
 deltaLL <- LL[iter] - LL[iter - 1]
 delta <- result$delta
@@ -540,18 +408,18 @@ scores <- result$scores
 kUpdate <- k[, iter, drop = F] + delta
 con.total <- c()
 cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+signflip <- matrix(sign(k[1:28, iter]) * sign(kUpdate[1:28,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:28, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:28]])) # Smaller than 10
 mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-L <- matrix(kUpdate[1:10, 1], 5, 2)
+(varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
-# Same issue again for the third time, shrink one more time and fix at those values:
-con <- c(5, 10) # L51 and L52
+# Same issue again for the third time with row 13, shrink one more time and fix at those values:
+con <- c(13, 27)
 con.total <- sort(unique(c(con.total, con)))
-s <- sqrt((1 - 1e-6) / sum(kUpdate[con]^2)) # Scaling factor to ensure sum of squared loadings remains lower than 1-1e-6
-delta[con,] <- c(s * kUpdate[con] - k[con, iter]) # Sum of squared loadings must be lower than 1-1e-6
+sL13 <- sqrt((1 - 1e-6) / sum(kUpdate[con]^2)) # Scaling factor to ensure sum of squared loadings remains lower than 1-1e-6
+delta[con,] <- c(sL13 * kUpdate[con] - k[con, iter]) # Sum of squared loadings must be lower than 1-1e-6
 # Recompute delta for the unconstrained parameters:
 noncon <- setdiff(1:nrow(k), con.total)
 uuisFixed <- isFixed[noncon]
@@ -569,19 +437,19 @@ delta[noncon, 1] <- deltauu
 # Recompute kUpdate:
 kUpdate <- k[, iter, drop = F] + delta
 cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+signflip <- matrix(sign(k[1:28, iter]) * sign(kUpdate[1:28,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:28, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:28]])) # Smaller than 10
 mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-L <- matrix(kUpdate[1:10, 1], 5, 2)
+(varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 isFixed[con] <- TRUE
 k[, iter + 1] <- kUpdate
 
 # Iteration 8 ====
 iter <- 8
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 1)
+result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 1, m = m)
 LL[iter] <- result$LL
 deltaLL <- LL[iter] - LL[iter - 1]
 delta <- result$delta
@@ -590,18 +458,18 @@ scores <- result$scores
 kUpdate <- k[, iter, drop = F] + delta
 con.total <- c()
 cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+signflip <- matrix(sign(k[1:28, iter]) * sign(kUpdate[1:28,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:28, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:28]])) # Smaller than 10
 mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-L <- matrix(kUpdate[1:10, 1], 5, 2)
+(varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 k[, iter + 1] <- kUpdate
 
 # Iteration 9 ====
 iter <- 9
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 1)
+result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 1, m = m)
 LL[iter] <- result$LL
 deltaLL <- LL[iter] - LL[iter - 1]
 delta <- result$delta
@@ -610,18 +478,18 @@ scores <- result$scores
 kUpdate <- k[, iter, drop = F] + delta
 con.total <- c()
 cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+signflip <- matrix(sign(k[1:28, iter]) * sign(kUpdate[1:28,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:28, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:28]])) # Smaller than 10
 mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-L <- matrix(kUpdate[1:10, 1], 5, 2)
+(varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 k[, iter + 1] <- kUpdate
 
 # Iteration 10 ====
 iter <- 10
-result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 1)
+result <- runIteration(k = k[, iter, drop = F], y = y, K = K, Z = Z, X = X, percPenalty = 0.05, isFixed = isFixed, stepSize = 1, m = m)
 LL[iter] <- result$LL
 deltaLL <- LL[iter] - LL[iter - 1]
 delta <- result$delta
@@ -630,24 +498,104 @@ scores <- result$scores
 kUpdate <- k[, iter, drop = F] + delta
 con.total <- c()
 cbind(k[, iter, drop = F], kUpdate)
-signflip <- matrix(sign(k[1:10, iter]) * sign(kUpdate[1:10,]) == -1)
-mags <- abs(kUpdate / k[, iter, drop = F])[1:10, , drop = F]
-(meanMags <- mean(mags[!isFixed[1:10]])) # Smaller than 10
+signflip <- matrix(sign(k[1:28, iter]) * sign(kUpdate[1:28,]) == -1)
+mags <- abs(kUpdate / k[, iter, drop = F])[1:28, , drop = F]
+(meanMags <- mean(mags[!isFixed[1:28]])) # Smaller than 10
 mags[signflip] # All smaller than 2
-(varFactors <- (kUpdate / k[, iter, drop = F])[11:16, , drop = F]) # All should be between 1/15 (0.067) and 15
-L <- matrix(kUpdate[1:10, 1], 5, 2)
+(varFactors <- (kUpdate / k[, iter, drop = F])[29:43, , drop = F]) # All should be between 1/15 (0.067) and 15
+L <- matrix(kUpdate[1:28, 1], 14, 2)
 matrix(rowSums(L^2)) # Should all be lower than 1 - 1e-6 (0.999999)
 k[, iter + 1] <- kUpdate
 # Converged!
 
-L.asr <- matrix(summary(fit.asr)$varcomp[1:10, 1], 5, 2)
-L.kmmr <- matrix(k[1:10, iter + 1], 5, 2)
+L.asr <- matrix(summary(fit.asr)$varcomp[1:28, 1], 14, 2)
+L.kmmr <- matrix(k[1:28, iter + 1], 14, 2)
 
-vars.asr <- as.numeric(summary(fit.asr)$varcomp[11:15, 1])
-vars.kmmr <- as.numeric(k[11:15, iter + 1])
+vars.asr <- as.numeric(summary(fit.asr)$varcomp[29:43, 1])
+vars.kmmr <- as.numeric(k[29:43, iter + 1])
 
 cor.asr <- L.asr %*% t(L.asr); diag(cor.asr) <- 1
 cor.kmmr <- L.kmmr %*% t(L.kmmr); diag(cor.kmmr) <- 1
 
+rownames(L.kmmr) <- levels(d$Env)
+colnames(L.kmmr) <- paste0("F", 1:m)
+L <- varimax(L.kmmr)$loadings
 
+library(ggplot2)
+# 2. Convert to a data frame for ggplot
+plot_data <- data.frame(Feature = rownames(L),
+                        F1 = L[, "F1"],
+                        F2 = L[, "F2"],
+                        F3 = L[, "F3"])
 
+# Create points for a perfect unit circle
+angle <- seq(0, 2 * pi, length.out = 100)
+circle_data <- data.frame(x = cos(angle),
+                          y = sin(angle))
+
+p2 <- ggplot(data = plot_data) +
+  # 1. Add a unit circle for reference
+  geom_path(data = circle_data, aes(x = x, y = y), color = "red", linetype = "dashed") +
+  # 2. Add baseline axes passing through the origin
+  geom_hline(yintercept = 0, linetype = "dotted", color = "red") +
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red") +
+  # 3. Plot the feature loadings as vectors (arrows)
+  geom_segment(aes(x = 0, y = 0, xend = F1, yend = F2),
+               arrow = arrow(length = unit(0.2, "cm")), 
+               color = "black", lwd = 0.8) +
+  # 4. Add text labels for each feature
+  geom_text(aes(x = F1, y = F2, label = Feature), 
+            hjust = -0.2, vjust = 0.5, size = 3.5, check_overlap = TRUE) +
+  # 5. Force a 1:1 aspect ratio so the circle doesn't look like an ellipse
+  coord_fixed(xlim = c(-1.1, 1.1), ylim = c(-1.1, 1.1)) +
+  # Labels and Styling
+  labs(x = "F1",
+       y = "F2") +
+  theme_minimal()
+
+# p3 <- ggplot(data = plot_data) +
+#   # 1. Add a unit circle for reference
+#   geom_path(data = circle_data, aes(x = x, y = y), color = "red", linetype = "dashed") +
+#   # 2. Add baseline axes passing through the origin
+#   geom_hline(yintercept = 0, linetype = "dotted", color = "red") +
+#   geom_vline(xintercept = 0, linetype = "dotted", color = "red") +
+#   # 3. Plot the feature loadings as vectors (arrows)
+#   geom_segment(aes(x = 0, y = 0, xend = F1, yend = F3),
+#                arrow = arrow(length = unit(0.2, "cm")), 
+#                color = "black", lwd = 0.8) +
+#   # 4. Add text labels for each feature
+#   geom_text(aes(x = F1, y = F3, label = Feature), 
+#             hjust = -0.2, vjust = 0.5, size = 3.5, check_overlap = TRUE) +
+#   # 5. Force a 1:1 aspect ratio so the circle doesn't look like an ellipse
+#   coord_fixed(xlim = c(-1.1, 1.1), ylim = c(-1.1, 1.1)) +
+#   # Labels and Styling
+#   labs(x = "F1",
+#        y = "F3") +
+#   theme_minimal()
+
+# p4 <- ggplot(data = plot_data) +
+#   # 1. Add a unit circle for reference
+#   geom_path(data = circle_data, aes(x = x, y = y), color = "red", linetype = "dashed") +
+#   # 2. Add baseline axes passing through the origin
+#   geom_hline(yintercept = 0, linetype = "dotted", color = "red") +
+#   geom_vline(xintercept = 0, linetype = "dotted", color = "red") +
+#   # 3. Plot the feature loadings as vectors (arrows)
+#   geom_segment(aes(x = 0, y = 0, xend = F2, yend = F3),
+#                arrow = arrow(length = unit(0.2, "cm")), 
+#                color = "black", lwd = 0.8) +
+#   # 4. Add text labels for each feature
+#   geom_text(aes(x = F2, y = F3, label = Feature), 
+#             hjust = -0.2, vjust = 0.5, size = 3.5, check_overlap = TRUE) +
+#   # 5. Force a 1:1 aspect ratio so the circle doesn't look like an ellipse
+#   coord_fixed(xlim = c(-1.1, 1.1), ylim = c(-1.1, 1.1)) +
+#   # Labels and Styling
+#   labs(x = "F2",
+#        y = "F3") +
+#   theme_minimal()
+
+p1 <- ggplotify::as.ggplot(expression(
+  heatmap(cor.kmmr)))
+
+p1 | p2# | p3 | p4
+
+library(plotly)
