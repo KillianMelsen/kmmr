@@ -58,8 +58,11 @@ C.extended[15:nrow(C.extended), 15:ncol(C.extended)] <- C.extended[15:nrow(C.ext
 RHS.naive <- t(W.naive) %*% Ri %*% y
 RHS.extended <- t(W.extended) %*% Ri %*% y
 
-bu.naive <- solve(C.naive) %*% RHS.naive
-bu.extended <- solve(C.extended) %*% RHS.extended
+Ci.naive <- solve(C.naive)
+Ci.extended <- solve(C.extended)
+
+bu.naive <- Ci.naive %*% RHS.naive
+bu.extended <- Ci.extended %*% RHS.extended
 
 u.naive <- bu.naive[15:nrow(bu.naive),, drop = F]
 u.extended <- bu.extended[15:nrow(bu.extended),, drop = F]
