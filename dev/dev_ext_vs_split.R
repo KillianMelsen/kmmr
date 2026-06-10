@@ -80,11 +80,12 @@ AI.2 <- (WiWj.2 - (t(buWu.2) %*% XWjxZWj.2)) / 2
 AIi.2 <- solve(AI.2)
 Ci.2 <- chol2inv(Mchol.2)
 
+Vi.2 <- solve(solve(Gi.2) + solve(Ri.2))
+P.2 <- Vi.2 - Vi.2 %*% X %*% solve(t(X) %*% Vi.2 %*% X) %*% t(X) %*% Vi.2
 
-
-
-
-
+all.equal(t(y) %*% P.2 %*% y, yPy.2)
+yPWu1.2 <- t(y) %*% P.2 %*% Wu.2[,1, drop = FALSE]
+t(u.2) %*% Gi.2 %*% K %*% Gi.2 %*% u.2
 
 
 
