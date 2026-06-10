@@ -35,7 +35,7 @@ genvar <- vars / 20
 y <- matrix(d$GY)
 X <- model.matrix(GY ~ -1 + Env, d)
 Z.naive <- diag(nrow(d))
-Z.extended <- cbind(Z.naive, kronecker(matrix(1, 14, 2), diag(246)))
+Z.extended <- cbind(Z.naive, matrix(0, nrow(Z.naive), 2 * 246))
 Ri <- diag(1 / resvar, nrow(d))
 covL <- diag(sqrt(genvar)) %*% L
 covPSI <- diag(genvar) %*% PSI
@@ -64,4 +64,13 @@ bu.extended <- solve(C.extended) %*% RHS.extended
 u.naive <- bu.naive[15:nrow(bu.naive),, drop = F]
 u.extended <- bu.extended[15:nrow(bu.extended),, drop = F]
 
+all.equal(u.naive[, 1], u.extended[1:nrow(u.naive), 1])
 
+U.naive <- chol(C.naive)
+U.extended <- chol(C.extended)
+
+C.extended.sparse <- Matrix::Matrix(C.extended)
+U.extended.sparse <- as.matrix(Matrix::chol(C.extended.sparse))
+U.extended.sparse.pivoted <- Matrix::Cholesky(C.extended.sparse, LDL = FALSE, perm = TRUE, super = FALSE)
+tmp <- as(U.extended.sparse.pivoted, "dtCMatrix")
+tmp <- as.matrix(tmp)
