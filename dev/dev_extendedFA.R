@@ -112,23 +112,3 @@ Ci.extended.sparse <- sparseinv::Takahashi_Davis(Q = C.extended.sparse,
 tmp2 <- as.matrix(Ci.extended.sparse)
 tmp3 <- Ci.extended
 
-
-
-# 1. Compute the pivoted Cholesky factor (perm = TRUE is default, super = FALSE)
-# Letting CHOLMOD permute the matrix is incredibly fast.
-U.factor <- Matrix::Cholesky(C.extended.sparse, LDL = FALSE, perm = TRUE, super = FALSE)
-
-# 2. Extract the permuted factor matrix (this forces calculation)
-tmp <- as(U.factor, "dtCMatrix") 
-
-permMat <- as(as(U.factor, "pMatrix"), "dgCMatrix")
-
-# 5. Run Takahashi_Davis WITH the proper permutation matrix
-system.time(
-  Ci.extended.sparse <- sparseinv::Takahashi_Davis(
-    Q = C.extended.sparse, 
-    cholQp = tmp, 
-    P = permMat
-  )
-)
-
