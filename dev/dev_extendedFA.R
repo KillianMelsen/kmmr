@@ -1,3 +1,5 @@
+library(Matrix)
+
 rotateInitL <- function(L) {
   L.rotated <- L
   m <- ncol(L.rotated)
@@ -22,7 +24,9 @@ rotateInitL <- function(L) {
 
 d <- readRDS("dev/exampledata.rds")
 K <- readRDS("dev/exampledata_K.rds")
+# load("~/repos/glfBLUP_2025/genotypes/K_hyper.RData")
 d <- droplevels(d[d$Man == "R", c("Env", "Gen", "GY")])
+# Ki <- solve(as.matrix(Matrix::nearPD(K)$mat))
 Ki <- solve(K)
 vars <- diag(cov(unstack(d, GY ~ Env), use = "complete"))
 fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 2)
@@ -33,10 +37,13 @@ resvar <- mean(vars) / 20
 genvar <- vars / 20
 
 y <- matrix(d$GY)
+# d <- expand.grid(Gen = rownames(K),
+#                  Env = paste0("E", 1:14),
+#                  GY = 1) # Dummy dataframe
 X <- model.matrix(GY ~ -1 + Env, d)
 Z.naive <- diag(nrow(d))
-Z.extended <- cbind(Z.naive, matrix(0, nrow(Z.naive), 2 * 246))
-Ri <- diag(1 / resvar, nrow(d))
+Z.extended <- cbind(Z.naive, matrix(0, nrow(Z.naive), 2 * nrow(K)))
+Ri <- Matrix(diag(1 / resvar, nrow(d)))
 covL <- diag(sqrt(genvar)) %*% L
 covPSI <- diag(genvar) %*% PSI
 sigma.naive <- covL %*% t(covL) + covPSI
@@ -47,13 +54,33 @@ sigmai.extended <- solve(sigma.extended); sigmai.extended[abs(sigmai.extended) <
 Gi.naive <- kronecker(sigmai.naive, Ki)
 Gi.extended <- kronecker(sigmai.extended, Ki)
 
-W.naive <- cbind(X, Z.naive)
-W.extended <- cbind(X, Z.extended)
+W.naive <- Matrix(cbind(X, Z.naive))
+W.extended <- Matrix(cbind(X, Z.extended))
 
-C.naive <- t(W.naive) %*% Ri %*% W.naive
+C.naive <- as.matrix(t(W.naive) %*% Ri %*% W.naive)
 C.naive[15:nrow(C.naive), 15:ncol(C.naive)] <- C.naive[15:nrow(C.naive), 15:ncol(C.naive)] + Gi.naive
-C.extended <- t(W.extended) %*% Ri %*% W.extended
+C.extended <- as.matrix(t(W.extended) %*% Ri %*% W.extended)
 C.extended[15:nrow(C.extended), 15:ncol(C.extended)] <- C.extended[15:nrow(C.extended), 15:ncol(C.extended)] + Gi.extended
+
+# Naive version:
+C.naive.spam <- as.spam(C.naive)
+chC.naive <- chol(C.naive.spam)
+display(C.naive.spam)
+display(chC.naive)
+summary(C.naive.spam)
+summary(chC.naive)
+
+# Extended version:
+C.extended.spam <- as.spam(C.extended)
+chC.extended <- chol(C.extended.spam)
+display(C.extended.spam)
+display(chC.extended)
+summary(C.extended.spam)
+summary(chC.extended)
+
+
+
+
 
 RHS.naive <- t(W.naive) %*% Ri %*% y
 RHS.extended <- t(W.extended) %*% Ri %*% y
@@ -74,6 +101,34 @@ U.extended <- chol(C.extended)
 
 C.extended.sparse <- Matrix::Matrix(C.extended)
 U.extended.sparse <- as.matrix(Matrix::chol(C.extended.sparse))
-U.extended.sparse.pivoted <- Matrix::Cholesky(C.extended.sparse, LDL = FALSE, perm = TRUE, super = FALSE)
+system.time({
+U.extended.sparse.pivoted <- Matrix::Cholesky(C.extended.sparse, LDL = FALSE, perm = FALSE, super = FALSE)
 tmp <- as(U.extended.sparse.pivoted, "dtCMatrix")
-tmp <- as.matrix(tmp)
+permMat <- as(diag(ncol(C.extended.sparse)), "dgCMatrix")
+Ci.extended.sparse <- sparseinv::Takahashi_Davis(Q = C.extended.sparse,
+                                                 cholQp = tmp,
+                                                 P = permMat)
+})
+tmp2 <- as.matrix(Ci.extended.sparse)
+tmp3 <- Ci.extended
+
+
+
+# 1. Compute the pivoted Cholesky factor (perm = TRUE is default, super = FALSE)
+# Letting CHOLMOD permute the matrix is incredibly fast.
+U.factor <- Matrix::Cholesky(C.extended.sparse, LDL = FALSE, perm = TRUE, super = FALSE)
+
+# 2. Extract the permuted factor matrix (this forces calculation)
+tmp <- as(U.factor, "dtCMatrix") 
+
+permMat <- as(as(U.factor, "pMatrix"), "dgCMatrix")
+
+# 5. Run Takahashi_Davis WITH the proper permutation matrix
+system.time(
+  Ci.extended.sparse <- sparseinv::Takahashi_Davis(
+    Q = C.extended.sparse, 
+    cholQp = tmp, 
+    P = permMat
+  )
+)
+
