@@ -151,11 +151,27 @@ nnzero(Ci.extended.sparse) / prod(dim(Ci.extended.sparse))
 all.equal(Ci.extended.sparse[which(Ci.extended.sparse != 0)], Ci.extended[which(Ci.extended.sparse != 0)])
 
 # Now let's see if we can achieve the same using LMMsolver's internal functions.
-lP <- list(spam::as.spam(C.extended))
-test <- LMMsolver:::ADchol(lP)
-test2 <- sparseMatrix()
+# lP <- list(spam::as.spam(C.extended))
+# test <- LMMsolver:::ADchol(lP)
+# test2 <- sparseMatrix()
 
-
+# Checking score calculations:
+corner <- ncol(X) + 1
+traces <- matrix(0, nrow(sigmai.extended), ncol(sigmai.extended))
+dim.nvar <- ncol(FALKi.extended)
+i <- 1
+j <- 1
+for (i in 1:nrow(sigmai.extended)) {
+  for (j in 1:ncol(sigmai.extended)) {
+    if (j >= i) { # Only do the upper triangle
+      rstart <- (corner + (i - 1) * dim.nvar)
+      rend <- rstart - 1 + dim.nvar
+      cstart <- (corner + (j - 1) * dim.nvar)
+      cend <- cstart - 1 + dim.nvar
+      traces[i, j] <- sum(FALKi.extended * Ci.extended.sparse[rstart:rend, cstart:cend])
+    }
+  }
+}
 
 
 
