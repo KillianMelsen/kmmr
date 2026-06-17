@@ -73,7 +73,7 @@ genvar <- vars / 20
 
 # Matrix of parameter estimates:
 k <- Matrix(0, 14 + 28 + 1, 10, sparse = F)
-k[, 1] <- c(genvar, matrix(L), resvar)
+k[, 1] <- c(genvar, matrix(L), resvar) # k[, 1] <- init # For comparison with asreml
 isFixed <- numeric(nrow(k))
 isFixed[14 + 15] <- 1
 
@@ -260,7 +260,7 @@ formCormatChol <- function(struc = "exfa", p = NULL, params = NULL, base = NULL,
   cormati <- Matrix(rbind(cbind(PSIi, PSIi %*% L),
                           cbind(t(L) %*% PSIi, Diagonal(m, 1) + t(L) %*% PSIi %*% L)))
   if (doChol) {
-    ret <- list(cormat, chol(cormat))
+    ret <- list(cormat, chol(cormat), cormati)
   } else {
     ret <- list(cormat)
   }
@@ -271,21 +271,133 @@ formCormatChol <- function(struc = "exfa", p = NULL, params = NULL, base = NULL,
 getLoadingDerivs <- function(indexL, L) {
   rowL <- ((indexL - 1) %% nrow(L)) + 1
   colL <- ((indexL - 1) %/% nrow(L)) + 1
-  deriv <- Matrix(0, nrow(L), nrow(L))
-  deriv[rowL,] <- deriv[,rowL] <- L[, colL]
-  deriv[rowL, rowL] <- 0
+  deriv11 <- Matrix(0, nrow(L), nrow(L))
+  deriv11[rowL,] <- deriv11[,rowL] <- L[, colL]
+  deriv11[rowL, rowL] <- 0
+  deriv12 <- Matrix(0, nrow(L), ncol(L))
+  deriv12[rowL, colL] <- -1
+  deriv <- rbind(cbind(deriv11, deriv12),
+                 cbind(t(deriv12), Matrix(0, ncol(L), ncol(L))))
   return(deriv)
 }
 
+# Dense kinship matrix:
+K <- Matrix(readRDS("dev/exampledata_K.rds"))
 
+# Initial values for the fa(Env, ext = TRUE) parameters
+vars <- diag(cov(unstack(d, GY ~ Env), use = "complete"))
+fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 2)
+L <- fit.factanal$loadings[,]
+L <- Matrix(rotateInitL(L)$L.rotated, sparse = F)
+PSI <- Matrix(diag(1 - diag(L %*% t(L))))
+resvar <- mean(vars) / 20
+genvar <- vars / 20
 
+# Matrix of parameter estimates:
+k <- Matrix(0, 14 + 28 + 1, 10, sparse = F)
+k[, 1] <- c(genvar, matrix(L), resvar) # k[, 1] <- init # For comparison with asreml
+isFixed <- numeric(nrow(k))
+isFixed[14 + 15] <- 1
 
+# Design matrices and data vector:
+y <- Matrix(d$GY)
+X <- sparse.model.matrix(GY ~ -1 + Env, d)
+# Where do we need to insert zeros in the design matrix? 1 for no, 2 for yes.
+insertZero <- kronecker(c(rep(1, nrow(L)), rep(2, ncol(L))), c(rep(1, ncol(K)))) > 1
+Z <- matrix(0, nrow(d), (nrow(L) + ncol(L)) * ncol(K))
+Z[, !insertZero] <- model.matrix(GY ~ -1 + Units, d)
+Z <- Matrix(Z)
 
+# Preliminaries:
+logDetnvarGtotal <- sum(log(eigen(K)$values))
+nvarGi <- solve(K)
+LL <- numeric(ncol(k))
+iter <- 1
+sparse <- TRUE # Will C be reasonable sparse?
 
+## Iteration 1 ====
+Ri <- Matrix(diag(1 / k[nrow(k), iter], nrow(d)))
+W <- cbind(X, Z)
+if (sparse) {
+  C <- t(W) %*% Ri %*% W
+} else {
+  C <- as(t(W) %*% Ri %*% W, "unpackedMatrix") # Because we will need to add a dense Gi anyway
+}
 
+# Computing Gi:
+# We need to add unit variances for the factors
+vars <- rbind(sqrt(k[1:14, iter, drop = F]), Matrix(rep(1, ncol(L)), ncol(L))) %*% t(rbind(sqrt(k[1:14, iter, drop = F]), Matrix(rep(1, ncol(L)), ncol(L))))
+result <- formCormatChol(struc = "exfa",
+                         p = 14,
+                         params = k[15:42, iter],
+                         base = NULL,
+                         doChol = TRUE) # Returns (1) the correlation matrix, (2) the cholesky factor of the correlation matrix, (3) the inverse correlation matrix
+cormats <- list(result[[1]])
+logDetvarG <- 2 * sum(log(diag(result[[2]])))
+cormatis <- list(result[[3]]) # For the exfa structures we explicitly form the inverse in formCormatChol()
+sigmai <- (1 / vars) * Reduce(kronecker, cormatis)
+# Some code for verification of results:
+# Lmat <- matrix(k[15:42, iter], 14, 2)
+# PSImat <- diag(1 - diag(Lmat %*% t(Lmat)))
+# ses <- diag(sqrt(k[1:14,1]))
+# varsmat <- outer(sqrt(c(k[1:14,1], 1, 1)), sqrt(c(k[1:14,1], 1, 1)))
+# all.equal(as.matrix(solve(sigmai)), rbind(cbind(ses %*% Lmat %*% t(ses %*% Lmat) + ses %*% PSImat %*% ses, -1 * ses %*% Lmat), cbind(-1 * t(ses %*% Lmat), diag(2))))
+# all.equal(as.matrix(sigmai), rbind(cbind(solve(ses %*% PSImat %*% ses), solve(ses %*% PSImat %*% ses) %*% ses %*% Lmat), cbind(t(ses %*% Lmat) %*% solve(ses %*% PSImat %*% ses), diag(2) + t(ses %*% Lmat) %*% solve(ses %*% PSImat %*% ses) %*% ses %*% Lmat)))
+# all.equal(as.matrix(solve(sigmai)), varsmat * rbind(cbind(Lmat %*% t(Lmat) + PSImat, -1 * Lmat), cbind(-1 * t(Lmat), diag(2))))
+# all.equal(as.matrix(sigmai), (1 / varsmat) * rbind(cbind(solve(PSImat), solve(PSImat) %*% Lmat), cbind(t(Lmat) %*% solve(PSImat), diag(2) + t(Lmat) %*% solve(PSImat) %*% Lmat)))
+logDetvarGtotal <- sum(log(diag(vars)))
+logDetvarGtotal <- logDetvarGtotal + logDetvarG * (14 / 14)
+Gi <- kronecker(sigmai, nvarGi)
+dimGi <- ncol(Gi)
+C.start <- ncol(X) + 1
+if (sparse) {
+  # There may be a faster way to do this.
+  # Gi <- as(Gi, "TsparseMatrix")
+  # Padding Gi with zeros to make it conformable with the sparse base C.
+  Gi <- sparseMatrix(i = Gi@i + 1 + C.start - 1,
+                     j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + C.start - 1,
+                     x = Gi@x,
+                     dims = dim(C))
+  C <- C + Gi
+} else {
+  C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] <- C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] + Gi
+}
 
+# (sparse) cholesky decomposition of C:
+if (sparse) {
+  Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = FALSE)
+  permMat <- Diagonal(ncol(C))[Cchol@perm + 1,]
+  Cchol <- as(Cchol, "dtCMatrix") # Lower triangular
+} else {
+  Cchol <- chol(C)
+}
 
+# Compute the (permuted) right-hand side of the MME:
+if (sparse) {
+  rhs <- permMat %*% t(W) %*% Ri %*% y
+  # Sparse triangular solve:
+  z <- solve(Cchol, rhs)
+} else {
+  rhs <- t(W) %*% Ri %*% y
+  z <- Matrix(backsolve(as.matrix(Cchol), rhs, transpose = TRUE))
+}
 
+# Compute the LL:
+yPy <- as.numeric(t(y) %*% Ri %*% y - t(z) %*% z)
+logDetC <- 2 * sum(log(diag(Cchol)))
+logDetG <- 246 * logDetvarGtotal + 14 * logDetnvarGtotal
+logDetR <- nrow(y) * log(k[nrow(k), iter])
+LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
+# Some code for verification of results:
+# Vi <- as.matrix(solve(Z %*% solve(kronecker(sigmai, nvarGi)) %*% t(Z) + solve(Ri)))
+# Xmat <- as.matrix(X)
+# P <- Vi - Vi %*% Xmat %*% solve(t(Xmat) %*% Vi %*% Xmat) %*% t(Xmat) %*% Vi
+# t(y) %*% P %*% y
+
+Ci <- sparseinv::Takahashi_Davis(Q = C,
+                                 cholQp = Cchol,
+                                 P = Matrix::Diagonal(ncol(C)),
+                                 return_perm_chol = 0)
 
 
 
