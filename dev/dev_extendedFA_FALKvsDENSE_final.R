@@ -235,30 +235,48 @@ if (isFixed[nrow(k)] == 0) {
 })
 
 ## Checking kmmr against asreml ====
-fit.asr <- asreml(fixed = GY ~ -1 + Env,
-                  random = ~ sfa(Env, 2):vm(Gen, K),
-                  residual = ~ idv(units),
-                  data = d,
-                  maxit = 1)
-init <- c(fit.asr$trace[33:46, 1], fit.asr$trace[5:32, 1], fit.asr$trace[47, 1])
-# Now replace these initial values with our own in k on line 76. Other way around would be easier, but asreml won't do it...
-all.equal(LL[1], fit.asr$trace[1,1])
-all.equal(matrix(fit.asr$score)[c(29:42, 1:28, 43), 1],
-          as.numeric(scores))
-Wu.asr <- as(fit.asr$wrkv[, -ncol(fit.asr$wrkv)], "unpackedMatrix")[, c(29:42, 1:28, 43)]
-all.equal(Wu.asr[, -29], Wu[, -29])
+# fit.asr <- asreml(fixed = GY ~ -1 + Env,
+#                   random = ~ sfa(Env, 2):vm(Gen, K),
+#                   residual = ~ idv(units),
+#                   data = d,
+#                   maxit = 1)
+# init <- c(fit.asr$trace[33:46, 1], fit.asr$trace[5:32, 1], fit.asr$trace[47, 1])
+# # Now replace these initial values with our own in k on line 76. Other way around would be easier, but asreml won't do it...
+# all.equal(LL[1], fit.asr$trace[1,1])
+# all.equal(matrix(fit.asr$score)[c(29:42, 1:28, 43), 1],
+#           as.numeric(scores))
+# Wu.asr <- as(fit.asr$wrkv[, -ncol(fit.asr$wrkv)], "unpackedMatrix")[, c(29:42, 1:28, 43)]
+# all.equal(Wu.asr[, -29], Wu[, -29])
+
+## Saving some stuff to compare agains the sparse x dense model ====
+b.dense_dense <- b
+u.dense_dense <- u
+AI.dense_dense <- AI
+Wu.dense_dense <- Wu
+scores.dense_dense <- scores
+LL.dense_dense <- LL
 
 # Next is the (extended) sparse x dense model ====
-# Function for constructing the fa correlation matrix as well as its inverse:
+# Function for constructing the exfa correlation matrix as well as its inverse:
 formCormatChol <- function(struc = "exfa", p = NULL, params = NULL, base = NULL, doChol = TRUE) {
   m <- length(params) / p # Number of factors
-  L <- Matrix(params, nrow = p, ncol = m, sparse = FALSE)
-  cormat <- rbind(cbind(L %*% t(L), -1 * L),
-                  cbind(-1 * t(L), Diagonal(m, 1)))
-  PSIi <- Diagonal(p, 1 / (1 - diag(cormat)[1:p]))
-  diag(cormat) <- 1
-  cormati <- Matrix(rbind(cbind(PSIi, PSIi %*% L),
-                          cbind(t(L) %*% PSIi, Diagonal(m, 1) + t(L) %*% PSIi %*% L)))
+  L <- matrix(params, nrow = p, ncol = m)
+  LLt <- tcrossprod(L)
+  PSIi <- 1 / (1 - diag(LLt))
+  diag(LLt) <- 1
+  cormat <- forceSymmetric(Matrix(rbind(cbind(LLt, -L),
+                                        cbind(-t(L), diag(m))),
+                                  sparse = FALSE))
+  PSIi_L <- PSIi * L
+  cormati <- forceSymmetric(Matrix(rbind(cbind(diag(PSIi), PSIi_L),
+                                         cbind(t(PSIi_L), diag(m) + crossprod(L, PSIi_L)))))
+  # L <- Matrix(params, nrow = p, ncol = m, sparse = FALSE)
+  # cormat <- rbind(cbind(L %*% t(L), -1 * L),
+  #                 cbind(-1 * t(L), Diagonal(m, 1)))
+  # PSIi <- Diagonal(p, 1 / (1 - diag(cormat)[1:p]))
+  # diag(cormat) <- 1
+  # cormati <- Matrix(rbind(cbind(PSIi, PSIi %*% L),
+  #                         cbind(t(L) %*% PSIi, Diagonal(m, 1) + t(L) %*% PSIi %*% L)))
   if (doChol) {
     ret <- list(cormat, chol(cormat), cormati)
   } else {
@@ -268,17 +286,33 @@ formCormatChol <- function(struc = "exfa", p = NULL, params = NULL, base = NULL,
 }
 
 # Function for computing derivatives with respect to loadings:
-getLoadingDerivs <- function(indexL, L) {
-  rowL <- ((indexL - 1) %% nrow(L)) + 1
-  colL <- ((indexL - 1) %/% nrow(L)) + 1
-  deriv11 <- Matrix(0, nrow(L), nrow(L))
-  deriv11[rowL,] <- deriv11[,rowL] <- L[, colL]
+getLoadingDerivs <- function(indexL, p, loadings) {
+  m <- length(loadings) / p
+  rowL <- ((indexL - 1) %% p) + 1
+  colL <- ((indexL - 1) %/% p) + 1
+  deriv11 <- matrix(0, p, p)
+  # deriv11[rowL,] <- deriv11[, rowL] <- L[, colL]
+  deriv11[rowL,] <- deriv11[, rowL] <- loadings[(p * (colL - 1) + 1):(p * colL)]
   deriv11[rowL, rowL] <- 0
-  deriv12 <- Matrix(0, nrow(L), ncol(L))
+  deriv12 <- matrix(0, p, m)
   deriv12[rowL, colL] <- -1
-  deriv <- rbind(cbind(deriv11, deriv12),
-                 cbind(t(deriv12), Matrix(0, ncol(L), ncol(L))))
+  deriv <- forceSymmetric(Matrix(rbind(cbind(deriv11, deriv12),
+                                       cbind(t(deriv12), matrix(0, m, m)))))
   return(deriv)
+}
+
+# A simpler wrapper for the Takahashi equations:
+takahashi <- function(L) {
+  n <- nrow(L)
+  d <- diag(L)
+  L <- tril(L %*% Diagonal(x = 1 / d), -1)
+  d <- d^2
+  D <- Diagonal(x = d)
+  dp <- diff(L@p)
+  jj <- rep(seq_along(dp), dp)
+  Zpattern <- sparseMatrix(c(L@i + 1, jj, 1:n), c(jj, L@i + 1, 1:n))
+  Z <- forceSymmetric(sparseinv:::.sparseinv_wrapper(L, d, L, Zpattern))
+  return(Z)
 }
 
 # Dense kinship matrix:
@@ -316,17 +350,18 @@ iter <- 1
 sparse <- TRUE # Will C be reasonable sparse?
 
 ## Iteration 1 ====
+system.time({
 Ri <- Matrix(diag(1 / k[nrow(k), iter], nrow(d)))
 W <- cbind(X, Z)
 if (sparse) {
-  C <- t(W) %*% Ri %*% W
+  C <- forceSymmetric(t(W) %*% Ri %*% W)
 } else {
-  C <- as(t(W) %*% Ri %*% W, "unpackedMatrix") # Because we will need to add a dense Gi anyway
+  C <- forceSymmetric(as(t(W) %*% Ri %*% W, "unpackedMatrix")) # Because we will need to add a dense Gi anyway
 }
 
 # Computing Gi:
 # We need to add unit variances for the factors
-vars <- rbind(sqrt(k[1:14, iter, drop = F]), Matrix(rep(1, ncol(L)), ncol(L))) %*% t(rbind(sqrt(k[1:14, iter, drop = F]), Matrix(rep(1, ncol(L)), ncol(L))))
+vars <- tcrossprod(Matrix(c(sqrt(k[1:14, iter]), rep(1, ncol(L)))))
 result <- formCormatChol(struc = "exfa",
                          p = 14,
                          params = k[15:42, iter],
@@ -357,7 +392,8 @@ if (sparse) {
   Gi <- sparseMatrix(i = Gi@i + 1 + C.start - 1,
                      j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + C.start - 1,
                      x = Gi@x,
-                     dims = dim(C))
+                     dims = dim(C),
+                     symmetric = TRUE)
   C <- C + Gi
 } else {
   C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] <- C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] + Gi
@@ -366,26 +402,34 @@ if (sparse) {
 # (sparse) cholesky decomposition of C:
 if (sparse) {
   Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = FALSE)
-  permMat <- Diagonal(ncol(C))[Cchol@perm + 1,]
-  Cchol <- as(Cchol, "dtCMatrix") # Lower triangular
 } else {
   Cchol <- chol(C)
 }
 
-# Compute the (permuted) right-hand side of the MME:
+# Compute the (permuted) right-hand side of the MME, intermediate result z, and BLUEs/BLUPs:
 if (sparse) {
-  rhs <- permMat %*% t(W) %*% Ri %*% y
-  # Sparse triangular solve:
-  z <- solve(Cchol, rhs)
+  # Apply permutation to the right-hand side of the MME: P %*% t(W) %*% Ri %*% y:
+  permRHS <- solve(Cchol, t(W) %*% Ri %*% y, system = "P")
+  # Sparse triangular forward solve: L %*% z = permRHS where L = Cchol:
+  z <- solve(Cchol, permRHS, system = "L")
+  # Sparse triangular backward solve: t(L) %*% bu = z where l = Cchol to obtain BLUEs and BLUPs:
+  bu <- solve(Cchol, z, system = "Lt")
+  # Final reverse permutation t(P) %*% bu to get the BLUEs and BLUPs into model order:
+  bu <- solve(Cchol, bu, system = "Pt")
 } else {
-  rhs <- t(W) %*% Ri %*% y
-  z <- Matrix(backsolve(as.matrix(Cchol), rhs, transpose = TRUE))
+  RHS <- t(W) %*% Ri %*% y
+  z <- Matrix(backsolve(as.matrix(Cchol), RHS, transpose = TRUE))
+  bu <- Matrix(backsolve(as.matrix(Cchol), z))
 }
 
 # Compute the LL:
-yPy <- as.numeric(t(y) %*% Ri %*% y - t(z) %*% z)
-logDetC <- 2 * sum(log(diag(Cchol)))
-logDetG <- 246 * logDetvarGtotal + 14 * logDetnvarGtotal
+yPy <- as.numeric(crossprod(y, Ri %*% y) - crossprod(z))
+if (sparse) {
+  logDetC <- determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus
+} else {
+  logDetC <- 2 * sum(log(diag(Cchol)))
+}
+logDetG <- nrow(nvarGi) * logDetvarGtotal + nrow(sigmai) * logDetnvarGtotal
 logDetR <- nrow(y) * log(k[nrow(k), iter])
 LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
 # Some code for verification of results:
@@ -394,146 +438,120 @@ LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
 # P <- Vi - Vi %*% Xmat %*% solve(t(Xmat) %*% Vi %*% Xmat) %*% t(Xmat) %*% Vi
 # t(y) %*% P %*% y
 
-Ci <- sparseinv::Takahashi_Davis(Q = C,
-                                 cholQp = Cchol,
-                                 P = Matrix::Diagonal(ncol(C)),
-                                 return_perm_chol = 0)
+# Splitting BLUEs and BLUPs:
+b <- bu[1:ncol(X), 1, drop = FALSE]
+u <- bu[(ncol(X) + 1):nrow(bu), 1, drop = FALSE]
 
+# Working variates:
+Wu <- Matrix(0, nrow(y), nrow(k), sparse = FALSE)
+umat_sigmai <- Matrix(u[1:nrow(u), 1], nrow = nrow(nvarGi), ncol = nrow(sigmai)) %*% sigmai
+derivs <- vector("list", nrow(k) - 1)
 
+# Variances:
+for (i in 1:14) {
+  if (isFixed[i] == 0) {
+    A <- Matrix(0, nrow(sigmai), ncol(sigmai))
+    A[i, ] <- 0.5
+    derivs[[i]] <- forceSymmetric(A + t(A)) * vars * Reduce(kronecker, cormats) / k[i, iter]
+  }
+}
+# Loadings:
+for (i in 15:42) {
+  if (isFixed[i] == 0) {
+    indexL <- i - 14
+    derivs[[i]] <- vars * getLoadingDerivs(indexL, p = 14, loadings = k[15:42, iter])
+  }
+}
 
+for (i in 1:42) {
+  if (isFixed[i] == 0) {
+    Wu[, i] <- Z %*% Matrix((umat_sigmai %*% derivs[[i]])@x)
+  }
+}
 
+# Residuals:
+e <- y - W %*% bu
+if (isFixed[nrow(k)] == 0) {
+  Wu[, nrow(k)] <- (1 / k[nrow(k), iter]) * e
+}
 
+# AI matrix:
+WiWj <- forceSymmetric(crossprod(Wu, Ri %*% Wu)) # Similar to t(y) %*% Ri %*% y
+if (sparse) {
+  XWjxZWj <- solve(Cchol, t(W) %*% Ri %*% Wu, system = "P") # Similar to permRHS
+  zWu <- solve(Cchol, XWjxZWj, system = "L") # Similar to z
+  buWu <- solve(Cchol, zWu, system = "Lt") # Similar to obtaining bu using a backsolve
+} else {
+  XWjxZWj <- t(W) %*% Ri %*% Wu
+  zWu <- backsolve(Cchol, XWjxZWj, transpose = TRUE)
+  buWu <- Matrix(backsolve(Cchol, zWu))
+}
+buWuXWjxZWj <- forceSymmetric(t(buWu) %*% XWjxZWj)
+AI <- (WiWj - buWuXWjxZWj) / 2
+if (any(isFixed == 1)) {
+  AIi <- Matrix(0, nrow(AI), ncol(AI), sparse = FALSE, doDiag = FALSE)
+  notFixed <- which(isFixed == 0)
+  AIi[notFixed, notFixed] <- solve(AI[notFixed, notFixed])
+} else {
+  AIi <- solve(AI)
+}
 
+# Inverse of Ci:
+if (sparse) {
+  # Sparse inverse subset and changing it back to model order:
+  inv_Perm <- invPerm(Cchol@perm, zero.p = TRUE, zero.res = FALSE)
+  Ci <- takahashi(as(Cchol, "dtCMatrix"))[inv_Perm, inv_Perm]
+} else {
+  Ci <- chol2inv(Cchol)
+}
 
+# Random effect scores:
+scores <- Matrix(0, nrow(k), 1, sparse = FALSE)
+corner <- ncol(X) + 1
+traces <- Matrix(0, nrow(sigmai), ncol(sigmai), sparse = FALSE, doDiag = FALSE)
+for (i in 1:nrow(sigmai)) {
+  for (j in 1:ncol(sigmai)) {
+    if (j >= i) { # Only do the upper triangle
+      if (!(sigmai[i, j] == 0)) {
+        rstart <- (corner + (i - 1) * nrow(nvarGi))
+        rend <- rstart - 1 + nrow(nvarGi)
+        cstart <- (corner + (j - 1) * nrow(nvarGi))
+        cend <- cstart - 1 + nrow(nvarGi)
+        traces[i, j] <- sum(nvarGi * Ci[rstart:rend, cstart:cend]) # The indexing of Ci is a little bit slow, could be faster...
+      }
+    }
+  }
+}
+traces <- forceSymmetric(traces)
+basisScores <- -0.5 * (nrow(nvarGi) * sigmai - sigmai %*% traces %*% sigmai - t(umat_sigmai) %*% nvarGi %*% umat_sigmai)
+for (i in 1:42) {
+  if (isFixed[i] == 0) {
+    scores[i, 1] <- sum(derivs[[i]] * basisScores)
+  }
+}
 
-# Making naive and extended versions of the genetic FA structure:
-fa.K <- factanal(covmat = K, factors = 20)
-LK <- diag(sqrt(diag(K))) %*% rotateInitL(fa.K$loadings[,])$L.rotated
-PSIK <- outer(sqrt(diag(K)), sqrt(diag(K))) * diag(fa.K$uniquenesses)
-# FALK <- rbind(cbind(LK %*% t(LK) + PSIK, -1 * LK),
-#               cbind(-1 * t(LK), diag(ncol(LK))))
-# FALKi2 <- solve(FALK); FALKi2[abs(FALKi2) < 1e-13] <- 0
-FALK.naive <- LK %*% t(LK) + PSIK
-FALKi.naive <- solve(FALK.naive)
-FALKi.extended <- rbind(cbind(solve(PSIK), solve(PSIK) %*% LK),
-                        cbind(t(LK) %*% solve(PSIK), diag(ncol(LK)) + t(LK) %*% solve(PSIK) %*% LK))
-
-# Making naive and extended versions of the environmental FA structure:
-vars <- diag(cov(unstack(d, GY ~ Env), use = "complete"))
-fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 2)
-L <- fit.factanal$loadings[,]
-L <- rotateInitL(L)$L.rotated
-PSI <- diag(1 - diag(L %*% t(L)))
-resvar <- mean(vars) / 20
-genvar <- vars / 20
-covL <- diag(sqrt(genvar)) %*% L
-covPSI <- diag(genvar) %*% PSI
-sigma.naive <- covL %*% t(covL) + covPSI
-# sigma.extended <- rbind(cbind(covL %*% t(covL) + covPSI,    -1 * covL),
-#                         cbind(-1 * t(covL),                 diag(ncol(covL))))
-sigmai.naive <- solve(sigma.naive)
-sigmai.extended <- rbind(cbind(solve(covPSI),                solve(covPSI) %*% covL),
-                         cbind(t(covL) %*% solve(covPSI),    diag(ncol(covL)) + t(covL) %*% solve(covPSI) %*% covL))
-
-# Combinine the environmental and genetic structures to form G:
-Gi.naive <- kronecker(sigmai.naive, FALKi.naive)
-Gi.extended <- kronecker(sigmai.extended, FALKi.extended)
-
-# Design matrices:
-y <- matrix(d$GY)
-X <- model.matrix(GY ~ -1 + Env, d)
-Z.naive <- diag(nrow(d))
-insertZero <- kronecker(c(rep(1, nrow(L)), rep(2, ncol(L))),
-                        c(rep(1, nrow(LK)), rep(2, ncol(LK)))) > 1
-# Z.extended <- cbind(Z.naive, matrix(0, nrow(Z.naive), 2 * nrow(K)))
-Z.extended <- matrix(0, nrow(Z.naive), length(insertZero))
-Z.extended[, !insertZero] <- Z.naive
-W.naive <- Matrix(cbind(X, Z.naive))
-W.extended <- Matrix(cbind(X, Z.extended))
-
-# Residual covariance matrix:
-Ri <- Matrix(diag(1 / resvar, nrow(d)))
-
-# Coefficient matrices
-C.naive <- as.matrix(t(W.naive) %*% Ri %*% W.naive)
-C.naive[15:nrow(C.naive), 15:ncol(C.naive)] <- C.naive[15:nrow(C.naive), 15:ncol(C.naive)] + Gi.naive
-C.extended <- as.matrix(t(W.extended) %*% Ri %*% W.extended)
-C.extended[15:nrow(C.extended), 15:ncol(C.extended)] <- C.extended[15:nrow(C.extended), 15:ncol(C.extended)] + Gi.extended
-
-# Naive version:
-# C.naive.spam <- spam::as.spam(C.naive)
-# chC.naive <- spam::chol(C.naive.spam)
-# spam::display(C.naive.spam)
-# spam::display(chC.naive)
-# spam::summary(C.naive.spam)
-# spam::summary(chC.naive)
-
-# Extended version:
-# C.extended.spam <- spam::as.spam(C.extended)
-# chC.extended <- spam::chol(C.extended.spam)
-# spam::display(C.extended.spam)
-# spam::display(chC.extended)
-# spam::summary(C.extended.spam)
-# spam::summary(chC.extended)
-
-# Right hand sides of the MME:
-RHS.naive <- t(W.naive) %*% Ri %*% y
-RHS.extended <- t(W.extended) %*% Ri %*% y
-
-# Full, simple inverses:
-Ci.naive <- solve(C.naive)
-Ci.extended <- solve(C.extended)
-
-# Solutions (BLUEs/BLUPs)
-bu.naive <- Ci.naive %*% RHS.naive
-bu.extended <- Ci.extended %*% RHS.extended
-
-# BLUPs only:
-u.naive <- as.matrix(bu.naive[15:nrow(bu.naive),, drop = F])
-u.extended <- as.matrix(bu.extended[15:nrow(bu.extended),, drop = F])
-u.extended.nofactorscores <- u.extended[!insertZero,, drop = F]
-
-all.equal(u.naive, u.extended.nofactorscores)
-
-U.naive <- chol(C.naive)
-U.extended <- chol(C.extended)
-
-system.time({
-C.extended.sparse <- Matrix(C.extended)
-U.extended.sparse <- Matrix::Cholesky(C.extended.sparse, LDL = FALSE, perm = TRUE, super = FALSE)
-tmp <- as(U.extended.sparse, "dtCMatrix") # Lower triangular
-permMat <- Matrix::Diagonal(ncol(C.extended.sparse))[U.extended.sparse@perm + 1,]
-Ci.extended.sparse <- sparseinv::Takahashi_Davis(Q = C.extended.sparse,
-                                                 cholQp = tmp,
-                                                 P = Matrix::Diagonal(ncol(C.extended.sparse)),
-                                                 return_perm_chol = 0)
+# Residual score:
+if (isFixed[nrow(k)] == 0) {
+  evari <- (1 / k[nrow(k), iter])
+  S <- Diagonal(nrow(y), 1)
+  WSW <- t(W) %*% S %*% W
+  scores[nrow(k), 1] <- as.numeric(-0.5 * (sum(S * evari) - sum(evari^2 * Ci[cbind(WSW@i + 1, rep(seq_len(ncol(WSW)), diff(WSW@p)))] * WSW@x) - (evari^2 * t(e) %*% S %*% e)))
+}
 })
 
-left <- permMat %*% C.extended.sparse %*% t(permMat)
-right <- tmp %*% t(tmp)
-all.equal(as(left, "generalMatrix"), right)
+## Comparing to the saved results from the dense x dense model ====
+# All TRUE!
+all.equal(as.matrix(b.dense_dense), as.matrix(b), check.attributes = FALSE)
+all.equal(as.matrix(u.dense_dense), as.matrix(u[1:3444, 1, drop = FALSE]), check.attributes = FALSE)
+all.equal(as.matrix(AI.dense_dense), as.matrix(AI), check.attributes = FALSE)
+all.equal(as.matrix(Wu.dense_dense), as.matrix(Wu), check.attributes = FALSE)
+all.equal(LL.dense_dense, LL, check.attributes = FALSE)
 
-# Putting the sparse inverse coefficient matrix back into normal order:
-Ci.extended.sparse <- t(permMat) %*% Ci.extended.sparse %*% permMat
+# Next is the dense x sparse model ====
 
-# Naive alternative:
-system.time(Ci.extended <- solve(C.extended))
 
-# Some checks.
-# 1. All elements that are non-zero in the coefficient matrix MUST be non-zero in the sparse inverse.
-#    As all derivatives of C should have the same sparsity pattern, this ensures all traces can be computed
-#    using Hadamard products.
-all(Ci.extended.sparse[C.extended.sparse != 0] != 0)
-# 2. Percentage of non-zero elements:
-nnzero(Ci.extended.sparse) / prod(dim(Ci.extended.sparse))
-# 3. All non-zero elements in the sparse inverse should be the same as the corresponding elements
-#    in the dense inverse:
-all.equal(Ci.extended.sparse[which(Ci.extended.sparse != 0)], Ci.extended[which(Ci.extended.sparse != 0)])
 
-# Now let's see if we can achieve the same using LMMsolver's internal functions.
-lP <- list(spam::as.spam(C.extended))
-test <- LMMsolver:::ADchol(lP)
-test2 <- sparseMatrix()
+
 
 
 
