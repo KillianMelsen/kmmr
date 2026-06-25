@@ -5,6 +5,7 @@
 # 3: dense x FALK
 # 4: extended x FALK
 library(Matrix)
+library(tictoc)
 
 # Function to rotate loadings matrices to a structure with upper triangle of 0:
 rotateInitL <- function(L) {
@@ -1141,10 +1142,10 @@ all.equal(Wu.sparse_sparse, Wu.dense_sparse, check.attributes = FALSE)
 all.equal(LL.sparse_sparse, LL.dense_sparse, check.attributes = FALSE)
 
 # Now rerun the dense x dense and sparse x sparse models with the dense form of the falk kinship:
-K <- Matrix(sds %*% rotateInitL(FAK.fit$loadings[,])$L.rotated %*% t(sds %*% rotateInitL(FAK.fit$loadings[,])$L.rotated) + sds %*% diag(FAK.fit$uniquenesses) %*% sds)
-all.equal(b.dense_dense, b.sparse_sparse, check.attributes = FALSE)
-all.equal(u.dense_dense, u.sparse_sparse, check.attributes = FALSE)
-all.equal(AI.dense_dense, AI.sparse_sparse, check.attributes = FALSE)
-all.equal(Wu.dense_dense, Wu.sparse_sparse, check.attributes = FALSE)
-all.equal(LL.dense_dense, LL.sparse_sparse, check.attributes = FALSE)
+# K <- Matrix(sds %*% rotateInitL(FAK.fit$loadings[,])$L.rotated %*% t(sds %*% rotateInitL(FAK.fit$loadings[,])$L.rotated) + sds %*% diag(FAK.fit$uniquenesses) %*% sds)
+# all.equal(b.dense_dense, b.sparse_sparse, check.attributes = FALSE)
+# all.equal(u.dense_dense, u.sparse_sparse, check.attributes = FALSE)
+# all.equal(AI.dense_dense, AI.sparse_sparse, check.attributes = FALSE)
+# all.equal(Wu.dense_dense, Wu.sparse_sparse, check.attributes = FALSE)
+# all.equal(LL.dense_dense, LL.sparse_sparse, check.attributes = FALSE)
 
