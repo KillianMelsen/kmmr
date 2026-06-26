@@ -48,6 +48,12 @@ Ki <- solve(K)
 attr(Ki, "INVERSE") <- TRUE
 runs <- 20
 trace <- TRUE
+results1 <- expand.grid(Run = 1:runs,
+                        Model = "Dense",
+                        m = NA,
+                        Env = levels(d$Env),
+                        cor_pearson = NA,
+                        RMSE = NA)
 
 # Sample training and test sets:
 sets <- vector("list", runs)
@@ -58,13 +64,15 @@ for (run in 1:runs) {
   sets[[run]] <- list(train.set = train.set, test.set = test.set)
 }
 
-# First do the standard FA-3 model with dense Ki:
-isFactor <- kronecker(c(rep(F, 14), rep(T, 3)),
-                      c(rep(F, 234)),
+# First do the standard FA-3 model with dense Ki ====
+isFactor <- kronecker(c(rep(FALSE,  14), rep(TRUE, 3)),
+                      c(rep(FALSE, 202), rep(TRUE, 0)),
                       FUN = "|")
+run <- 1
 for (run in 1:runs) {
   d.train <- d
   d.train[d.train$Gen %in% sets[[run]]$test.set, "GY"] <- NA
+  target <- droplevels(d[d$Gen %in% sets[[run]]$test.set,])
   fit <- asreml(fixed = GY ~ -1 + Env,
                 random = ~ fa(Env, 3):vm(Gen, Ki),
                 residual = ~ units,
@@ -72,8 +80,99 @@ for (run in 1:runs) {
                 weights = weight,
                 family = asr_gaussian(dispersion = 1.0),
                 trace = trace)
-  preds <- as.data.frame(fit$coefficients$random[1:(length(levels(d.train$Env)) * nrow(Ki)),])
+  
+  preds <- as.data.frame(fit$coefficients$random[1:nrow(d.train),])
+  names(preds) <- "predicted.value"
+  preds$Env <- as.factor(gsub("fa\\(Env, 3\\)_(.*):vm\\(Gen, Ki\\)_(.*)", "\\1", rownames(preds)))
+  preds$Gen <- as.factor(gsub("fa\\(Env, 3\\)_(.*):vm\\(Gen, Ki\\)_(.*)", "\\2", rownames(preds)))
+  preds$EnvGen <- as.factor(paste(preds$Env, preds$Gen, sep = ":"))
+  preds <- preds[match(target$EnvGen, preds$EnvGen),]
+  
+  for (e in levels(d.train$Env)) {
+    preds2 <- droplevels(preds[preds$Env == e, c("Gen", "predicted.value")])
+    target2 <- droplevels(target[target$Env == e, c("Gen", "GY")])
+    target2 <- target2[match(preds2$Gen, target2$Gen),]
+    
+    # Accuracy measures:
+    target2$GY <- scale(target2$GY, scale = FALSE)
+    cor_pearson <- cor(preds2$predicted.value, target2$GY)
+    RMSE <- sqrt(mean((preds2$predicted.value - target2$GY)^2))
+    
+    result.row <- which(results1$Run == run & results1$Model == "Dense" & results1$Env == e)
+    results1[result.row, c("cor_pearson", "RMSE")] <- c(cor_pearson, RMSE)
+  }
 }
+
+# Now the models with approximated kinships ====
+factors <- c(30, 40)
+results3 <- expand.grid(Run = 1:runs,
+                        Model = "FALK",
+                        m = factors,
+                        Env = levels(d$Env),
+                        cor_pearson = NA,
+                        RMSE = NA)
+
+for (m in factors) {
+  COO <- createCOO(m, K)
+  isFactor <- kronecker(c(rep(FALSE,  14), rep(TRUE, 3)),
+                        c(rep(FALSE, 234), rep(TRUE, m)),
+                        FUN = "|")
+  for (run in 1:runs) {
+    d.train <- d
+    d.train[d.train$Gen %in% sets[[run]]$test.set, "GY"] <- NA
+    target <- droplevels(d[d$Gen %in% sets[[run]]$test.set,])
+    fit <- asreml(fixed = GY ~ -1 + Env,
+                  random = ~ fa(Env, 3):vm(Gen, COO),
+                  residual = ~ units,
+                  data = d.train,
+                  weights = weight,
+                  family = asr_gaussian(dispersion = 1.0),
+                  trace = trace)
+    
+    preds <- as.data.frame(fit$coefficients$random[!isFactor,])
+    names(preds) <- "predicted.value"
+    preds$Env <- as.factor(gsub("fa\\(Env, 3\\)_(.*):vm\\(Gen, COO\\)_(.*)", "\\1", rownames(preds)))
+    preds$Gen <- as.factor(gsub("fa\\(Env, 3\\)_(.*):vm\\(Gen, COO\\)_(.*)", "\\2", rownames(preds)))
+    preds$EnvGen <- as.factor(paste(preds$Env, preds$Gen, sep = ":"))
+    preds <- preds[match(target$EnvGen, preds$EnvGen),]
+    
+    for (e in levels(d.train$Env)) {
+      preds2 <- droplevels(preds[preds$Env == e, c("Gen", "predicted.value")])
+      target2 <- droplevels(target[target$Env == e, c("Gen", "GY")])
+      target2 <- target2[match(preds2$Gen, target2$Gen),]
+      
+      # Accuracy measures:
+      target2$GY <- scale(target2$GY, scale = FALSE)
+      cor_pearson <- cor(preds2$predicted.value, target2$GY)
+      RMSE <- sqrt(mean((preds2$predicted.value - target2$GY)^2))
+      
+      result.row <- which(results3$Run == run & results3$Model == "FALK" & results3$Env == e & results3$m == m)
+      results3[result.row, c("cor_pearson", "RMSE")] <- c(cor_pearson, RMSE)
+    }
+  }
+}
+
+results1$m <- 0
+results <- rbind(results1,
+                 results2,
+                 results3)
+
+x <- aggregate(results, cbind(cor_pearson, RMSE) ~ Model + m + Env, FUN = mean)
+x <- droplevels(x[x$m %in% c(0, 50),])
+plot(x[x$Model == "Dense", "cor_pearson"],
+     x[x$Model == "FALK", "cor_pearson"])
+abline(0, 1, col = "red")
+
+
+
+
+
+
+
+
+
+
+
 
 
 
