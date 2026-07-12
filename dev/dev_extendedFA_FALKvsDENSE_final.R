@@ -339,7 +339,9 @@ isFixed[14 + 15] <- 1
 y <- Matrix(d$GY)
 X <- sparse.model.matrix(GY ~ -1 + Env, d)
 # Where do we need to insert zeros in the design matrix? 1 for no, 2 for yes.
-insertZero <- kronecker(c(rep(1, nrow(L)), rep(2, ncol(L))), c(rep(1, ncol(K)))) > 1
+insertZero <- kronecker(c(rep(FALSE, nrow(L)), rep(TRUE, ncol(L))), # FALSE for nrow(L) environments, TRUE for ncol(L) factors
+                        c(rep(FALSE, ncol(K))), # FALSE for ncol(K) genotypes
+                        FUN = "|")
 Z <- matrix(0, nrow(d), (nrow(L) + ncol(L)) * ncol(K))
 Z[, !insertZero] <- model.matrix(GY ~ -1 + Units, d)
 Z <- Matrix(Z)
@@ -509,7 +511,7 @@ if (any(isFixed == 1)) {
 }
 toc()
 
-# Inverse of Ci:
+# Inverse of C, slow!!!:
 tic("Inversion of C")
 if (sparse) {
   # Sparse inverse subset and changing it back to model order:
@@ -557,6 +559,54 @@ if (isFixed[nrow(k)] == 0) {
 }
 toc()
 })
+
+## Comparing with LMMsolver: ====
+V <- as.matrix(Z %*% solve(kronecker(sigmai, nvarGi)) %*% t(Z) + solve(Ri))
+Vi <- solve(V)
+Xmat <- as.matrix(X)
+P <- Vi - Vi %*% Xmat %*% solve(t(Xmat) %*% Vi %*% Xmat) %*% t(Xmat) %*% Vi
+s1 <- -0.5 * (
+  sum(diag(kronecker(derivs[[1]], K) %*% kronecker(sigmai, nvarGi))) -
+    sum(diag((kronecker(sigmai, nvarGi) %*% kronecker(derivs[[1]], K) %*% kronecker(sigmai, nvarGi)) %*% Ci[15:nrow(Ci),15:ncol(Ci)])) -
+    (t(y) %*% P %*% Wu[,1])
+  )
+
+X.spam <- spam::as.spam(as.matrix(X))
+Z.spam <- spam::as.spam(as.matrix(Z))
+Kimat <- solve(as.matrix(K))
+my_own_def <- function(theta) {
+  R <- spam::as.spam(diag(theta[length(theta)], nrow(y)))
+  L <- matrix(theta[15:42], 14, 2)
+  PSI <- diag(1 - diag(L %*% t(L)))
+  cormati <- rbind(cbind(solve(PSI), solve(PSI) %*% L),
+                   cbind(t(L) %*% solve(PSI), diag(2) + t(L) %*% solve(PSI) %*% L))
+  varsi <- outer(c(sqrt(theta[1:14]), 1, 1),
+                 c(sqrt(theta[1:14]), 1, 1))
+  Gi <- spam::as.spam(kronecker((1 / varsi) * cormati, Kimat))
+  C <- rbind(cbind(t(X.spam) %*% solve(R) %*% X.spam, t(X.spam) %*% solve(R) %*% Z.spam),
+             cbind(t(Z.spam) %*% solve(R) %*% X.spam, t(Z.spam) %*% solve(R) %*% Z.spam + Gi))
+
+  dC <- rbind(cbind(matrix(0, 14, 14), matrix(0, 14, 3936)),
+              cbind(matrix(0, 3936, 14), ))
+
+  list(C  = C, dC = list(BtB, DtD))
+}
+
+C.spam <- spam::as.spam(as.matrix(C))
+opt <- summary(C.spam)
+cholC <- chol(C.spam, memory = list(nnzR = 8 * opt$nnz, nnzcolindices = 4 * opt$nnz))
+dC <- vector("list", length(derivs))
+for (i in 1:length(derivs)) {
+  if (!isFixed[i]) {
+    tmp <- as.matrix(kronecker(sigmai, nvarGi) %*% kronecker(derivs[[i]], K) %*% kronecker(sigmai, nvarGi))
+    tmp <- rbind(cbind(matrix(0, 14, 14), matrix(0, 14, ncol(tmp))),
+                 cbind(matrix(0, nrow(tmp), 14), tmp))
+    dC[[i]] <- spam::as.spam(tmp)
+  }
+}
+dC <- dC[unlist(lapply(dC, FUN = function(x) !is.null(x)))]
+lQ <- lapply(dC, LMMsolver:::reorderSpam, permutation = cholC@pivot)
+L <- LMMsolver:::construct_ADchol_Rcpp(cholC, lQ)
 
 ## Saving some stuff for comparisons ====
 b.sparse_dense <- as.matrix(b)
