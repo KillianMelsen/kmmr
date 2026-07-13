@@ -561,52 +561,48 @@ toc()
 })
 
 ## Comparing with LMMsolver: ====
-V <- as.matrix(Z %*% solve(kronecker(sigmai, nvarGi)) %*% t(Z) + solve(Ri))
-Vi <- solve(V)
-Xmat <- as.matrix(X)
-P <- Vi - Vi %*% Xmat %*% solve(t(Xmat) %*% Vi %*% Xmat) %*% t(Xmat) %*% Vi
-s1 <- -0.5 * (
-  sum(diag(kronecker(derivs[[1]], K) %*% kronecker(sigmai, nvarGi))) -
-    sum(diag((kronecker(sigmai, nvarGi) %*% kronecker(derivs[[1]], K) %*% kronecker(sigmai, nvarGi)) %*% Ci[15:nrow(Ci),15:ncol(Ci)])) -
-    (t(y) %*% P %*% Wu[,1])
-  )
-
-X.spam <- spam::as.spam(as.matrix(X))
-Z.spam <- spam::as.spam(as.matrix(Z))
-Kimat <- solve(as.matrix(K))
-my_own_def <- function(theta) {
-  R <- spam::as.spam(diag(theta[length(theta)], nrow(y)))
-  L <- matrix(theta[15:42], 14, 2)
-  PSI <- diag(1 - diag(L %*% t(L)))
-  cormati <- rbind(cbind(solve(PSI), solve(PSI) %*% L),
-                   cbind(t(L) %*% solve(PSI), diag(2) + t(L) %*% solve(PSI) %*% L))
-  varsi <- outer(c(sqrt(theta[1:14]), 1, 1),
-                 c(sqrt(theta[1:14]), 1, 1))
-  Gi <- spam::as.spam(kronecker((1 / varsi) * cormati, Kimat))
-  C <- rbind(cbind(t(X.spam) %*% solve(R) %*% X.spam, t(X.spam) %*% solve(R) %*% Z.spam),
-             cbind(t(Z.spam) %*% solve(R) %*% X.spam, t(Z.spam) %*% solve(R) %*% Z.spam + Gi))
-
-  dC <- rbind(cbind(matrix(0, 14, 14), matrix(0, 14, 3936)),
-              cbind(matrix(0, 3936, 14), ))
-
-  list(C  = C, dC = list(BtB, DtD))
-}
-
-C.spam <- spam::as.spam(as.matrix(C))
-opt <- summary(C.spam)
-cholC <- chol(C.spam, memory = list(nnzR = 8 * opt$nnz, nnzcolindices = 4 * opt$nnz))
-dC <- vector("list", length(derivs))
-for (i in 1:length(derivs)) {
-  if (!isFixed[i]) {
-    tmp <- as.matrix(kronecker(sigmai, nvarGi) %*% kronecker(derivs[[i]], K) %*% kronecker(sigmai, nvarGi))
-    tmp <- rbind(cbind(matrix(0, 14, 14), matrix(0, 14, ncol(tmp))),
-                 cbind(matrix(0, nrow(tmp), 14), tmp))
-    dC[[i]] <- spam::as.spam(tmp)
-  }
-}
-dC <- dC[unlist(lapply(dC, FUN = function(x) !is.null(x)))]
-lQ <- lapply(dC, LMMsolver:::reorderSpam, permutation = cholC@pivot)
-L <- LMMsolver:::construct_ADchol_Rcpp(cholC, lQ)
+# V <- as.matrix(Z %*% solve(kronecker(sigmai, nvarGi)) %*% t(Z) + solve(Ri))
+# Vi <- solve(V)
+# Xmat <- as.matrix(X)
+# P <- Vi - Vi %*% Xmat %*% solve(t(Xmat) %*% Vi %*% Xmat) %*% t(Xmat) %*% Vi
+# s15 <- -0.5 * (
+#   sum(diag(kronecker(derivs[[15]], K) %*% kronecker(sigmai, nvarGi))) -
+#     sum(diag((kronecker(sigmai, nvarGi) %*% kronecker(derivs[[15]], K) %*% kronecker(sigmai, nvarGi)) %*% Ci[15:nrow(Ci),15:ncol(Ci)])) -
+#     (t(y) %*% P %*% Wu[,15])
+#   )
+# C.spam <- spam::as.spam(as.matrix(C))
+# opt <- summary(C.spam)
+# cholC <- chol(C.spam, memory = list(nnzR = 8 * opt$nnz, nnzcolindices = 4 * opt$nnz))
+# # Derivative wrt to the first loading just to try it out
+# tmp <- sigmai %*% derivs[[15]] %*% sigmai # First step is to get the derivative of sigmai wrt to l11, this matrix will have a bunch of nonzeros that should actually be zero...
+# dCdl11 <- matrix(0, 16, 16) # Setting up a matrix with only the true nonzeros
+# dCdl11[1, 1] <- tmp[1, 1] # 1 / psi_1 = 1 / (1 - l_11^2)
+# dCdl11[1, 15] <- dCdl11[15, 1] <- tmp[1, 15] # solve(PSI) %*% L and the transpose
+# dCdl11[15, 15] <- tmp[15, 15] # t(L) %*% solve(PSI) %*% L
+# dCdl11 <- kronecker(dCdl11, as.matrix(nvarGi)) # Kronecker product with solve(K)
+# dCdl11 <- rbind(cbind(matrix(0, 14, 14), matrix(0, 14, ncol(dCdl11))), cbind(matrix(0, nrow(dCdl11), 14), dCdl11)) # Padding with 0-blocks for the fixed effects
+# dC <- list(spam::as.spam(dCdl11)) # Converting to spam and putting it in a list.
+# lQ <- lapply(dC, LMMsolver:::reorderSpam, permutation = cholC@pivot)
+# L <- LMMsolver:::construct_ADchol_Rcpp(cholC, lQ)
+# ADcholC_nl <- new("ADchol", supernodes = L$supernodes, rowpointers = L$rowpointers,
+#                   colpointers = L$colpointers, rowindices = L$rowindices, 
+#                   pivot = L$pivot, invpivot = L$invpivot, entries = L$entries, 
+#                   ADentries = L$ADentries, P = L$P, mode = "nonlinear", user_def = NULL)
+# pivot_R <- ADcholC_nl@pivot + 1
+# C.spam <- LMMsolver:::reorderSpam(C.spam, pivot_R)
+# dC <- lapply(dC, LMMsolver:::reorderSpam, permutation = pivot_R)
+# entries <- LMMsolver:::convertSparseMatrix_Rcpp(C.spam, ADcholC_nl)
+# derivatives <- LMMsolver:::convertSparseMatrices(dC, ADcholC_nl)
+# result1 <- LMMsolver:::dlogdet_cpp_general(ADcholC_nl, entries, derivatives, b = NULL)
+# 
+# # This is the derivative of log|C| using the sparse inverse of C obtained using Takahashi:
+# result2 <- sum((kronecker(sigmai, nvarGi) %*% kronecker(derivs[[15]], K) %*% kronecker(sigmai, nvarGi)) * Ci[15:nrow(Ci),15:ncol(Ci)])
+# 
+# # And to double-check, the derivative of log|C| using the naive, dense inverse of C:
+# result3 <- sum((kronecker(sigmai, nvarGi) %*% kronecker(derivs[[15]], K) %*% kronecker(sigmai, nvarGi)) * solve(C)[15:nrow(C),15:ncol(C)])
+# 
+# all.equal(as.numeric(result1), as.numeric(result2)) # TRUE
+# all.equal(as.numeric(result1), as.numeric(result3)) # TRUE
 
 ## Saving some stuff for comparisons ====
 b.sparse_dense <- as.matrix(b)
