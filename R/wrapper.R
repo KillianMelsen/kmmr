@@ -1,3 +1,32 @@
+#' RotateInitL
+#'
+#' @param L Matrix of loadings
+#'
+#' @returns The rotated loadings matrix so that the upper triangle is zero.
+#' @keywords internal
+rotateInitL <- function(L) {
+  L.rotated <- L
+  m <- ncol(L.rotated)
+  p <- nrow(L.rotated)
+  coords <- which(upper.tri(matrix(0, p, m)), arr.ind = TRUE)
+  givens <- vector("list", nrow(coords))
+  for (i in 1:nrow(coords)) {
+    row <- coords[i, "row"]
+    col <- coords[i, "col"]
+    givens[[i]] <- diag(m)
+    h <- sqrt(sum(c(L.rotated[row, row], L.rotated[row, col])^2))
+    c <- L.rotated[row, row] / h
+    s <- L.rotated[row, col] / h
+    diag(givens[[i]])[c(row, col)] <- c
+    givens[[i]][row, col] <- -s
+    givens[[i]][col, row] <- s
+    L.rotated <- L.rotated %*% givens[[i]]
+  }
+  L.rotated[upper.tri(L.rotated)] <- 0 # Make sure the upper triangle is exactly 0 and not xe-18
+  rotmat <- Reduce("%*%", givens)
+  return(list(L.rotated = L.rotated, rotmat = rotmat))
+}
+
 #' revInteractions
 #'
 #' @param form Formula.
@@ -209,6 +238,11 @@ re <- function(formula, vars = ~ 1, ...) {
           } else if (structure == "gk") {
             params[h] <- sprintf("bw{%s|stack-%d}", factorNames[i], s)
             h <- h + 1
+          } else if (structure %in% c("fa", "exfa")) {
+            m <- p / nlevels[i]
+            labels <- paste(rep(levels[[i]], m), rep(sprintf("F%d", 1:m), each = nlevels[i]), sep = ":")
+            params[h:(h - 1 + p)] <- sprintf("loading{%s-%s|stack-%d}", factorNames[i], labels, s)
+            h <- h + p
           }
         }
       } else {
@@ -224,6 +258,11 @@ re <- function(formula, vars = ~ 1, ...) {
         } else if (structure == "gk") {
           params[h] <- sprintf("bw{%s}", factorNames[i])
           h <- h + 1
+        } else if (structure %in% c("fa", "exfa")) {
+          m <- p / nlevels[i]
+          labels <- paste(rep(levels[[i]], m), rep(sprintf("F%d", 1:m), each = nlevels[i]), sep = ":")
+          params[h:(h - 1 + p)] <- sprintf("loading{%s-%s}", factorNames[i], labels)
+          h <- h + p
         }
       }
     }
@@ -246,7 +285,7 @@ re <- function(formula, vars = ~ 1, ...) {
               params = params))
 }
 
-#' corg
+#' \code{corg} is for a general correlation structure
 #'
 #' @param factor Data factor.
 #'
@@ -265,7 +304,47 @@ corg <- function(factor) {
               part = "var"))
 }
 
-#' cors
+#' \code{fa} is for a naive factor analytic correlation structure.
+#'
+#' @param factor Data factor.
+#' @param m Number of factors.
+#'
+#' @returns List with all information on this correlation structure.
+#' @keywords internal
+fa <- function(factor, m) {
+  levels <- levels(factor)
+  p <- length(levels)
+  nparams <- p * m
+  return(list(base = NA,
+              levels = levels,
+              nlevels = p,
+              nparams = nparams,
+              types = rep("L", nparams),
+              indexCor = 1:nparams,
+              part = "var"))
+}
+
+#' \code{exfa} is for an extended (sparse) factor analytic correlation structure.
+#'
+#' @param factor Data factor.
+#' @param m Number of factors.
+#'
+#' @returns List with all information on this correlation structure.
+#' @keywords internal
+exfa <- function(factor, m) {
+  levels <- levels(factor)
+  p <- length(levels)
+  nparams <- p * m
+  return(list(base = NA,
+              levels = levels,
+              nlevels = p,
+              nparams = nparams,
+              types = rep("L", nparams),
+              indexCor = 1:nparams,
+              part = "var"))
+}
+
+#' \code{cors} is for a simple correlation structure.
 #'
 #' @param factor Data factor.
 #'
@@ -284,7 +363,7 @@ cors <- function(factor) {
               part = "var"))
 }
 
-#' id
+#' \code{id} is for a diagonal (identity) correlation structure.
 #'
 #' @param factor Data factor.
 #'
@@ -303,7 +382,7 @@ id <- function(factor) {
               part = "nvar"))
 }
 
-#' gk
+#' \code{gk} is for a Gaussian kernel correlation structure.
 #'
 #' @param factor Data factor.
 #' @param base Distance matrix.
@@ -326,7 +405,7 @@ gk <- function(factor, base) {
               part = "var"))
 }
 
-#' lk
+#' \code{lk} is for a linear kernel correlation structure.
 #'
 #' @param factor Data factor.
 #' @param base Correlation matrix or kinship.

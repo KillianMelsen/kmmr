@@ -1,38 +1,189 @@
-#' formCormatChol
+getCormat_corg <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
+  if (p != (1 + sqrt(1 + 8 * length(params))) / 2) {
+    stop("Number of factor levels and parameters for corg model do not match.")
+  }
+  cormat <- logDet <- cormati <- NULL
+  if (doCormat) {
+    cormat <- diag(p)
+    cormat[lower.tri(cormat)] <- params
+    cormat <- cormat + t(cormat) - diag(p)
+  }
+  if (doLogDet) {
+    cormatChol <- chol(cormat)
+    logDet <- 2 * sum(log(diag(cormatChol)))
+  }
+  if (doCormati) {
+    cormati <- chol2inv(cormatChol)
+  }
+  return(list(cormat, logDet, cormati))
+}
+
+getCormat_cors <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
+  cormat <- logDet <- cormati <- NULL
+  if (doCormat) {
+    cormat <- diag(p)
+    cormat[lower.tri(cormat)] <- params[1]
+    cormat <- cormat + t(cormat) - diag(p)
+  }
+  if (doChol) {
+    cormatChol <- chol(cormat)
+    logDet <- 2 * sum(log(diag(cormatChol)))
+  }
+  if (doCormati) {
+    cormati <- chol2inv(cormatChol)
+  }
+  return(list(cormat, logDet, cormati))
+}
+
+getCormat_gk <- function(params, base, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
+  cormat <- logDet <- cormati <- NULL
+  if (doCormat) {
+    cormat <- exp(-params[1] * base)
+  }
+  if (doLogDet) {
+    cormatChol <- chol(cormat)
+    logDet <- 2 * sum(log(diag(cormatChol)))
+  }
+  if (doCormati) {
+    cormati <- chol2inv(cormatChol)
+  }
+  return(list(cormat, logDet, cormati))
+}
+
+getCormat_lk <- function(base, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
+  cormat <- logDet <- cormati <- NULL
+  if (doCormat) {
+    cormat <- base
+  }
+  if (doLogDet) {
+    cormatChol <- chol(cormat)
+    logDet <- 2 * sum(log(diag(cormatChol)))
+  }
+  if (doCormati) {
+    cormati <- chol2inv(cormatChol)
+  }
+  return(list(cormat, logDet, cormati))
+}
+
+getCormat_id <- function(p, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
+  cormat <- logDet <- cormati <- NULL
+  if (doCormat) {
+    cormat <- diag(p)
+  }
+  if (doLogDet) {
+    cormatChol <- diag(p)
+    logDet <- 0
+  }
+  if (doCormati) {
+    cormati <- diag(p)
+  }
+  return(list(cormat, logDet, cormati))
+}
+
+getCormat_fa <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
+  cormat <- logDet <- cormati <- NULL
+  if (doCormat) {
+    L <- matrix(params, nrow = p)
+    cormat <- Matrix::tcrossprod(L)
+    diag(cormat) <- 1
+  }
+  if (doLogDet) {
+    cormatChol <- chol(cormat)
+    logDet <- 2 * sum(log(diag(cormatChol)))
+  }
+  if (doCormati) {
+    cormati <- chol2inv(cormatChol)
+  }
+  return(list(cormat, logDet, cormati))
+}
+
+getCormat_exfa <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
+  cormat <- logDet <- cormati <- NULL
+  if (doCormat) {
+    L <- matrix(params, nrow = p)
+    m <- ncol(L)
+    LLt <- Matrix::tcrossprod(L)
+    PSIi <- 1 / (1 - diag(LLt))
+    diag(LLt) <- 1
+    cormat <- rbind(cbind(LLt, -L),
+                    cbind(-t(L), diag(m)))
+  }
+  if (doLogDet) {
+    cormatChol <- chol(cormat)
+    logDet <- 2 * sum(log(diag(cormatChol)))
+  }
+  if (doCormati) {
+    PSIi_L <- PSIi * L
+    cormati <- rbind(cbind(diag(PSIi), PSIi_L),
+                     cbind(t(PSIi_L), diag(m) + Matrix::crossprod(L, PSIi_L)))
+  }
+  return(list(cormat, logDet, cormati))
+}
+
+#' getCormat forms, for a given structure and set of parameters, the correlation matrix, inverse of the correlation matrix, and determinant of the correlation matrix.
 #'
 #' @param struc Character indicating which correlation structure must be formed from the parameters.
 #' @param p Numeric indicating the number of levels of this factor.
 #' @param params Numeric vector containing the parameters needed to form the correlation matrix.
 #' @param base Optional argument containing a numeric matrix to be used in forming the correlation matrix (distance matrix for Gaussian kernel, correlation matrix or kinship for linear kernel).
-#' @param doChol Logical indicating whether a cholesky decomposition of the correlation matrix should be computed (for obtaining the log determinant and inverse).
+#' @param doCormat Logical indicating whether the correlation matrix should be formed.
+#' @param doCormati Logical indicating whether the inverse of the correlation matrix should be formed.
+#' @param doLogDet Logical indicating whether the log determinant should be computed.
 #'
 #' @returns A list containing the formed correlation matrix as well as its upper triangular Cholesky decomposition.
 #' @keywords internal
-formCormatChol <- function(struc, p = NULL, params = NULL, base = NULL, doChol = TRUE) {
+getCormat <- function(struc, p = NULL, params = NULL, base = NULL, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
   if (struc == "corg") {
-    if (p != (1 + sqrt(1 + 8 * length(params))) / 2) {
-      stop("Number of factor levels and parameters for corg model do not match.")
-    }
-    cormat <- diag(p)
-    cormat[lower.tri(cormat)] <- params
-    cormat <- cormat + t(cormat) - diag(p)
+    ret <- getCormat_corg(p = p, params = params, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
   } else if (struc == "cors") {
-    cormat <- diag(p)
-    cormat[lower.tri(cormat)] <- params[1]
-    cormat <- cormat + t(cormat) - diag(p)
+    ret <- getCormat_cors(p = p, params = params, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
   } else if (struc == "gk") {
-    cormat <- exp(-params[1] * base)
+    ret <- getCormat_gk(params = params, base = base, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
   } else if (struc == "lk") {
-    cormat <- base
+    ret <- getCormat_lk(base = base, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
   } else if (struc == "id") {
-    cormat <- diag(p)
+    ret <- getCormat_id(p = p, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
+  } else if (struc == "fa") {
+    ret <- getCormat_fa(p = p, params = params, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
+  } else if (struc == "exfa") {
+    ret <- getCormat_exfa(p = p, params = params, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
   }
-  if (doChol) {
-    cormatChol <- chol(cormat)
+  return(ret)
+}
+
+getDeriv_fa <- function(cormatIndex, params, p) {
+  m <- length(params) / p
+  L <- matrix(params, nrow = p)
+  Lderiv <- matrix(0, nrow = p, ncol = m)
+  Lderiv[cormatIndex] <- 1
+  deriv <- L %*% t(Lderiv) + Lderiv %*% t(L)
+  diag(deriv) <- 0
+  return(deriv)
+}
+
+getDeriv_exfa <- function(cormatIndex, params, p, inverse) {
+  m <- length(params) / p
+  L <- matrix(params, nrow = p)
+  Lderiv <- matrix(0, nrow = p, ncol = m)
+  Lderiv[cormatIndex] <- 1
+  if (inverse) {
+    deriv <- rbind(cbind(xxx, PSIi %*% Lderiv),
+                   cbind(t(Lderiv) %*% PSIi, xxx))
   } else {
-    cormatChol <- NULL
+    deriv <- rbind(cbind(L %*% t(Lderiv) + Lderiv %*% t(L), -Lderiv),
+                   cbind(-t(Lderiv), matrix(0, m, m)))
+    diag(deriv) <- 0
   }
-  return(list(cormat, cormatChol))
+  return(deriv)
+}
+
+getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, base = NULL, inverse) {
+  if (struc == "fa") {
+    ret <- getDeriv_fa(cormatIndex = cormatIndex, params = params, p = p)
+  } else if (struc == "exfa") {
+    ret <- getDeriv_exfa(cormatIndex = cormatIndex, params = params, p = p, inverse = inverse)
+  }
+  return(ret)
 }
 
 #' solveLMM_R
@@ -216,11 +367,11 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
               indices.start <- 1
               for (s in 1:sos) {
                 indices.stack <- (indices.start):(indices.start - 1 + u.nparams.list[[re]][[1 + i]][s])
-                result <- formCormatChol(struc = struc[[re]][[i]][s],
-                                         p = u.nlevels[[re]][i],
-                                         params = k[indices[[re]][[1 + i]][indices.stack], iter],
-                                         base = bases[[re]][[i]][[s]],
-                                         doChol = FALSE)
+                result <- getCormat(struc = struc[[re]][[i]][s],
+                                    p = u.nlevels[[re]][i],
+                                    params = k[indices[[re]][[1 + i]][indices.stack], iter],
+                                    base = bases[[re]][[i]][[s]],
+                                    doLogDet = FALSE, doCormati = FALSE)
                 indices.start <- indices.start + u.nparams.list[[re]][[1 + i]][s]
                 cormats[[re]][[i]][[s]] <- result[[1]] # Correlation matrix
                 if (nvars == 1) {
@@ -234,17 +385,15 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
               cormatis[[i]] <- chol2inv(cormatis[[i]])
             } else {
               # Do the remaining variable structures that are not part of the stack (there can only be a single stack in a random effect):
-              result <- formCormatChol(struc = struc[[re]][[i]],
-                                       p = u.nlevels[[re]][i],
-                                       params = k[indices[[re]][[1 + i]], iter],
-                                       base = bases[[re]][[i]],
-                                       doChol = TRUE)
+              result <- getCormat(struc = struc[[re]][[i]],
+                                  p = u.nlevels[[re]][i],
+                                  params = k[indices[[re]][[1 + i]], iter],
+                                  base = bases[[re]][[i]])
               cormats[[re]][[i]] <- result[[1]] # Correlation matrix
-              cormatis[[i]] <- result[[2]] # Cholesky factor of correlation matrix
-              logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Compute log determinants of all correlation matrices from cholesky factors
-              cormatis[[i]] <- chol2inv(cormatis[[i]]) # Invert each correlation matrix using cholesky factor.
+              logDetvarG[i] <- result[[2]] # Log determinant of the correlation matrix
+              cormatis[[i]] <- result[[3]] # Inverse of the correlation matrix
             }
-          }# End of loop to form the covariance stack and variable correlation matrices
+          } # End of loop to form the covariance stack and variable correlation matrices
           # This is where we construct the full sigmai and logDetvarGtotal, which is easier for random effects with a stack:
           sigmai[[re]] <- Reduce(kronecker, cormatis) # The first entry of cormatis is actually the inverted stacked covariance matrix
           if (n.var[re] > 1) {
@@ -277,16 +426,14 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
           cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
           logDetvarG <- numeric(n.var[re])
           for (i in i.var[[re]]) { # Loop to form the correlations matrices
-            result <- formCormatChol(struc = struc[[re]][i], # Can we directly form the cholesky factor from the parameters and, if applicable, base matrices?
-                                     p = u.nlevels[[re]][i],
-                                     params = k[indices[[re]][[1 + i]], iter],
-                                     base = bases[[re]][[i]],
-                                     doChol = TRUE)
+            result <- getCormat(struc = struc[[re]][i],
+                                p = u.nlevels[[re]][i],
+                                params = k[indices[[re]][[1 + i]], iter],
+                                base = bases[[re]][[i]])
             cormats[[re]][[i]] <- result[[1]] # Correlation matrix
-            cormatis[[i]] <- result[[2]] # Cholesky factor of correlation matrix
-            logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Compute log determinants of all correlation matrices from cholesky factors
-            cormatis[[i]] <- chol2inv(cormatis[[i]]) # Invert each correlation matrix using cholesky factor.
-          } # End of loop to form the correlations matrices
+            logDetvarG[i] <- result[[2]] # Log determinant of the correlation matrix
+            cormatis[[i]] <- result[[3]] # Inverse of the correlation matrix
+          } # End of loop to form the correlation matrices
           if (u.applyvars[[re]][1] == 0) { # If there is just a single variance.
             sigmai[[re]] <- (1 / as.numeric(vars[[re]])) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
             # Form the log determinant of sigma:
@@ -505,7 +652,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                   derivs[[re]][[i]] <- kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))
                 }
               }
-            } else if (ur.types[param] %in% c("R", "B")) {
+            } else if (ur.types[param] %in% c("R", "B", "L")) {
               j <- u.forFactor[[re]][i] # Which factor does this correlation or bandwidth belong to?
               cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the indicator matrix or derivative of the GK.
               if (ur.types[param] == "R") {
@@ -516,6 +663,10 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                 cormats1[[j]] <- B # Replacing with the indicator matrix.
               } else if (ur.types[param] == "B") {
                 cormats1[[j]] <- -1 * bases[[re]][[j]] * cormats1[[j]] # d/dh exp(-h * D) = -D * exp(-h * D)
+              } else if (ur.types[param] == "L") {
+                iloading <- u.indexCor[[re]][[i]] # This loading is the iloading-th loading in factor j (col-major L matrix).
+                B <- getDeriv(struc = "fa", type = "L", cormatIndex = iloading)
+                B <- getDeriv(struc = struc[[re]][j], type = ur.types[param], cormatIndex = u.indexCor[[re]][[i]], params = k[indices[[re]][[1 + j]], iter], p = u.nlevels[[re]][j], inverse = FALSE)
               }
               if (u.applyvars[[re]][1] == 0) {
                 derivs[[re]][[i]] <- as.numeric(vars[[re]]) * Reduce(kronecker, cormats1)

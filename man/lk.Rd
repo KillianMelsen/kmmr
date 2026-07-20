@@ -2,7 +2,7 @@
 % Please edit documentation in R/wrapper.R
 \name{lk}
 \alias{lk}
-\title{lk}
+\title{\code{lk} is for a linear kernel correlation structure.}
 \usage{
 lk(factor, base)
 }
@@ -15,6 +15,6 @@ lk(factor, base)
 List with all information on this correlation structure.
 }
 \description{
-lk
+\code{lk} is for a linear kernel correlation structure.
 }
 \keyword{internal}

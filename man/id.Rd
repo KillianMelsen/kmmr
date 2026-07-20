@@ -2,7 +2,7 @@
 % Please edit documentation in R/wrapper.R
 \name{id}
 \alias{id}
-\title{id}
+\title{\code{id} is for a diagonal (identity) correlation structure.}
 \usage{
 id(factor)
 }
@@ -13,6 +13,6 @@ id(factor)
 List with all information on this correlation structure.
 }
 \description{
-id
+\code{id} is for a diagonal (identity) correlation structure.
 }
 \keyword{internal}

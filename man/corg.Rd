@@ -2,7 +2,7 @@
 % Please edit documentation in R/wrapper.R
 \name{corg}
 \alias{corg}
-\title{corg}
+\title{\code{corg} is for a general correlation structure}
 \usage{
 corg(factor)
 }
@@ -13,6 +13,6 @@ corg(factor)
 List with all information on this correlation structure.
 }
 \description{
-corg
+\code{corg} is for a general correlation structure
 }
 \keyword{internal}

@@ -2,7 +2,7 @@
 % Please edit documentation in R/wrapper.R
 \name{cors}
 \alias{cors}
-\title{cors}
+\title{\code{cors} is for a simple correlation structure.}
 \usage{
 cors(factor)
 }
@@ -13,6 +13,6 @@ cors(factor)
 List with all information on this correlation structure.
 }
 \description{
-cors
+\code{cors} is for a simple correlation structure.
 }
 \keyword{internal}

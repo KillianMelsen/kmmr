@@ -2,7 +2,7 @@
 % Please edit documentation in R/wrapper.R
 \name{gk}
 \alias{gk}
-\title{gk}
+\title{\code{gk} is for a Gaussian kernel correlation structure.}
 \usage{
 gk(factor, base)
 }
@@ -15,6 +15,6 @@ gk(factor, base)
 List with all information on this correlation structure.
 }
 \description{
-gk
+\code{gk} is for a Gaussian kernel correlation structure.
 }
 \keyword{internal}
