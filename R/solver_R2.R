@@ -84,6 +84,7 @@ getCormat_fa <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet 
   cormat <- logDet <- cormati <- NULL
   if (doCormat) {
     L <- matrix(params, nrow = p)
+    # Matrix::tcrossprod(L) + (diag(p) - diag(p) * Matrix::tcrossprod(L)), second term is equal to PSI
     cormat <- Matrix::tcrossprod(L)
     diag(cormat) <- 1
   }
@@ -103,16 +104,16 @@ getCormat_exfa <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDe
     L <- matrix(params, nrow = p)
     m <- ncol(L)
     LLt <- Matrix::tcrossprod(L)
-    PSIi <- 1 / (1 - diag(LLt))
-    diag(LLt) <- 1
     cormat <- rbind(cbind(LLt, -L),
                     cbind(-t(L), diag(m)))
+    diag(cormat) <- 1
   }
   if (doLogDet) {
     cormatChol <- chol(cormat)
     logDet <- 2 * sum(log(diag(cormatChol)))
   }
   if (doCormati) {
+    PSIi <- 1 / (1 - diag(LLt)) # diag(solve(diag(p) - diag(p) * Matrix::tcrossprod(L)))
     PSIi_L <- PSIi * L
     cormati <- rbind(cbind(diag(PSIi), PSIi_L),
                      cbind(t(PSIi_L), diag(m) + Matrix::crossprod(L, PSIi_L)))
@@ -151,28 +152,46 @@ getCormat <- function(struc, p = NULL, params = NULL, base = NULL, doCormat = TR
   return(ret)
 }
 
+getDeriv_cor <- function(cormatIndex, p) {
+  deriv <- matrix(0, p, p)
+  deriv[lower.tri(deriv)][cormatIndex] <- 1
+  deriv <- deriv + t(deriv)
+  return(deriv)
+}
+
+getDeriv_gk <- function(params, base) {
+  deriv <- -base * exp(-params[1] * base)
+  return(deriv)
+}
+
 getDeriv_fa <- function(cormatIndex, params, p) {
   m <- length(params) / p
   L <- matrix(params, nrow = p)
-  Lderiv <- matrix(0, nrow = p, ncol = m)
-  Lderiv[cormatIndex] <- 1
-  deriv <- L %*% t(Lderiv) + Lderiv %*% t(L)
+  dL <- matrix(0, nrow = p, ncol = m)
+  dL[cormatIndex] <- 1
+  # This is equal to dLL^T/dl + dPSI/dl, where dLL^T/dl = L %*% (dL/dl)^T + dL/dl %*% L^T and dPSI/dl = -I * dLL^t/dl, easier just to set the diagonal to 0...
+  deriv <- Matrix::tcrossprod(L, dL) + Matrix::tcrossprod(dL, L) # L %*% t(dL) + dL %*% t(L)
   diag(deriv) <- 0
   return(deriv)
 }
 
 getDeriv_exfa <- function(cormatIndex, params, p, inverse) {
-  m <- length(params) / p
   L <- matrix(params, nrow = p)
-  Lderiv <- matrix(0, nrow = p, ncol = m)
-  Lderiv[cormatIndex] <- 1
-  if (inverse) {
-    deriv <- rbind(cbind(xxx, PSIi %*% Lderiv),
-                   cbind(t(Lderiv) %*% PSIi, xxx))
-  } else {
-    deriv <- rbind(cbind(L %*% t(Lderiv) + Lderiv %*% t(L), -Lderiv),
-                   cbind(-t(Lderiv), matrix(0, m, m)))
+  m <- ncol(L)
+  dL <- matrix(0, nrow = p, ncol = m)
+  dL[cormatIndex] <- 1
+  if (!inverse) {
+    # See getDeriv_fa, ignore dPSI/dl and just set the diagonal elements to 0:
+    deriv <- rbind(cbind(Matrix::tcrossprod(L, dL) + Matrix::tcrossprod(dL, L), -dL),
+                   cbind(-t(dL), matrix(0, m, m)))
     diag(deriv) <- 0
+  } else { # If the derivative of the inverse extended factor analytic correlation matrix is needed:
+    PSIi <- diag(1 / (1 - diag(Matrix::tcrossprod(L))))
+    dPSI <- diag(-diag(Matrix::tcrossprod(L, dL) + Matrix::tcrossprod(dL, L)))
+    dPSIi <- -PSIi %*% dPSI %*% PSIi
+    # dPSIi <- diag(PSIi)^2 * dPSI
+    deriv <- rbind(cbind(dPSIi, PSIi %*% dL + dPSIi %*% L),
+                   cbind(t(PSIi %*% dL + dPSIi %*% L), t(dL) %*% PSIi %*% L + t(L) %*% dPSIi %*% L + t(L) %*% PSIi %*% dL))
   }
   return(deriv)
 }
@@ -182,6 +201,10 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
     ret <- getDeriv_fa(cormatIndex = cormatIndex, params = params, p = p)
   } else if (struc == "exfa") {
     ret <- getDeriv_exfa(cormatIndex = cormatIndex, params = params, p = p, inverse = inverse)
+  } else if (struc == "gk") {
+    ret <- getDeriv_gk(params = params, base = base)
+  } else if (struc %in% c("corg", "cors")) {
+    ret <- getDeriv_cor(cormatIndex = cormatIndex, p = p)
   }
   return(ret)
 }
@@ -583,21 +606,16 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                   derivs[[re]][[i]] <- (A + t(A)) * vars[[re]][[s]] * cormats[[re]][[u.applyvars[[re]]]][[s]] / k[param, iter]
                 }
               }
-            } else if (ur.types[param] %in% c("R", "B")) {
-              j <- u.forFactor[[re]][i] # Which factor does this correlation or bandwidth belong to?
-              cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the indicator matrix or derivative of the GK.
+            } else {
+              j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
+              cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
               if (j == i.stack) { # If we are looking at a parameter that is part of a structure in the stack
                 # We need to determine which layer of the stack this parameter appears in:
                 s <- findInterval(i - nvars * sos, c(0, cumsum(u.nparams.list[[re]][[j + 1]])), left.open = TRUE)
-                if (ur.types[param] == "R") {
-                  icor <- u.indexCor[[re]][[i]] # This correlation is the icor-th correlation in factor j.
-                  B <- matrix(0, u.nlevels[[re]][j], u.nlevels[[re]][j]) # Making the indicator matrix.
-                  B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
-                  B <- B + t(B)
-                  cormats1[[j]] <- B # Replacing with the indicator matrix.
-                } else if (ur.types[param] == "B") {
-                  cormats1[[j]] <- -1 * bases[[re]][[j]][[s]] * cormats1[[j]][[s]] # d/dh exp(-h * D) = -D * exp(-h * D)
-                }
+                indices.stack.start <- 1 + c(0, cumsum(u.nparams.list[[re]][[j + 1]]))[s]
+                indices.stack.end <- indices.stack.start - 1 + u.nparams.list[[re]][[j + 1]][s]
+                indices.stack <- indices.stack.start:indices.stack.end # Indices of the parameters that belong to this layer of the stack.
+                cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]][s], type = ur.types[param], cormatIndex = u.indexCor[[re]][[i]], params = k[indices[[re]][[1 + j]][indices.stack], iter], p = u.nlevels[[re]][j], base = bases[[re]][[j]][[s]], inverse = FALSE)
                 # Now add the relevant variances to compute the final derivative.
                 # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
                 if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
@@ -607,15 +625,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                   derivs[[re]][[i]] <- Reduce(kronecker, c(list(vars[[re]][[s]] * cormats1[[i.stack]]), cormats1[-i.stack]))
                 }
               } else { # If we are looking at a parameter for a structure that is not part of the stack
-                if (ur.types[param] == "R") {
-                  icor <- u.indexCor[[re]][[i]] # This correlation is the icor-th correlation in factor j.
-                  B <- matrix(0, u.nlevels[[re]][j], u.nlevels[[re]][j]) # Making the indicator matrix.
-                  B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
-                  B <- B + t(B)
-                  cormats1[[j]] <- B # Replacing with the indicator matrix.
-                } else if (ur.types[param] == "B") {
-                  cormats1[[j]] <- -1 * bases[[re]][[j]] * cormats1[[j]] # d/dh exp(-h * D) = -D * exp(-h * D)
-                }
+                cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]], type = ur.types[param], cormatIndex = u.indexCor[[re]][[i]], params = k[indices[[re]][[1 + j]], iter], p = u.nlevels[[re]][j], base = bases[[re]][[j]], inverse = FALSE)
                 # Now add the relevant variances to compute the final derivative.
                 # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
                 if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
@@ -636,7 +646,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
             Wu[, param] <- 0
             param <- param + 1
           } else {
-            if (ur.types[param] == "V") {
+            if (ur.types[param] == "V") { # If the parameter is a variance.
               if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
                 if (n.var[re] > 0) {
                   derivs[[re]][[i]] <- Reduce(kronecker, cormats[[re]])
@@ -652,22 +662,10 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                   derivs[[re]][[i]] <- kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))
                 }
               }
-            } else if (ur.types[param] %in% c("R", "B", "L")) {
-              j <- u.forFactor[[re]][i] # Which factor does this correlation or bandwidth belong to?
-              cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the indicator matrix or derivative of the GK.
-              if (ur.types[param] == "R") {
-                icor <- u.indexCor[[re]][[i]] # This correlation is the icor-th correlation in factor j.
-                B <- matrix(0, u.nlevels[[re]][j], u.nlevels[[re]][j]) # Making the indicator matrix.
-                B[lower.tri(B)][icor] <- 1 # Filling the indicator matrix.
-                B <- B + t(B)
-                cormats1[[j]] <- B # Replacing with the indicator matrix.
-              } else if (ur.types[param] == "B") {
-                cormats1[[j]] <- -1 * bases[[re]][[j]] * cormats1[[j]] # d/dh exp(-h * D) = -D * exp(-h * D)
-              } else if (ur.types[param] == "L") {
-                iloading <- u.indexCor[[re]][[i]] # This loading is the iloading-th loading in factor j (col-major L matrix).
-                B <- getDeriv(struc = "fa", type = "L", cormatIndex = iloading)
-                B <- getDeriv(struc = struc[[re]][j], type = ur.types[param], cormatIndex = u.indexCor[[re]][[i]], params = k[indices[[re]][[1 + j]], iter], p = u.nlevels[[re]][j], inverse = FALSE)
-              }
+            } else { # If the parameter is not a variance.
+              j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
+              cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
+              cormats1[[j]] <- getDeriv(struc = struc[[re]][j], type = ur.types[param], cormatIndex = u.indexCor[[re]][[i]], params = k[indices[[re]][[1 + j]], iter], p = u.nlevels[[re]][j], base = bases[[re]][[j]], inverse = FALSE)
               if (u.applyvars[[re]][1] == 0) {
                 derivs[[re]][[i]] <- as.numeric(vars[[re]]) * Reduce(kronecker, cormats1)
               } else if (all(u.applyvars[[re]] == i.var[[re]])) {

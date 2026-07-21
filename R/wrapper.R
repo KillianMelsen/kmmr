@@ -24,7 +24,7 @@ rotateInitL <- function(L) {
   }
   L.rotated[upper.tri(L.rotated)] <- 0 # Make sure the upper triangle is exactly 0 and not xe-18
   rotmat <- Reduce("%*%", givens)
-  return(list(L.rotated = L.rotated, rotmat = rotmat))
+  return(L.rotated)
 }
 
 #' revInteractions
