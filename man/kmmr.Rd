@@ -10,12 +10,14 @@ kmmr(
   residual = ~units,
   data = NULL,
   maxit = 20,
-  stepsize = c(0.5, 0.75, rep(1, maxit - 2)),
+  stepSize = c(0.5, 0.75, rep(1, maxit - 2)),
+  avInfReg = rep(1, maxit),
   weights = NULL,
   init = NULL,
   tolConvLL = 0.001,
   isFixed = NULL,
-  verbose = TRUE
+  verbose = TRUE,
+  sparse
 )
 }
 \arguments{
@@ -29,7 +31,10 @@ kmmr(
 
 \item{maxit}{Maximum number of iterations.}
 
-\item{stepsize}{Stepsizes for parameters updates.}
+\item{stepSize}{Numeric vector indicating the step sizes for parameter updates in each iteration.}
+
+\item{avInfReg}{Numeric vector indicating the penalty to be applied to the average information matrix in each iteration. Using \code{1.1} inflates the diagonal
+elements of the AI matrix by 10% before inverting.}
 
 \item{weights}{Optional weights, i.e., standard errors or numbers of samples.}
 
@@ -40,6 +45,8 @@ kmmr(
 \item{isFixed}{Should any of the parameters be fixed?}
 
 \item{verbose}{Verbosity.}
+
+\item{sparse}{Optional argument for forcing the sparse or dense versions of the solver.}
 }
 \value{
 A list with the results.

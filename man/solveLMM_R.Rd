@@ -13,7 +13,8 @@ solveLMM_R(
   weights,
   useWeights,
   maxit,
-  stepsize,
+  stepSize,
+  avInfReg,
   verbose,
   tolConvLL,
   indices,
@@ -29,7 +30,8 @@ solveLMM_R(
   i.nvar,
   isFixed,
   u.isStack,
-  u.nparams.list
+  u.nparams.list,
+  sparse
 )
 }
 \arguments{
@@ -51,7 +53,10 @@ Note that 'weights' is an upper triangular Cholesky factor if the full $\Omega^{
 
 \item{maxit}{Numeric value indicating the maximum number of iterations for the AI algorithm.}
 
-\item{stepsize}{Numeric vector indicating the scaling factor for parameter updates for each iteration.}
+\item{stepSize}{Numeric vector indicating the scaling factor for parameter updates for each iteration.}
+
+\item{avInfReg}{Numeric vector indicating the penalty to be applied to the average information matrix. Using \code{1.1} inflates the diagonal
+elements of the AI matrix by 10%.}
 
 \item{verbose}{Logical indicating verbosity.}
 
@@ -82,6 +87,8 @@ Note that 'weights' is an upper triangular Cholesky factor if the full $\Omega^{
 \item{u.isStack}{Are factors within random effects made up of a stack of structures?}
 
 \item{u.nparams.list}{Number of parameters per factor/random effect in list format.}
+
+\item{sparse}{Should the sparse version of the algorithm be used? Useful if C is reasonable sparse.}
 }
 \value{
 A list containing the log-likelihood, parameter estimates, average information matrix,

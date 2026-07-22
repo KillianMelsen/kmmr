@@ -33,7 +33,6 @@ rotateInitL <- function(L) {
 #'
 #' @returns The formula with kronecker products/interaction terms reversed.
 #' @keywords internal
-#' @importFrom stats terms as.formula
 revInteractions <- function(form) {
   tt <- terms(form)
   response <- deparse(form[[2]])
@@ -62,8 +61,6 @@ revInteractions <- function(form) {
 #'
 #' @returns A list with all information on the structure of the random effect, to be used with the solver.
 #' @keywords internal
-#' @importFrom stats na.omit
-#' @importFrom Matrix sparse.model.matrix
 re <- function(formula, vars = ~ 1, ...) {
   data <- list(...)$data
   calls <- strsplit(as.character(formula[2]), ":")[[1]] # vector of function calls for each structure/factor.
@@ -469,20 +466,22 @@ stack <- function(formula, ...) {
 #' @param residual Formula for the residual effects.
 #' @param data Dataframe.
 #' @param maxit Maximum number of iterations.
-#' @param stepsize Stepsizes for parameters updates.
+#' @param stepSize Numeric vector indicating the step sizes for parameter updates in each iteration.
+#' @param avInfReg Numeric vector indicating the penalty to be applied to the average information matrix in each iteration. Using \code{1.1} inflates the diagonal
+#' elements of the AI matrix by 10% before inverting.
 #' @param weights Optional weights, i.e., standard errors or numbers of samples.
 #' @param init Initial values.
 #' @param tolConvLL Tolerance for detecting convergence.
 #' @param isFixed Should any of the parameters be fixed?
 #' @param verbose Verbosity.
+#' @param sparse Optional argument for forcing the sparse or dense versions of the solver.
 #'
 #' @returns A list with the results.
 #' @export
-#' @importFrom stats na.omit
-#' @importFrom Matrix sparse.model.matrix Matrix
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
-                 maxit = 20, stepsize = c(0.5, 0.75, rep(1, maxit - 2)), weights = NULL,
-                 init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE) {
+                 maxit = 20, stepSize = c(0.5, 0.75, rep(1, maxit - 2)), avInfReg = rep(1, maxit),
+                 weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
+                 sparse) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -502,10 +501,10 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   } else if (length(maxit) > 1) {
     stop("The 'maxit' argument must have length 1.")
   }
-  if (!is.numeric(stepsize)) {
-    stop("The 'stepsize' argument must be a numeric vector.")
-  } else if (length(stepsize) != maxit) {
-    stop("The 'stepsize' argument must be of length 'maxit'.")
+  if (!is.numeric(stepSize)) {
+    stop("The 'stepSize' argument must be a numeric vector.")
+  } else if (length(stepSize) != maxit) {
+    stop("The 'stepSize' argument must be of length 'maxit'.")
   }
   if (!(is.character(weights) | is.null(weights))) {
     stop("The 'weights' argument must be NULL or a character.")
@@ -552,7 +551,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   # Random effects:
   res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\()", perl = TRUE)[[1]] # split the full random argument into separate re() calls.
   nU <- length(res)
-  stepsize <- stepsize^nU
+  stepSize <- stepSize^nU
   
   # Lists to store all specifications:
   Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <-
@@ -641,13 +640,14 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   
   # Fitting:
   # browser()
+  sparse = FALSE
   result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, weights = weights, useWeights = useWeights,
-                       maxit = maxit, stepsize = stepsize, verbose = verbose,
+                       maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
                        tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
                        ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
                        u.forFactor = u.forFactor, u.indexCor = u.indexCor,
                        bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
-                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list)
+                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse)
   result$params <- unlist(params)
   class(result) <- "kmmrFit"
   return(result)

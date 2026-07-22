@@ -1,3 +1,19 @@
+# A simpler wrapper for the Takahashi equations:
+takahashi <- function(L) {
+  # sparseinv_wrapper <- utils::getFromNamespace(".sparseinv_wrapper", "sparseinv")
+  n <- nrow(L)
+  d <- diag(L)
+  L <- tril(L %*% Diagonal(x = 1 / d), -1)
+  d <- d^2
+  D <- Diagonal(x = d)
+  dp <- diff(L@p)
+  jj <- rep(seq_along(dp), dp)
+  Zpattern <- sparseMatrix(c(L@i + 1, jj, 1:n), c(jj, L@i + 1, 1:n))
+  Z <- forceSymmetric(sparseinv:::.sparseinv_wrapper(L, d, L, Zpattern))
+  # Z <- forceSymmetric(sparseinv_wrapper(L, d, L, Zpattern))
+  return(Z)
+}
+
 getCormat_corg <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
   if (p != (1 + sqrt(1 + 8 * length(params))) / 2) {
     stop("Number of factor levels and parameters for corg model do not match.")
@@ -83,10 +99,11 @@ getCormat_id <- function(p, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) 
 getCormat_fa <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
   cormat <- logDet <- cormati <- NULL
   if (doCormat) {
-    L <- matrix(params, nrow = p)
-    # Matrix::tcrossprod(L) + (diag(p) - diag(p) * Matrix::tcrossprod(L)), second term is equal to PSI
-    cormat <- Matrix::tcrossprod(L)
+    L <- Matrix(params, nrow = p, sparse = FALSE, doDiag = FALSE)
+    # tcrossprod(L) + (diag(p) - diag(p) * tcrossprod(L)), second term is equal to PSI
+    cormat <- tcrossprod(L)
     diag(cormat) <- 1
+    cormat <- forceSymmetric(cormat)
   }
   if (doLogDet) {
     cormatChol <- chol(cormat)
@@ -166,11 +183,11 @@ getDeriv_gk <- function(params, base) {
 
 getDeriv_fa <- function(cormatIndex, params, p) {
   m <- length(params) / p
-  L <- matrix(params, nrow = p)
-  dL <- matrix(0, nrow = p, ncol = m)
+  L <- Matrix(params, nrow = p, sparse = FALSE, doDiag = FALSE)
+  dL <- Matrix(0, nrow = p, ncol = m, sparse = TRUE, doDiag = FALSE)
   dL[cormatIndex] <- 1
   # This is equal to dLL^T/dl + dPSI/dl, where dLL^T/dl = L %*% (dL/dl)^T + dL/dl %*% L^T and dPSI/dl = -I * dLL^t/dl, easier just to set the diagonal to 0...
-  deriv <- Matrix::tcrossprod(L, dL) + Matrix::tcrossprod(dL, L) # L %*% t(dL) + dL %*% t(L)
+  deriv <- tcrossprod(L, dL) + tcrossprod(dL, L) # L %*% t(dL) + dL %*% t(L)
   diag(deriv) <- 0
   return(deriv)
 }
@@ -224,7 +241,9 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' Note that 'weights' is an upper triangular Cholesky factor if the full $\Omega^{-1}$ is used, or a diagonal matrix containing the square roots of the plot numbers or diagonal entries of $\Omega^{-1}$.
 #' @param useWeights Logical indicating whether to use weights or not.
 #' @param maxit Numeric value indicating the maximum number of iterations for the AI algorithm.
-#' @param stepsize Numeric vector indicating the scaling factor for parameter updates for each iteration.
+#' @param stepSize Numeric vector indicating the scaling factor for parameter updates for each iteration.
+#' @param avInfReg Numeric vector indicating the penalty to be applied to the average information matrix. Using \code{1.1} inflates the diagonal
+#' elements of the AI matrix by 10%.
 #' @param verbose  Logical indicating verbosity.
 #' @param tolConvLL Numeric value indicating the tolerance for deciding on convergence based on the change in log-likelihood.
 #' @param indices Indices used for selecting the correct parameters for the covariance matrices of random effects.
@@ -240,17 +259,16 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @param isFixed Which parameters are fixed and should not be estimated?
 #' @param u.isStack Are factors within random effects made up of a stack of structures?
 #' @param u.nparams.list Number of parameters per factor/random effect in list format.
+#' @param sparse Should the sparse version of the algorithm be used? Useful if C is reasonable sparse.
 #'
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
 #' @keywords internal
-#' @importFrom methods as
-#' @importFrom Matrix nearPD
-solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, verbose, tolConvLL,
+solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
-                       bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list) {
+                       bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse) {
   ## Prelims ====
-  k <- matrix(NA, length(init), maxit + 1) # Matrix of parameter estimates.
+  k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
   boundary <- numeric(length(init)) # Vector to hold how many times each parameter has crossed the boundary.
   n <- nrow(y)
@@ -262,19 +280,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
   intercept <- sum(X[, 1]) == nrow(X) # Is there an intercept?
   
   # Assume for now we have just one random and residual effect:
-  # Z <- Z[[1]]
   S <- S[[1]]
-  # indices <- indices[[1]]
-  # u.applyvars <- u.applyvars[[1]]
-  # ur.types <- ur.types[[1]] # Already unlisted
-  # u.nlevels <- u.nlevels[[1]]
-  # u.forFactor <- u.forFactor[[1]]
-  # u.indexCor <- u.indexCor[[1]]
-  # bases <- bases[[1]]
-  # struc <- struc[[1]]
-  # i.var <- i.var[[1]]
-  # i.nvar <- i.nvar[[1]]
-  # isFixed <- isFixed[[1]] # Already unlisted
   
   ## Computing determinants of matrices associated with non-variable terms before iterating ====
   n.var <- numeric(nU)
@@ -295,12 +301,14 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
   nvarGi <- vector("list", nU)
   logDetnvarGtotal <- numeric(nU)
   for (re in 1:nU) { # Start loop over random effects
-    # n.var[re] <- length(i.var[[re]]) # How many variable factors are there?
-    # n.nvar[re] <- length(i.nvar[[re]]) # How many non-variable factors are there?
     if (n.nvar[re] > 0) { # All of this can only be done if there are non-variable factors (such as a kinship/linear kernel for genotypes).
       logDetnvarG <- numeric(n.nvar[re]) # A log determinant for each non-variable base matrix (linear kernel).
       for (i in i.nvar[[re]]) {
-        logDetnvarG[i - n.var[re]] <- -1 * sum(log(eigen(bases[[re]][[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices?
+        if (!is.null(attr(bases[[re]][[i]], "logDet"))) {
+          logDetnvarG[i - n.var[re]] <- attr(bases[[re]][[i]], "logDet")
+        } else {
+          logDetnvarG[i - n.var[re]] <- -1 * sum(log(eigen(bases[[re]][[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices? 
+        }
       }
       
       # If the non-variable part of G consists of more than 1 factor we need to compute the total log determinant:
@@ -308,7 +316,6 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
         # u.levels.nvar <- u.nlevels[[re]][i.nvar[[re]]]
         logDetnvarGtotal[re] <- 0
         for (i in 1:n.nvar[re]) {
-          # logDetnvarGtotal[re] <- logDetnvarGtotal[re] + logDetnvarG[i] * prod(u.levels.nvar[-i])
           logDetnvarGtotal[re] <- logDetnvarGtotal[re] + logDetnvarG[i] * (dim.nvar[re] / u.nlevels.nvar[[re]][i])
         }
       } else {
@@ -329,41 +336,44 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     ### Compute Ri ====
     #tic("Computing Ri")
     if (useWeights & iter == 1) { # Apply weights in the first iteration if they need to be used.
-      S <- Matrix::t(weights) %*% S %*% weights
+      S <- t(weights) %*% S %*% weights
     }
     Ri <- 1 / k[nrow(k), iter] * S # The residual variance is always last in kappa for now
     #toc(log = T)
     
-    ### Forming W = [X Z y] ====
-    #tic("Forming Wy and M = t(Wy) %*% Ri %*% Wy")
+    ### Forming W = [X Z] ====
+    #tic("Forming W and C = t(W) %*% Ri %*% W")
     if (iter == 1) {
       W <- X
       for (re in 1:nU) {
         W <- cbind(W, Z[[re]])
       }
-      Wy <- cbind(W, y)
     }
     
-    ### Computing M = t(Wy) %*% Ri %*% Wy
-    if (useWeights) {
-      # We need to compute the entire thing every time? Hopefully not for diagonal R...
-      M <- as.matrix(Matrix::t(Wy) %*% Ri %*% Wy)
+    ### Computing C = t(W) %*% Ri %*% W
+    if (sparse) {
+      C <- forceSymmetric(crossprod(W, Ri %*% W))
     } else {
-      if (iter == 1) {
-        M0 <- Matrix::t(Wy) %*% Wy # Slow, but very sparse so faster in C++, maybe use something like syrk()?
-      }
-      M <- as.matrix(M0 * (1 / k[nrow(k), iter]))
+      C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "unpackedMatrix") # Store as a dense matrix since C will be dense after adding Gi.
     }
+    # if (useWeights) {
+    #   # We need to compute the entire thing every time? Hopefully not for diagonal R...
+    #   C <- t(W) %*% Ri %*% W
+    # } else {
+    #   if (iter == 1) {
+    #     C0 <- t(W) %*% W # Maybe use something like syrk()?
+    #   }
+    #   C <- C0 * (1 / k[nrow(k), iter])
+    # }
     #toc(log = T)
     
-    ### Adding Gi to M ====
+    ### Adding Gi to C ====
     #tic("Computing Gi")
-    # cormatis <- vector("list", nU)
     cormats <- vector("list", nU)
     sigmai <- vector("list", nU)
     logDetvarGtotal <- numeric(nU)
     vars <- vector("list", nU)
-    M.start <- nX + 1
+    C.start <- nX + 1
     for (re in 1:nU) { # Start loop over random effects
       # Computing Gi every iteration:
       if (any(u.isStack[[re]])) { # If there is a stack in the random effect
@@ -374,8 +384,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
         vars[[re]] <- vector("list", sos)
         nvars <- length(indices[[re]][[1]]) / sos # Number of variances per stack layer
         for (s in 1:sos) {
-          vars[[re]][[s]] <- outer(sqrt(k[indices[[re]][[1]][(s * nvars - nvars + 1):(s * nvars)], iter]),
-                                   sqrt(k[indices[[re]][[1]][(s * nvars - nvars + 1):(s * nvars)], iter]))
+          vars[[re]][[s]] <- tcrossprod(sqrt(k[indices[[re]][[1]][(s * nvars - nvars + 1):(s * nvars)], iter, drop = FALSE]))
         }
         if (n.var[re] > 0) { # This should always be the case for a random effect with a stack
           cormatis <- vector("list", n.var[re]) # One inverse correlation matrix for every variable factor.
@@ -385,33 +394,33 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
             # The first variable factor has to be the one with a stack:
             if (i == i.stack) {
               # We need to calculate the complete weighed sum of the structures using the variances:
-              covmat.stack <- matrix(0, u.nlevels.var[[re]][i.var[[re]][i]], u.nlevels.var[[re]][i.var[[re]][i]])
+              covmat.stack <- Matrix(0, u.nlevels.var[[re]][i.var[[re]][i]], u.nlevels.var[[re]][i.var[[re]][i]], sparse = FALSE, doDiag = FALSE)
               cormats[[re]][[i]] <- vector("list", sos)
               indices.start <- 1
               for (s in 1:sos) {
                 indices.stack <- (indices.start):(indices.start - 1 + u.nparams.list[[re]][[1 + i]][s])
-                result <- getCormat(struc = struc[[re]][[i]][s],
-                                    p = u.nlevels[[re]][i],
-                                    params = k[indices[[re]][[1 + i]][indices.stack], iter],
-                                    base = bases[[re]][[i]][[s]],
-                                    doLogDet = FALSE, doCormati = FALSE)
+                result <- getCormat(struc = struc[[re]][[i]][s], # Which structure should be formed?
+                                    p = u.nlevels[[re]][i], # How many levels are there in this factor?
+                                    params = k[indices[[re]][[1 + i]][indices.stack], iter], # Which parameters should be used to form the correlation matrix?
+                                    base = bases[[re]][[i]][[s]], # Which, if any, base matrix should be used?
+                                    doLogDet = FALSE, doCormati = FALSE) # Log determinant and inverses should not be computed for the individual layers of the stack.
                 indices.start <- indices.start + u.nparams.list[[re]][[1 + i]][s]
                 cormats[[re]][[i]][[s]] <- result[[1]] # Correlation matrix
                 if (nvars == 1) {
-                  covmat.stack <- covmat.stack + as.numeric(vars[[re]][[s]]) * result[[1]] # We first construct sigma by summing all stack layers, then invert
+                  covmat.stack <- covmat.stack + vars[[re]][[s]]@x * result[[1]] # We first construct sigma by summing all stack layers, then invert
                 } else {
                   covmat.stack <- covmat.stack + vars[[re]][[s]] * result[[1]] # We first construct sigma by summing all stack layers, then invert
                 }
               }
-              cormatis[[i]] <- chol(covmat.stack)
-              logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]])))
-              cormatis[[i]] <- chol2inv(cormatis[[i]])
+              cormatis[[i]] <- chol(covmat.stack, pivot = FALSE) # Now we compute the log determinant and inverse after completing the stack.
+              logDetvarG[i] <- 2 * sum(log(diag(cormatis[[i]]))) # Log determinant.
+              cormatis[[i]] <- chol2inv(cormatis[[i]]) # Inverse.
             } else {
               # Do the remaining variable structures that are not part of the stack (there can only be a single stack in a random effect):
-              result <- getCormat(struc = struc[[re]][[i]],
-                                  p = u.nlevels[[re]][i],
-                                  params = k[indices[[re]][[1 + i]], iter],
-                                  base = bases[[re]][[i]])
+              result <- getCormat(struc = struc[[re]][[i]], # Which structure should be formed?
+                                  p = u.nlevels[[re]][i], # How many levels are there in this factor?
+                                  params = k[indices[[re]][[1 + i]], iter], # Which parameters should be used to form the correlation matrix?
+                                  base = bases[[re]][[i]]) # Which, if any, base matrix should be used?
               cormats[[re]][[i]] <- result[[1]] # Correlation matrix
               logDetvarG[i] <- result[[2]] # Log determinant of the correlation matrix
               cormatis[[i]] <- result[[3]] # Inverse of the correlation matrix
@@ -436,56 +445,64 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
           Gi <- sigmai[[re]]
         }
 
-        # Now add to M:
-        dimGi <- prod(u.nlevels[[re]])
-        M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] <- M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] + Gi # This one is also slow
-        M.start <- M.start + dimGi
-        
+        # Now add to C:
+        if (sparse) {
+          # If we want C to be sparse but still have a dense random effect, we need to store the Gi for that
+          # dense random effect in sparse format.
+          if (!is(Gi, "sparseMatrix")) {
+            Gi <- as(Gi, "CsparseMatrix")
+          }
+          # Padding Gi with zeros to make it conformable with the sparse base C.
+          Gi <- sparseMatrix(i = Gi@i + 1 + C.start - 1,
+                             j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + C.start - 1,
+                             x = Gi@x,
+                             dims = dim(C),
+                             symmetric = TRUE)
+          C <- C + Gi
+        } else {
+          dimGi <- prod(u.nlevels[[re]])
+          C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] <- C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] + Gi
+          C.start <- C.start + dimGi
+        }
       } else { # If there is no stack in the random effect
         # Always the outer product of standard deviations first:
-        vars[[re]] <- outer(sqrt(k[indices[[re]][[1]], iter]), sqrt(k[indices[[re]][[1]], iter]))
+        vars[[re]] <- tcrossprod(sqrt(k[indices[[re]][[1]], iter, drop = FALSE]))
         if (n.var[re] > 0) { # Only form the correlation matrices for variable factors if there are variable factors.
           cormatis <- vector("list", n.var[re]) # One inverse correlation matrix for every variable factor.
           cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
           logDetvarG <- numeric(n.var[re])
           for (i in i.var[[re]]) { # Loop to form the correlations matrices
-            result <- getCormat(struc = struc[[re]][i],
-                                p = u.nlevels[[re]][i],
-                                params = k[indices[[re]][[1 + i]], iter],
-                                base = bases[[re]][[i]])
+            result <- getCormat(struc = struc[[re]][i], # Which structure should be formed?
+                                p = u.nlevels[[re]][i], # How many levels are there in this factor?
+                                params = k[indices[[re]][[1 + i]], iter], # Which parameters should be used to form the correlation matrix?
+                                base = bases[[re]][[i]]) # Which, if any, base matrix should be used?
             cormats[[re]][[i]] <- result[[1]] # Correlation matrix
             logDetvarG[i] <- result[[2]] # Log determinant of the correlation matrix
             cormatis[[i]] <- result[[3]] # Inverse of the correlation matrix
           } # End of loop to form the correlation matrices
           if (u.applyvars[[re]][1] == 0) { # If there is just a single variance.
-            sigmai[[re]] <- (1 / as.numeric(vars[[re]])) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
+            sigmai[[re]] <- (1 / vars[[re]]@x) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
             # Form the log determinant of sigma:
-            # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
             if (n.var[re] > 1) {
               logDetvarGtotal[re] <- 0
               for (i in i.var[[re]]) {
-                # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
                 logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
               }
             } else {
               logDetvarGtotal[re] <- logDetvarG
             }
-            # logDetvarGtotal[re] <- prod(u.nlevels.var) * log(as.numeric(vars)) + logDetvarGtotal[re]
             logDetvarGtotal[re] <- dim.var[re] * log(as.numeric(vars[[re]])) + logDetvarGtotal[re]
           } else if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
             sigmai[[re]] <- (1 / vars[[re]]) * Reduce(kronecker, cormatis) # Form the inverse covariance matrix.
             # Form the log determinant of sigma:
-            # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
             logDetvarGtotal[re] <- sum(log(diag(vars[[re]])))
             for (i in i.var[[re]]) {
-              # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
               logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
             }
           } else { # If variances are applied to 1 or more factors, but not all factors.
             sigmai[[re]] <- kronecker((1 / vars[[re]]) * Reduce(kronecker, cormatis[u.applyvars[[re]]]), Reduce(kronecker, cormatis[-u.applyvars[[re]]])) # Form the inverse covariance matrix.
             # Form the log determinant of sigma:
             # First form the log determinant of the part with variances:
-            # u.nlevels.var <- u.nlevels[[re]][i.var[[re]]]
             u.nlevels.applyvar <- u.nlevels[[re]][u.applyvars[[re]]] # Numbers of levels for (variable, obviously) factors that have variances applied to them
             u.nlevels.napplyvar <- u.nlevels.var[[re]][-u.applyvars[[re]]] # Number of levels for variable factors that do not have variances applied to them
             logDetvarGtotal[re] <- sum(log(diag(vars[[re]])))
@@ -495,13 +512,12 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
             logDetvarGtotal[re] <- logDetvarGtotal[re] * prod(u.nlevels.napplyvar)
             # Now we can form the full log determinant:
             for (i in i.var[[re]][-u.applyvars[[re]]]) {
-              # logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.var[-i])
               logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
             }
           }
         } else { # if there are no variable factors.
           sigmai[[re]] <- 1 / vars[[re]]
-          logDetvarGtotal[re] <- -1 * as.numeric(log(sigmai[[re]]))
+          logDetvarGtotal[re] <- -1 * log(sigmai[[re]])@x
         }
         if (n.nvar[re] > 0) {
           Gi <- kronecker(sigmai[[re]], nvarGi[[re]]) # This is a bit slow as well.
@@ -509,32 +525,80 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
           Gi <- sigmai[[re]]
         }
         
-        # Now add to M:
-        dimGi <- prod(u.nlevels[[re]])
-        M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] <- M[M.start:(M.start - 1 + dimGi), M.start:(M.start - 1 + dimGi)] + Gi # This one is also slow
-        M.start <- M.start + dimGi
+        # Now add to C:
+        if (sparse) {
+          # If we want C to be sparse but still have a dense random effect, we need to store the Gi for that
+          # dense random effect in sparse format.
+          if (!is(Gi, "sparseMatrix")) {
+            Gi <- as(Gi, "CsparseMatrix")
+          }
+          # Padding Gi with zeros to make it conformable with the sparse base C.
+          Gi <- sparseMatrix(i = Gi@i + 1 + C.start - 1,
+                             j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + C.start - 1,
+                             x = Gi@x,
+                             dims = dim(C),
+                             symmetric = TRUE)
+          C <- C + Gi
+        } else {
+          dimGi <- prod(u.nlevels[[re]])
+          C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] <- C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] + Gi # This one is also slow
+          C.start <- C.start + dimGi
+        }
       }
     } # End loop over random effects.
     #toc(log = T)
     
-    ### Cholesky decomposition of M ====
-    #tic(msg = "Cholesky decomp of M")
-    Mchol <- chol(M) # Upper triangular # This is good for the GPU
+    ### Cholesky decomposition of C ====
+    #tic(msg = "Cholesky decomp of C")
+    if (sparse) {
+      Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = FALSE)
+      # if (iter == 1) {
+      #   Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = FALSE)
+      # } else {
+      #   # Update the cholesky factor
+      # }
+    } else {
+      Cchol <- chol(C) # Good for the GPU?
+    }
     #toc(log = T)
-    yPy <- Mchol[nrow(Mchol), ncol(Mchol)]^2
-    Mchol_XZ <- Mchol[1:(nrow(Mchol) - 1), 1:(ncol(Mchol) - 1)]
-    My <- Mchol[1:(nrow(Mchol) - 1), ncol(Mchol), drop = FALSE]
+    
+    ### BLUEs/BLUPs ====
+    #tic("Solving for BLUEs and BLUPs")
+    if (sparse) {
+      # Apply permutation to the right-hand side of the MME: P %*% t(W) %*% Ri %*% y:
+      permRHS <- solve(Cchol, t(W) %*% Ri %*% y, system = "P")
+      # Sparse triangular forward solve: L %*% z = permRHS where L = Cchol:
+      z <- solve(Cchol, permRHS, system = "L")
+      # Sparse triangular backward solve: t(L) %*% bu = z where l = Cchol to obtain BLUEs and BLUPs:
+      bu <- solve(Cchol, z, system = "Lt")
+      # Final reverse permutation t(P) %*% bu to get the BLUEs and BLUPs into model order:
+      bu <- solve(Cchol, bu, system = "Pt")
+    } else {
+      RHS <- t(W) %*% Ri %*% y
+      z <- Matrix(backsolve(as.matrix(Cchol), RHS, transpose = TRUE))
+      bu <- Matrix(backsolve(as.matrix(Cchol), z))
+    }
+    
+    # Splitting BLUEs and BLUPs:
+    b <- bu[1:nX, 1, drop = FALSE]
+    u <- bu[(nX + 1):nrow(bu), 1, drop = FALSE]
+    #toc(log = T)
     
     ### Computing the log-likelihood ====
     #tic("Computing log-likelihood")
-    # Computing logDetC:
-    logDetC <- 2 * sum(log(diag(Mchol_XZ)))
+    # yPy:
+    yPy <- as.numeric(crossprod(y, Ri %*% y) - crossprod(z))
     
-    # Computing logDetG:
+    # logdetC:
+    if (sparse) {
+      logDetC <- determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus
+    } else {
+      logDetC <- 2 * sum(log(diag(Cchol)))
+    }
+    
+    # logDetG:
     logDetG <- 0
     for (re in 1:nU) { # Start loop over random effects
-      # dim.var <- prod(u.nlevels[[re]][i.var[[re]]])
-      # dim.nvar <- prod(u.nlevels[[re]][i.nvar[[re]]])
       if (n.nvar[re] > 0) {
         logDetG <- logDetG + dim.nvar[re] * logDetvarGtotal[re] + dim.var[re] * logDetnvarGtotal[re]
       } else {
@@ -542,7 +606,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
       }
     } # End loop over random effects
     
-    # Computing logDetR:
+    # logDetR:
     if (useWeights) {
       # For now just assume a diagonal structure:
       # logDetR <- sum(log(diag(Ri))) * -1 # diag() doesn't work with dgCMatrix...
@@ -555,17 +619,10 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
     #toc(log = T)
     
-    ### Solving for BLUEs and BLUPs ====
-    #tic("Solving for BLUEs and BLUPs")
-    bu <- backsolve(Mchol_XZ, My)
-    b <- bu[1:nX, 1, drop = FALSE]
-    u <- bu[(nX + 1):nrow(bu), 1, drop = FALSE]
-    #toc(log = T)
-    
     ### Working variates ====
     #### Genetic working variates ====
     #tic("Genetic working variates")
-    Wu <- matrix(NA, n, nrow(k)) # Matrix for the working variates.
+    Wu <- Matrix(0, n, nrow(k), sparse = FALSE, doDiag = FALSE) # Matrix for the working variates.
     umat_sigmai <- vector("list", nU) # We will store these matrices for computing the scores later.
     derivs <- vector("list", nU) # Same thing for all derivatives.
     u.start <- 1
@@ -573,9 +630,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     for (re in 1:nU) { # Start of loop over random effects
       dim.total <- dim.var[re] * dim.nvar[re]
       if (n.nvar[re] > 0) {
-        umat <- matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = dim.nvar[re], ncol = dim.var[re])
+        umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = dim.nvar[re], ncol = dim.var[re])
       } else {
-        umat <- matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = 1, ncol = dim.var[re])
+        umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = 1, ncol = dim.var[re])
       }
       u.start <- u.start + dim.total
       umat_sigmai[[re]] <- umat %*% sigmai[[re]]
@@ -588,7 +645,6 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
         nvars <- length(indices[[re]][[1]]) / sos # Number of variances per stack layer
         for (i in 1:u.nparams[[re]]) {
           if (isFixed[param] == 1) {
-            Wu[, param] <- 0
             param <- param + 1
           } else {
             if (ur.types[param] == "V") {
@@ -598,7 +654,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                 derivs[[re]][[i]] <- Reduce(kronecker, c(cormats[[re]][[i.stack]][s], cormats[[re]][-i.stack])) # The stack is always the first factor.
               } else { # If variances are applied to the factor in the stack.
                 # In this case u.applyvars[[re]] is always equal to 1.
-                A <- matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]))
+                A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
                 A[i - (s - 1) * nvars,] <- 0.5 # we can't use i directly
                 if (n.var[re] > 1) { # If there are more variable factors besides the stack.
                   derivs[[re]][[i]] <- kronecker((A + t(A)) * vars[[re]][[s]] * cormats[[re]][[u.applyvars[[re]]]][[s]] / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))
@@ -615,35 +671,45 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                 indices.stack.start <- 1 + c(0, cumsum(u.nparams.list[[re]][[j + 1]]))[s]
                 indices.stack.end <- indices.stack.start - 1 + u.nparams.list[[re]][[j + 1]][s]
                 indices.stack <- indices.stack.start:indices.stack.end # Indices of the parameters that belong to this layer of the stack.
-                cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]][s], type = ur.types[param], cormatIndex = u.indexCor[[re]][[i]], params = k[indices[[re]][[1 + j]][indices.stack], iter], p = u.nlevels[[re]][j], base = bases[[re]][[j]][[s]], inverse = FALSE)
+                cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]][s],
+                                          type = ur.types[param],
+                                          cormatIndex = u.indexCor[[re]][[i]],
+                                          params = k[indices[[re]][[1 + j]][indices.stack], iter],
+                                          p = u.nlevels[[re]][j],
+                                          base = bases[[re]][[j]][[s]],
+                                          inverse = FALSE)
                 # Now add the relevant variances to compute the final derivative.
                 # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
                 if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
-                  derivs[[re]][[i]] <- as.numeric(vars[[re]][[s]]) * Reduce(kronecker, cormats1)
+                  derivs[[re]][[i]] <- vars[[re]][[s]]@x * Reduce(kronecker, cormats1)
                 } else { # If there is a variance for each level of the stacked factor.
-                  # derivs[[re]][[i]] <- kronecker(vars[[re]][[s]] * cormats1[[i.stack]], Reduce(kronecker, cormats1[-i.stack]))
                   derivs[[re]][[i]] <- Reduce(kronecker, c(list(vars[[re]][[s]] * cormats1[[i.stack]]), cormats1[-i.stack]))
                 }
               } else { # If we are looking at a parameter for a structure that is not part of the stack
-                cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]], type = ur.types[param], cormatIndex = u.indexCor[[re]][[i]], params = k[indices[[re]][[1 + j]], iter], p = u.nlevels[[re]][j], base = bases[[re]][[j]], inverse = FALSE)
+                cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]],
+                                          type = ur.types[param],
+                                          cormatIndex = u.indexCor[[re]][[i]],
+                                          params = k[indices[[re]][[1 + j]], iter],
+                                          p = u.nlevels[[re]][j],
+                                          base = bases[[re]][[j]],
+                                          inverse = FALSE)
                 # Now add the relevant variances to compute the final derivative.
                 # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
                 if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
-                  covmat.stack <- Reduce(`+`, lapply(1:sos, function(s) {as.numeric(vars[[re]][[s]]) * cormats1[[i.stack]][[s]]}))
+                  covmat.stack <- Reduce(`+`, lapply(1:sos, function(s) {vars[[re]][[s]]@x * cormats1[[i.stack]][[s]]}))
                 } else { # If there is a variance for each level of the stacked factor.
                   covmat.stack <- Reduce(`+`, lapply(1:sos, function(s) {vars[[re]][[s]] * cormats1[[i.stack]][[s]]}))
                 }
                 derivs[[re]][[i]] <- kronecker(covmat.stack, Reduce(kronecker, cormats1[-i.stack]))
               }
             }
-            Wu[, param] <- as.matrix(Z[[re]] %*% matrix(umat_sigmai[[re]] %*% derivs[[re]][[i]]))
+            Wu[, param] <- Z[[re]] %*% Matrix((umat_sigmai[[re]] %*% derivs[[re]][[i]])@x)
             param <- param + 1
           }
         } # End of loop over the parameters for this random effect.
       } else { # If there is no stack
         for (i in 1:u.nparams[[re]]) {
           if (isFixed[param] == 1) {
-            Wu[, param] <- 0
             param <- param + 1
           } else {
             if (ur.types[param] == "V") { # If the parameter is a variance.
@@ -651,10 +717,10 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                 if (n.var[re] > 0) {
                   derivs[[re]][[i]] <- Reduce(kronecker, cormats[[re]])
                 } else {
-                  derivs[[re]][[i]] <- matrix(1)
+                  derivs[[re]][[i]] <- Matrix(1, sparse = FALSE, doDiag = FALSE)
                 }
               } else { # If variances are applied to 1 or more factors.
-                A <- matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]))
+                A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
                 A[i,] <- 0.5
                 if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
                   derivs[[re]][[i]] <- (A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter]
@@ -665,16 +731,22 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
             } else { # If the parameter is not a variance.
               j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
               cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
-              cormats1[[j]] <- getDeriv(struc = struc[[re]][j], type = ur.types[param], cormatIndex = u.indexCor[[re]][[i]], params = k[indices[[re]][[1 + j]], iter], p = u.nlevels[[re]][j], base = bases[[re]][[j]], inverse = FALSE)
+              cormats1[[j]] <- getDeriv(struc = struc[[re]][j],
+                                        type = ur.types[param],
+                                        cormatIndex = u.indexCor[[re]][[i]],
+                                        params = k[indices[[re]][[1 + j]], iter],
+                                        p = u.nlevels[[re]][j],
+                                        base = bases[[re]][[j]],
+                                        inverse = FALSE)
               if (u.applyvars[[re]][1] == 0) {
-                derivs[[re]][[i]] <- as.numeric(vars[[re]]) * Reduce(kronecker, cormats1)
+                derivs[[re]][[i]] <- vars[[re]]@x * Reduce(kronecker, cormats1)
               } else if (all(u.applyvars[[re]] == i.var[[re]])) {
                 derivs[[re]][[i]] <- vars[[re]] * Reduce(kronecker, cormats1)
               } else {
                 derivs[[re]][[i]] <- kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]]))
               }
             }
-            Wu[, param] <- as.matrix(Z[[re]] %*% matrix(umat_sigmai[[re]] %*% derivs[[re]][[i]]))
+            Wu[, param] <- Z[[re]] %*% Matrix((umat_sigmai[[re]] %*% derivs[[re]][[i]])@x)
             param <- param + 1
           }
         }
@@ -686,7 +758,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     #tic("Residual working variates")
     e <- y - W %*% bu
     if (isFixed[nrow(k)] == 1) {
-      Wu[, nrow(k)] <- 0
+      # Wu[, nrow(k)] <- 0
     } else {
       Wu[, nrow(k)] <- (1 / k[nrow(k), iter]) * e@x # I think this is always true for diagonal R (also for non-diagonal fixed R, if that would ever be the case), even with weights.
     }
@@ -694,23 +766,24 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     
     ### Computing the AI matrix ====
     #tic("Computing the AI matrix and its inverse")
-    if (useWeights) {
-      XWjxZWj <- Matrix::t(W) %*% Ri %*% Wu
-      WiWj <- t(Wu) %*% Ri %*% Wu
+    WiWj <- forceSymmetric(crossprod(Wu, Ri %*% Wu)) # Similar to t(y) %*% Ri %*% y
+    if (sparse) {
+      XWjxZWj <- solve(Cchol, crossprod(W, Ri %*% Wu), system = "P") # Similar to permRHS
+      zWu <- solve(Cchol, XWjxZWj, system = "L") # Similar to z
+      buWu <- solve(Cchol, zWu, system = "Lt") # Similar to obtaining bu using a backsolve
     } else {
-      XWjxZWj <- Matrix::t(W) %*% Wu * (1 / k[nrow(k), iter])
-      WiWj <- t(Wu) %*% Wu * (1 / k[nrow(k), iter])
+      XWjxZWj <- crossprod(W, Ri %*% Wu) # t(W) %*% Ri %*% Wu
+      zWu <- backsolve(Cchol, XWjxZWj, transpose = TRUE)
+      buWu <- Matrix(backsolve(Cchol, zWu))
     }
-    
-    # We are trying to solve C %*% buWu = XWjxZWj
-    # We already have R where R^T %*% R = C (cholesky decomposition of C)
-    # So instead of :
-    # buWu <- solve(M[1:(nrow(M) - 1), 1:(ncol(M) - 1)], XWjxZWj)
-    # we do:
-    buWu <- backsolve(Mchol_XZ, forwardsolve(t(Mchol_XZ), XWjxZWj)) # This is a bit slow too
-    AI <- as((WiWj - (t(buWu) %*% XWjxZWj)) / 2, "matrix")
+    buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
+    AI <- (WiWj - buWuXWjxZWj) / 2
+    if (avInfReg[iter] > 1) { # Potential inflation of diagonal elements of the AI matrix
+      diag(AI) <- diag(AI) * avInfReg[iter]
+      # diag(AI)[ur.types == "L"] <- diag(AI)[ur.types == "L"] * avInfReg[iter] # Alternative that only inflates loadings.
+    }
     if (any(isFixed == 1)) { # If there are any fixed parameters, remove them from the AI matrix before inverting.
-      AIi <- matrix(0, nrow(AI), ncol(AI))
+      AIi <- Matrix(0, nrow(AI), ncol(AI), sparse = FALSE, doDiag = FALSE)
       notFixed <- which(isFixed == 0)
       AIi[notFixed, notFixed] <- solve(AI[notFixed, notFixed])
     } else {
@@ -720,7 +793,13 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     
     ### Computing the inverse of the coefficient matrix ====
     #tic("Inversion of C from cholesky factor")
-    Ci <- chol2inv(Mchol_XZ) # Good point to use the GPU!
+    if (sparse) {
+      # Sparse inverse subset and changing it back to model order:
+      inv_Perm <- invPerm(Cchol@perm, zero.p = TRUE, zero.res = FALSE)
+      Ci <- takahashi(as(Cchol, "dtCMatrix"))[inv_Perm, inv_Perm]
+    } else {
+      Ci <- chol2inv(Cchol)
+    }
     #toc(log = TRUE)
     
     ### Computing scores ====
@@ -729,12 +808,12 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
     # mixed linear models using average information"
     #### Genetic scores ====
-    scores <- matrix(0, nrow(k), 1)
+    scores <- Matrix(0, nrow(k), 1, sparse = FALSE)
     corner <- nX + 1
     param <- 1
     for (re in 1:nU) { # Start of loop over random effects
       if (n.nvar[re] > 0) {
-        traces <- matrix(0, nrow(sigmai[[re]]), ncol(sigmai[[re]]))
+        traces <- Matrix(0, nrow(sigmai[[re]]), ncol(sigmai[[re]]), sparse = FALSE, doDiag = FALSE)
         
         for (i in 1:nrow(sigmai[[re]])) {
           for (j in 1:ncol(sigmai[[re]])) {
@@ -743,13 +822,15 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
               rend <- rstart - 1 + dim.nvar[re]
               cstart <- (corner + (j - 1) * dim.nvar[re])
               cend <- cstart - 1 + dim.nvar[re]
+              # I suspect this can be done faster for a sparse Ci by selecting the relevant (nonzero) elements from the current block of Ci
+              # and the corresonding elements of nvarGi. But for now let's keep the simple subsetting and hadamard product.
               traces[i, j] <- sum(nvarGi[[re]] * Ci[rstart:rend, cstart:cend])
             }
           }
         }
         corner <- corner + dim.var[re] * dim.nvar[re]
         if (nrow(traces) > 1) {
-          traces <- traces + t(traces) - diag(diag(traces))
+          traces <- forceSymmetric(traces)
         }
       } else {
         traces <- Ci[corner:(corner - 1 + dim.var[re]), corner:(corner - 1 + dim.var[re])]
@@ -757,14 +838,12 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
       }
       
       if (n.nvar[re] > 0) {
-        basisScores <- -0.5 * (dim.nvar[re] * sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - t(umat_sigmai[[re]]) %*% nvarGi[[re]] %*% umat_sigmai[[re]]) # Last term maybe on the GPU?
+        basisScores <- -0.5 * (dim.nvar[re] * sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - crossprod(umat_sigmai[[re]], nvarGi[[re]] %*% umat_sigmai[[re]])) # Last term maybe on the GPU?
       } else {
-        basisScores <- -0.5 * (sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - t(umat_sigmai[[re]]) %*% umat_sigmai[[re]]) # Last term maybe on the GPU?
+        basisScores <- -0.5 * (sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - crossprod(umat_sigmai[[re]])) # Last term maybe on the GPU?
       }
       for (i in 1:length(derivs[[re]])) {
-        if (isFixed[param] == 1) {
-          scores[param, 1] <- 0
-        } else {
+        if (isFixed[param] == 0) {
           scores[param, 1] <- sum(derivs[[re]][[i]] * basisScores)
         }
         param <- param + 1
@@ -776,17 +855,15 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     #tic("Computing residual scores")
     # Can probably be more effecient for diagonal matrices
     evari <- (1 / k[nrow(k), iter])
-    if (isFixed[nrow(k)] == 1) {
-      scores[nrow(scores), 1] <- 0
-    } else {
-      WSW <- Matrix::t(W) %*% S %*% W
-      scores[nrow(scores), 1] <- as.numeric(-0.5 * (sum(S * evari) - sum(evari^2 * Ci[cbind(WSW@i + 1, rep(seq_len(ncol(WSW)), diff(WSW@p)))] * WSW@x) - (evari^2 * Matrix::t(e) %*% S %*% e)))
+    if (isFixed[nrow(k)] == 0) {
+      WSW <- t(W) %*% S %*% W
+      scores[nrow(scores), 1] <- as.numeric(-0.5 * (sum(S * evari) - sum(evari^2 * Ci[cbind(WSW@i + 1, rep(seq_len(ncol(WSW)), diff(WSW@p)))] * WSW@x) - (evari^2 * t(e) %*% S %*% e)))
     }
     #toc(log = T)
     
     ### Updating parameters ====
     #tic("Updating parameters and checking constraints")
-    delta <- as.matrix(AIi %*% scores * stepsize[iter])
+    delta <- as.matrix(AIi %*% scores * stepSize[iter])
     
     #### Checking constraints ====
     # - We check all parameters and constrain as needed (adding them to con).
@@ -804,6 +881,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
     vars <- which(ur.types == "V") # Which of the parameters in k are variances?
     cors <- which(ur.types == "R") # Which of the parameters in k are correlations?
     bws <- which(ur.types == "B") # Which of the parameters in k are bandwidths?
+    loadings <- which(ur.types == "L") # Which of the parameters in k are bandwidths?
     checkConstraints <- TRUE # Control variable to break the loop after satisfying (1) or (2).
     constraintsUsed <- FALSE # Variable that lets us print to the console if any params were constrained.
     q <- 1 # If we can't get a good update after 10 cycles we stop.
@@ -825,7 +903,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
       npd.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the presence of non-PD corg matrices.
       
       # Computing the proposed update so we can check for constraints:
-      kUpdate <- k[, iter, drop = FALSE] + delta
+      kUpdate <- as.matrix(k[, iter, drop = FALSE]) + delta
       
       # Checking variances for changes that result in an increase larger than a factor 15 or decrease larger than a factor 1/15:
       # In other words, check that k.new >= 1/15 * k.old & k.new <= 15 * k.old
@@ -865,7 +943,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
       }
       
       # Computing the proposed update so we can check for boundaries:
-      kUpdate <- k[, iter, drop = FALSE] + delta
+      kUpdate <- as.matrix(k[, iter, drop = FALSE]) + delta
       
       # Checking variances for boundaries:
       if (any(kUpdate[vars, 1] < 1e-6)) {
@@ -899,7 +977,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
       }
       
       # Recomputing the proposed update so we can check whether all corg matrices are PD:
-      kUpdate <- k[, iter, drop = FALSE] + delta
+      kUpdate <- as.matrix(k[, iter, drop = FALSE]) + delta
       
       # Checking whether all unstructured correlation matrices are PD:
       for (re in 1:nU) {
@@ -910,7 +988,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
           # First we check the stack:
           if (any(struc[[re]][[i.stack]] == "corg")) {
             s <- which(struc[[re]][[i.stack]] == "corg") # The stack can obviously only have a single unstructured correlation matrix, we just need to figure out where in the stack it is.
-            cormats[[re]][[i.stack]][[s]] <- diag(nrow(cormats[[re]][[i.stack]][[s]]))
+            cormats[[re]][[i.stack]][[s]] <- Matrix(diag(nrow(cormats[[re]][[i.stack]][[s]])), sparse = FALSE, doDiag = FALSE)
             if (s == 1) {
               indices.start <- 1
             } else {
@@ -918,7 +996,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
             }
             indices.stack <- (indices.start):(indices.start - 1 + u.nparams.list[[re]][[1 + i.stack]][s]) # We need to get the correct indices.
             cormats[[re]][[i.stack]][[s]][lower.tri(cormats[[re]][[i.stack]][[s]])] <- kUpdate[indices[[re]][[1 + i.stack]][indices.stack], 1] # Now construct the proposed corg matrix.
-            cormats[[re]][[i.stack]][[s]] <- cormats[[re]][[i.stack]][[s]] + t(cormats[[re]][[i.stack]][[s]]) - diag(nrow(cormats[[re]][[i.stack]][[s]])) # Symmetrising.
+            cormats[[re]][[i.stack]][[s]] <- forceSymmetric(cormats[[re]][[i.stack]][[s]], uplo = "L") # Symmetrising.
             ev <- eigen(cormats[[re]][[i.stack]][[s]], only.values = TRUE)$values
             if (min(ev) <= 0) {
               nonPD <- TRUE
@@ -926,7 +1004,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
               constraintsUsed <- TRUE
               npd <- indices[[re]][[1 + i.stack]][indices.stack]
               npd.cors <- c(npd.cors, npd)
-              cormats[[re]][[i.stack]][[s]] <- as.matrix(nearPD(cormats[[re]][[i.stack]][[s]], corr = TRUE, posd.tol = 1e-3)$mat)
+              cormats[[re]][[i.stack]][[s]] <- nearPD(cormats[[re]][[i.stack]][[s]], corr = TRUE, posd.tol = 1e-3)$mat
               delta[npd, 1] <- cormats[[re]][[i.stack]][[s]][lower.tri(cormats[[re]][[i.stack]][[s]])] - k[npd, iter]
             }
           }
@@ -934,9 +1012,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
           # Then we check the remaining structures:
           if (any(struc[[re]] == "corg")) { # Note that the entry for the stack will always be FALSE: list(c("gk", "corg"), "cors", "lk") == "corg" -> FALSE FALSE FALSE
             for (i in which(struc[[re]] == "corg")) { # Same thing here, i will never be the index of the stack.
-              cormats[[re]][[i]] <- diag(nrow(cormats[[re]][[i]]))
+              cormats[[re]][[i]] <- Matrix(diag(nrow(cormats[[re]][[i]])), sparse = FALSE, doDiag = FALSE)
               cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] <- kUpdate[indices[[re]][[1 + i]], 1]
-              cormats[[re]][[i]] <- cormats[[re]][[i]] + t(cormats[[re]][[i]]) - diag(nrow(cormats[[re]][[i]]))
+              cormats[[re]][[i]] <- forceSymmetric(cormats[[re]][[i]], uplo = "L")
               ev <- eigen(cormats[[re]][[i]], only.values = TRUE)$values
               if (min(ev) <= 0) {
                 nonPD <- TRUE
@@ -944,7 +1022,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                 constraintsUsed <- TRUE
                 npd <- indices[[re]][[1 + i]]
                 npd.cors <- c(npd.cors, npd)
-                cormats[[re]][[i]] <- as.matrix(nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat)
+                cormats[[re]][[i]] <- nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat
                 delta[npd, 1] <- cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] - k[npd, iter]
               }
             }
@@ -952,9 +1030,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
         } else {
           if (any(struc[[re]] == "corg")) {
             for (i in which(struc[[re]] == "corg")) {
-              cormats[[re]][[i]] <- diag(nrow(cormats[[re]][[i]]))
+              cormats[[re]][[i]] <- Matrix(diag(nrow(cormats[[re]][[i]])), sparse = FALSE, doDiag = FALSE)
               cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] <- kUpdate[indices[[re]][[1 + i]], 1]
-              cormats[[re]][[i]] <- cormats[[re]][[i]] + t(cormats[[re]][[i]]) - diag(nrow(cormats[[re]][[i]]))
+              cormats[[re]][[i]] <- forceSymmetric(cormats[[re]][[i]], uplo = "L")
               ev <- eigen(cormats[[re]][[i]], only.values = TRUE)$values
               if (min(ev) <= 0) {
                 nonPD <- TRUE
@@ -962,7 +1040,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
                 constraintsUsed <- TRUE
                 npd <- indices[[re]][[1 + i]]
                 npd.cors <- c(npd.cors, npd)
-                cormats[[re]][[i]] <- as.matrix(nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat)
+                cormats[[re]][[i]] <- nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat
                 delta[npd, 1] <- cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] - k[npd, iter]
               }
             }
@@ -992,6 +1070,8 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepsize, v
       # Now that we have (1) constrained for excessive changes, (2) constrained for boundary
       # issues, and (3) constrained non-PD correlation matrices, we can recompute delta for any
       # unconstrained parameters:
+      AI <- as.matrix(AI)
+      scores <- as.matrix(scores)
       if (constrained | hitBoundary | nonPD) {
         # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
         con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.bws, bound.bws)))
