@@ -1033,15 +1033,27 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
                 kUpdate <- k[, iter, drop = FALSE] + delta
               }
               # Now the final part where we check whether all communalities are smaller than 1 - 1e-3:
-              L <- Matrix(kUpdate[loadingIndices, 1], nrow = u.nlevels[[re]][i], sparse = FALSE, doDiag = FALSE)
+              p <- u.nlevels[[re]][i]
+              L <- Matrix(kUpdate[loadingIndices, 1], nrow = p, sparse = FALSE, doDiag = FALSE)
               comms <- Matrix::rowSums(L^2)
+              m <- ncol(L) # Number of factors.
               if (any(comms > 1 - 1e-3)) {
-                
+                commOver1 <- which(comms > 1 - 1e-3) # These are the rows of L for which comm > 1 - 1e-3.
+                # We need the indices of all loadings involved in these rows:
+                loadingIndicesMat <- Matrix(loadingIndices, p, m)
+                con.loadings <- sort(unique(c(con.loadings, loadingIndicesMat[commOver1,]@x)))
+                for (row in commOver1) {
+                  # We need to make sure that the scaling results in communalities that are slightly below the threshold of 1 - 1e-3.
+                  # This is purely due to machine precision issues. If we compute the scaling factor exactly as sqrt((1 - 1e-3) / comms[row])
+                  # the communalities will still be slightly over 0.999. They will be something like 1e-15 too large...
+                  scaling <- sqrt((1 - 1e-3 - 1e-9) / comms[row])
+                  delta[loadingIndicesMat[row,], 1] <- scaling * kUpdate[loadingIndicesMat[row,], 1] - k[loadingIndicesMat[row,], iter]
+                }
               }
-            }
-          }
+            } # End of loop over fa/exfa structures for non-stack random effects.
+          } # End of if to check whether there are any fa/exfa structures in this non-stack random effect, not sure if we really need this if...
         }
-      }
+      } # End of loop over random effects.
       
       # Checking whether all unstructured correlation matrices are PD:
       for (re in 1:nU) {
