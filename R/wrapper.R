@@ -596,7 +596,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   params[[nU + 1]] <- "residual(vars{units})"
   
   # Response matrix:
-  y <- matrix(data[[response]])
+  y <- Matrix(data[[response]], sparse = FALSE, doDiag = FALSE)
   
   if (is.null(weights)) {
     useWeights <- FALSE

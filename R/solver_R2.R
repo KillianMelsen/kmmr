@@ -20,9 +20,9 @@ getCormat_corg <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDe
   }
   cormat <- logDet <- cormati <- NULL
   if (doCormat) {
-    cormat <- diag(p)
+    cormat <- Matrix(diag(p), sparse = FALSE, doDiag = FALSE)
     cormat[lower.tri(cormat)] <- params
-    cormat <- cormat + t(cormat) - diag(p)
+    cormat <- forceSymmetric(cormat, uplo = "L")
   }
   if (doLogDet) {
     cormatChol <- chol(cormat)
@@ -37,9 +37,9 @@ getCormat_corg <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDe
 getCormat_cors <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
   cormat <- logDet <- cormati <- NULL
   if (doCormat) {
-    cormat <- diag(p)
+    cormat <- Matrix(diag(p), sparse = FALSE, doDiag = FALSE)
     cormat[lower.tri(cormat)] <- params[1]
-    cormat <- cormat + t(cormat) - diag(p)
+    cormat <- forceSymmetric(cormat, uplo = "L")
   }
   if (doChol) {
     cormatChol <- chol(cormat)
@@ -84,14 +84,14 @@ getCormat_lk <- function(base, doCormat = TRUE, doCormati = TRUE, doLogDet = TRU
 getCormat_id <- function(p, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
   cormat <- logDet <- cormati <- NULL
   if (doCormat) {
-    cormat <- diag(p)
+    cormat <- Matrix(diag(p), sparse = TRUE, doDiag = TRUE)
   }
   if (doLogDet) {
-    cormatChol <- diag(p)
+    cormatChol <- Matrix(diag(p), sparse = TRUE, doDiag = TRUE)
     logDet <- 0
   }
   if (doCormati) {
-    cormati <- diag(p)
+    cormati <- Matrix(diag(p), sparse = TRUE, doDiag = TRUE)
   }
   return(list(cormat, logDet, cormati))
 }
@@ -118,12 +118,13 @@ getCormat_fa <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet 
 getCormat_exfa <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
   cormat <- logDet <- cormati <- NULL
   if (doCormat) {
-    L <- matrix(params, nrow = p)
+    L <- Matrix(params, nrow = p, sparse = FALSE, doDiag = FALSE)
     m <- ncol(L)
-    LLt <- Matrix::tcrossprod(L)
+    LLt <- tcrossprod(L)
     cormat <- rbind(cbind(LLt, -L),
-                    cbind(-t(L), diag(m)))
+                    cbind(-t(L), Matrix(diag(m), sparse = FALSE, doDiag = FALSE)))
     diag(cormat) <- 1
+    cormat <- forceSymmetric(cormat)
   }
   if (doLogDet) {
     cormatChol <- chol(cormat)
@@ -133,7 +134,8 @@ getCormat_exfa <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDe
     PSIi <- 1 / (1 - diag(LLt)) # diag(solve(diag(p) - diag(p) * Matrix::tcrossprod(L)))
     PSIi_L <- PSIi * L
     cormati <- rbind(cbind(diag(PSIi), PSIi_L),
-                     cbind(t(PSIi_L), diag(m) + Matrix::crossprod(L, PSIi_L)))
+                     cbind(t(PSIi_L), diag(m) + crossprod(L, PSIi_L)))
+    cormati <- forceSymmetric(as(cormati, "CsparseMatrix"))
   }
   return(list(cormat, logDet, cormati))
 }
@@ -170,9 +172,9 @@ getCormat <- function(struc, p = NULL, params = NULL, base = NULL, doCormat = TR
 }
 
 getDeriv_cor <- function(cormatIndex, p) {
-  deriv <- matrix(0, p, p)
+  deriv <- Matrix(0, p, p, sparse = TRUE, doDiag = FALSE)
   deriv[lower.tri(deriv)][cormatIndex] <- 1
-  deriv <- deriv + t(deriv)
+  deriv <- forceSymmetric(deriv, uplo = "L")
   return(deriv)
 }
 
@@ -182,33 +184,36 @@ getDeriv_gk <- function(params, base) {
 }
 
 getDeriv_fa <- function(cormatIndex, params, p) {
-  m <- length(params) / p
   L <- Matrix(params, nrow = p, sparse = FALSE, doDiag = FALSE)
+  m <- ncol(L)
   dL <- Matrix(0, nrow = p, ncol = m, sparse = TRUE, doDiag = FALSE)
   dL[cormatIndex] <- 1
   # This is equal to dLL^T/dl + dPSI/dl, where dLL^T/dl = L %*% (dL/dl)^T + dL/dl %*% L^T and dPSI/dl = -I * dLL^t/dl, easier just to set the diagonal to 0...
   deriv <- tcrossprod(L, dL) + tcrossprod(dL, L) # L %*% t(dL) + dL %*% t(L)
   diag(deriv) <- 0
+  deriv <- forceSymmetric(as(deriv, "CsparseMatrix"))
   return(deriv)
 }
 
 getDeriv_exfa <- function(cormatIndex, params, p, inverse) {
-  L <- matrix(params, nrow = p)
+  L <- Matrix(params, nrow = p, sparse = FALSE, doDiag = FALSE)
   m <- ncol(L)
-  dL <- matrix(0, nrow = p, ncol = m)
+  dL <- Matrix(0, nrow = p, ncol = m, sparse = TRUE, doDiag = FALSE)
   dL[cormatIndex] <- 1
   if (!inverse) {
     # See getDeriv_fa, ignore dPSI/dl and just set the diagonal elements to 0:
-    deriv <- rbind(cbind(Matrix::tcrossprod(L, dL) + Matrix::tcrossprod(dL, L), -dL),
-                   cbind(-t(dL), matrix(0, m, m)))
+    deriv <- rbind(cbind(tcrossprod(L, dL) + tcrossprod(dL, L), -dL),
+                   cbind(-t(dL), Matrix(0, m, m, sparse = FALSE, doDiag = FALSE)))
     diag(deriv) <- 0
+    deriv <- forceSymmetric(as(deriv, "CsparseMatrix"))
   } else { # If the derivative of the inverse extended factor analytic correlation matrix is needed:
-    PSIi <- diag(1 / (1 - diag(Matrix::tcrossprod(L))))
-    dPSI <- diag(-diag(Matrix::tcrossprod(L, dL) + Matrix::tcrossprod(dL, L)))
-    dPSIi <- -PSIi %*% dPSI %*% PSIi
+    PSIi <- Matrix(diag(1 / (1 - diag(tcrossprod(L)))), sparse = TRUE, doDiag = FALSE)
+    dPSI <- Matrix(diag(-diag(tcrossprod(L, dL) + tcrossprod(dL, L))), sparse = TRUE, doDiag = FALSE)
+    dPSIi <- forceSymmetric(-PSIi %*% dPSI %*% PSIi)
     # dPSIi <- diag(PSIi)^2 * dPSI
     deriv <- rbind(cbind(dPSIi, PSIi %*% dL + dPSIi %*% L),
                    cbind(t(PSIi %*% dL + dPSIi %*% L), t(dL) %*% PSIi %*% L + t(L) %*% dPSIi %*% L + t(L) %*% PSIi %*% dL))
+    deriv <- forceSymmetric(deriv)
   }
   return(deriv)
 }
@@ -863,7 +868,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     
     ### Updating parameters ====
     #tic("Updating parameters and checking constraints")
-    delta <- as.matrix(AIi %*% scores * stepSize[iter])
+    delta <- AIi %*% scores * stepSize[iter]
     
     #### Checking constraints ====
     # - We check all parameters and constrain as needed (adding them to con).
@@ -881,7 +886,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     vars <- which(ur.types == "V") # Which of the parameters in k are variances?
     cors <- which(ur.types == "R") # Which of the parameters in k are correlations?
     bws <- which(ur.types == "B") # Which of the parameters in k are bandwidths?
-    loadings <- which(ur.types == "L") # Which of the parameters in k are bandwidths?
+    # loadings <- which(ur.types == "L") # Which of the parameters in k are bandwidths?
     checkConstraints <- TRUE # Control variable to break the loop after satisfying (1) or (2).
     constraintsUsed <- FALSE # Variable that lets us print to the console if any params were constrained.
     q <- 1 # If we can't get a good update after 10 cycles we stop.
@@ -897,13 +902,15 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       con.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas being too large.
       con.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas being too large.
       con.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas being too large.
+      con.loadings <- c()
       bound.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas pushing them across boundaries.
       bound.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas pushing them across boundaries.
       bound.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas pushing them across boundaries.
+      bound.loadings <- c()
       npd.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the presence of non-PD corg matrices.
       
       # Computing the proposed update so we can check for constraints:
-      kUpdate <- as.matrix(k[, iter, drop = FALSE]) + delta
+      kUpdate <- k[, iter, drop = FALSE] + delta
       
       # Checking variances for changes that result in an increase larger than a factor 15 or decrease larger than a factor 1/15:
       # In other words, check that k.new >= 1/15 * k.old & k.new <= 15 * k.old
@@ -943,7 +950,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       }
       
       # Computing the proposed update so we can check for boundaries:
-      kUpdate <- as.matrix(k[, iter, drop = FALSE]) + delta
+      kUpdate <- k[, iter, drop = FALSE] + delta
       
       # Checking variances for boundaries:
       if (any(kUpdate[vars, 1] < 1e-6)) {
@@ -976,8 +983,65 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         constraintsUsed <- TRUE
       }
       
-      # Recomputing the proposed update so we can check whether all corg matrices are PD:
-      kUpdate <- as.matrix(k[, iter, drop = FALSE]) + delta
+      # Recomputing the proposed update so we can check the loadings and whether all corg matrices are PD:
+      kUpdate <- k[, iter, drop = FALSE] + delta
+      
+      # Checking loadings ====
+      # Checking the loadings is a little bit more complicated. We check three things:
+      # (1) The mean magnitude of the changes cannot be larger than 10. If it is, deltas for loadings are shrunken so the mean magnitude is 10.
+      # (2) The magnitude of the change for any sign-flipped loading cannot be larger than 2. If any is, the delta for that loading is shrunken so the magnitude is 2.
+      # (3) The communalities for all features (environments) must be smaller than 1 - 1e-3. If any communality is larger than that threshold, all loadings for that feature i
+      #     are scaled back so that the communality becomes 1 - 1e-3, but the direction of the vector L[i,] in m-dimensional space does not change.
+      for (re in 1:nU) {
+        if (any(u.isStack[[re]])) {
+          
+        } else {
+          if (any(struc[[re]] %in% c("fa", "exfa"))) {
+            for (i in which(struc[[re]] %in% c("fa", "exfa"))) {
+              loadingIndices <- indices[[re]][[1 + i]] # Getting the indices for the loadings for this particular structure.
+              signflip <- sign(k[loadingIndices, iter]) * sign(kUpdate[loadingIndices, 1]) == -1 # Detecting sign flips.
+              mags <- abs(kUpdate / k[, iter])[loadingIndices, 1] # Computing the magnitudes of the changes.
+              meanMags <- mean(mags[!isFixed[loadingIndices]]) # Should be smaller than 10.
+              if (meanMags > 10) { # Shrink delta for all loadings.
+                con.loadings <- loadingIndices
+                scaling <- 9 / meanMags # Close enough
+                delta[con.loadings, 1] <- scaling * delta[con.loadings, 1]
+                constrained <- TRUE
+                checkConstraints <- TRUE
+                constraintsUsed <- TRUE
+                
+                # We have changed delta, so we need to recompute the magnitudes (mean magnitude should now be lower than 10).
+                # We also need to recheck the sign-flips, because by shrinking delta some of them could have disappeared.
+                kUpdate <- k[, iter, drop = FALSE] + delta # Easiest way is to start with recomputing the proposed update
+                signflip <- sign(k[loadingIndices, iter]) * sign(kUpdate[loadingIndices, 1]) == -1 # Detecting sign flips.
+                mags <- abs(kUpdate / k[, iter])[loadingIndices, 1] # Computing the magnitudes of the changes.
+              }
+              if (any(mags[signflip] > 2)) { # Should all be smaller than 2.
+                # We need the sort(unique()) because if the mean magnitude was larger than 10, all loadings were already constrained.
+                # But some of them might need to be constrained further (sign-flipped and mag > 2).
+                # Subset loading indices and mags to sign-flipped ones, then subset to those for which the magnitude > 2.
+                magOver2 <- loadingIndices[signflip][mags[signflip] > 2]
+                con.loadings <- sort(unique(c(con.loadings, magOver2)))
+                delta[magOver2, 1] <- -2 * k[magOver2, iter] - k[magOver2, iter]
+                constrained <- TRUE
+                checkConstraints <- TRUE
+                constraintsUsed <- TRUE
+                
+                # We have changed delta so we need to recompute the proposed update.
+                # We don't need to recompute the magnitudes, because the mean magnitude can only
+                # go down if we further constrain updates for sign-flipped loadings.
+                kUpdate <- k[, iter, drop = FALSE] + delta
+              }
+              # Now the final part where we check whether all communalities are smaller than 1 - 1e-3:
+              L <- Matrix(kUpdate[loadingIndices, 1], nrow = u.nlevels[[re]][i], sparse = FALSE, doDiag = FALSE)
+              comms <- Matrix::rowSums(L^2)
+              if (any(comms > 1 - 1e-3)) {
+                
+              }
+            }
+          }
+        }
+      }
       
       # Checking whether all unstructured correlation matrices are PD:
       for (re in 1:nU) {
@@ -1048,30 +1112,11 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         }
       }
       
-      # Old code, which still assumed only a single random effect:
-      # if (any(struc == "corg")) {
-      #   for (i in which(struc == "corg")) {
-      #     cormats[[i]] <- diag(nrow(cormats[[i]]))
-      #     cormats[[i]][lower.tri(cormats[[i]])] <- kUpdate[indices[[1 + i]], 1]
-      #     cormats[[i]] <- cormats[[i]] + t(cormats[[i]]) - diag(nrow(cormats[[i]]))
-      #     ev <- eigen(cormats[[i]], only.values = TRUE)$values
-      #     if (min(ev) <= 0) {
-      #       nonPD <- TRUE
-      #       checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-      #       constraintsUsed <- TRUE
-      #       npd <- indices[[1 + i]]
-      #       npd.cors <- c(npd.cors, npd)
-      #       cormats[[i]] <- as.matrix(nearPD(cormats[[i]], corr = TRUE, posd.tol = 1e-3)$mat)
-      #       delta[npd, 1] <- cormats[[i]][lower.tri(cormats[[i]])] - k[npd, iter]
-      #     }
-      #   }
-      # }
-      
       # Now that we have (1) constrained for excessive changes, (2) constrained for boundary
       # issues, and (3) constrained non-PD correlation matrices, we can recompute delta for any
       # unconstrained parameters:
-      AI <- as.matrix(AI)
-      scores <- as.matrix(scores)
+      AI <- AI
+      scores <- scores
       if (constrained | hitBoundary | nonPD) {
         # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
         con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.bws, bound.bws)))
