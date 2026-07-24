@@ -5,9 +5,11 @@ checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
   mags <- abs(kUpdate / currentParams[, 1])[loadingIndices, 1] # Computing the magnitudes of the changes.
   meanMags <- mean(mags[!isFixed[loadingIndices]]) # Should be smaller than 10.
   con.loadings <- c()
+  bound.loadings <- c()
   constrained <- FALSE
   checkConstraints <- FALSE
   constraintsUsed <- FALSE
+  hitBoundary <- FALSE
   if (meanMags > 10) { # Shrink delta for all loadings.
     con.loadings <- loadingIndices[isFixed[loadingIndices] == 0] # Loadings that are fixed should not be considered as constrained.
     scaling <- 9 / meanMags # Close enough
@@ -47,7 +49,7 @@ checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
     # We need the indices of all loadings involved in these rows:
     loadingIndicesMat <- Matrix(loadingIndices, p, m)
     # Add them to the full vector of constrained, but remove any fixed loadings using setdiff().
-    con.loadings <- sort(unique(c(con.loadings, setdiff(loadingIndicesMat[commOver1,, drop = FALSE]@x, loadingIndices[isFixed[loadingIndices] == 1]))))
+    bound.loadings <- sort(unique(c(bound.loadings, setdiff(loadingIndicesMat[commOver1,, drop = FALSE]@x, loadingIndices[isFixed[loadingIndices] == 1]))))
     for (row in commOver1) {
       # We need to make sure that the scaling results in communalities that are slightly below the threshold of 1 - 1e-3.
       # This is purely due to machine precision issues. If we compute the scaling factor exactly as sqrt((1 - 1e-3) / comms[row])
@@ -55,7 +57,7 @@ checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
       scaling <- sqrt((1 - 1e-3 - 1e-9) / comms[row])
       delta[loadingIndicesMat[row,], 1] <- scaling * kUpdate[loadingIndicesMat[row,], 1] - currentParams[loadingIndicesMat[row,], 1]
     }
-    constrained <- TRUE
+    hitBoundary <- TRUE
     checkConstraints <- TRUE
     constraintsUsed <- TRUE
   }
@@ -63,7 +65,9 @@ checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
               constrained = constrained,
               checkConstraints = checkConstraints,
               constraintsUsed = constraintsUsed,
+              hitBoundary = hitBoundary,
               con.loadings = con.loadings,
+              bound.loadings = bound.loadings,
               isFixed = isFixed))
 }
 
@@ -970,11 +974,11 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       con.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas being too large.
       con.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas being too large.
       con.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas being too large.
-      con.loadings <- c()
+      con.loadings <- c() # Vector with indices of loadings that were constrained in the current cycle due to the deltas being too large.
       bound.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas pushing them across boundaries.
       bound.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas pushing them across boundaries.
       bound.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas pushing them across boundaries.
-      bound.loadings <- c()
+      bound.loadings <- c() # Vector with indices of loadings that were constrained in the current cycle due to the deltas pushing the communalities over 1 - 1e-3.
       npd.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the presence of non-PD corg matrices.
       
       # Computing the proposed update so we can check for constraints:
@@ -1075,7 +1079,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
             constrained <- check$constrained
             checkConstraints <- check$checkConstraints
             constraintsUsed <- check$constraintsUsed
+            hitBoundary <- check$hitBoundary
             con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
+            bound.loadings <- sort(unique(c(bound.loadings, check$bound.loadings)))
           }
         }
         # Then we check potential fa or exfa structures in the remaining factors.
@@ -1088,8 +1094,10 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
           checkConstraints <- check$checkConstraints
           constraintsUsed <- check$constraintsUsed
           con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
+          bound.loadings <- sort(unique(c(bound.loadings, check$bound.loadings)))
         } # End of loop over fa/exfa structures for non-stack random effects.
       } # End of loop over random effects.
+      boundary[bound.loadings] <- boundary[bound.loadings] + 1
       
       # Recomputing update:
       kUpdate <- k[, iter, drop = FALSE] + delta
@@ -1168,7 +1176,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       # unconstrained parameters:
       if (constrained | hitBoundary | nonPD) {
         # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
-        con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.bws, bound.bws, con.loadings)))
+        con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.bws, bound.bws, con.loadings, bound.loadings)))
         noncon <- setdiff(1:nrow(delta), con)
         if (length(setdiff(noncon, which(isFixed == 1))) > 0) {
           nConstrained <- length(con)
