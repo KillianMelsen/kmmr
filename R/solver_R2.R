@@ -338,13 +338,15 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @param u.isStack Are factors within random effects made up of a stack of structures?
 #' @param u.nparams.list Number of parameters per factor/random effect in list format.
 #' @param sparse Should the sparse version of the algorithm be used? Useful if C is reasonable sparse.
+#' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
 #'
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
 #' @keywords internal
 solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
-                       bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse) {
+                       bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
+                       timesToBoundary) {
   ## Prelims ====
   k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
@@ -1202,8 +1204,8 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     }
     
     # Fixing any parameters that have hit the boundary five times:
-    if (any(boundary == 5)) {
-      isFixed[which(boundary == 5)] <- 1
+    if (any(boundary == timesToBoundary)) {
+      isFixed[which(boundary == timesToBoundary)] <- 1
     }
     #toc(log = T)
     

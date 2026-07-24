@@ -1,3 +1,5 @@
+library(devtools)
+load_all()
 d <- readRDS("dev/exampledata.rds")
 d <- droplevels(d[d$Man == "R", c("Env", "Gen", "GY")])
 # d <- droplevels(d[, c("Man", "Env", "Gen", "GY")])
@@ -10,16 +12,44 @@ EC <- Matrix(readRDS("dev/exampledata_EC.rds"))
 
 # Initial values for the fa(Env, ext = TRUE) parameters
 vars <- diag(cov(unstack(d, GY ~ Env), use = "complete"))
-fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 2)
+fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 3)
 L <- fit.factanal$loadings[,]
 L <- kmmr:::rotateInitL(L)
 resvar <- mean(vars) / 20
 genvar <- vars / 20
-# init <- c(genvar, matrix(L), resvar)
-init <- c(rep(genvar / 2, 2), matrix(L), resvar)
+init <- c(genvar, matrix(L), resvar)
+# init <- c(rep(genvar / 2, 2), matrix(L), resvar)
 # init <- c(rep(genvar / 2, 2), 0.15, matrix(L), resvar)
 isFixed <- rep(FALSE, length(init))
 isFixed[init == 0] <- TRUE
+
+# Normal FA models:
+system.time(
+fit <- kmmr(fixed = GY ~ -1 + Env,
+            random = ~ re(~ fa(Env, 3):lk(Gen, Ki), vars = ~ Env),
+            residual = ~ units,
+            data = d,
+            init = init,
+            isFixed = isFixed,
+            sparse = FALSE,
+            maxit = 25,
+            tolConvLL = 1e-3,
+            stepSize = c(0.25, 0.50, 0.75, rep(1, 22)),
+            avInfReg = seq(1.1, 1.0, length.out = 25),
+            timesToBoundary = 7)
+)
+
+library(asreml)
+asreml.options(workspace = "5000mb", pworkspace = "5000mb", wvr = F, score = F, threads = -1)
+Ki2 <- solve(K)
+attr(Ki2, "INVERSE") <- TRUE
+system.time(
+fit.asr <- asreml(fixed = GY ~ -1 + Env,
+                  random = ~ facv(Env, 3):vm(Gen, Ki2),
+                  residual = ~ idv(units),
+                  data = d,
+                  maxit = 25)
+)
 
 # system.time(
 # fit <- kmmr(fixed = GY ~ -1 + Env,

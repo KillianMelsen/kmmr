@@ -475,13 +475,14 @@ stack <- function(formula, ...) {
 #' @param isFixed Should any of the parameters be fixed?
 #' @param verbose Verbosity.
 #' @param sparse Optional argument for forcing the sparse or dense versions of the solver.
+#' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
 #'
 #' @returns A list with the results.
 #' @export
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepSize = c(0.5, 0.75, rep(1, maxit - 2)), avInfReg = rep(1, maxit),
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
-                 sparse) {
+                 sparse, timesToBoundary = 5) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -647,7 +648,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                        ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
                        u.forFactor = u.forFactor, u.indexCor = u.indexCor,
                        bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
-                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse)
+                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
+                       timesToBoundary = timesToBoundary)
   result$params <- unlist(params)
   class(result) <- "kmmrFit"
   return(result)
