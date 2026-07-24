@@ -1,3 +1,72 @@
+# A function for checking and constraining updates to the loadings of fa and exfa structures:
+checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
+  kUpdate <- currentParams + delta
+  signflip <- sign(currentParams[loadingIndices, 1]) * sign(kUpdate[loadingIndices, 1]) == -1 # Detecting sign flips.
+  mags <- abs(kUpdate / currentParams[, 1])[loadingIndices, 1] # Computing the magnitudes of the changes.
+  meanMags <- mean(mags[!isFixed[loadingIndices]]) # Should be smaller than 10.
+  con.loadings <- c()
+  constrained <- FALSE
+  checkConstraints <- FALSE
+  constraintsUsed <- FALSE
+  if (meanMags > 10) { # Shrink delta for all loadings.
+    con.loadings <- loadingIndices[isFixed[loadingIndices] == 0] # Loadings that are fixed should not be considered as constrained.
+    scaling <- 9 / meanMags # Close enough
+    delta[con.loadings, 1] <- scaling * delta[con.loadings, 1]
+    constrained <- TRUE
+    checkConstraints <- TRUE
+    constraintsUsed <- TRUE
+    
+    # We have changed delta, so we need to recompute the magnitudes (mean magnitude should now be lower than 10).
+    # We also need to recheck the sign-flips, because by shrinking delta some of them could have disappeared.
+    kUpdate <- currentParams + delta # Easiest way is to start with recomputing the proposed update
+    signflip <- sign(currentParams[loadingIndices, 1]) * sign(kUpdate[loadingIndices, 1]) == -1 # Detecting sign flips.
+    mags <- abs(kUpdate / currentParams[, 1])[loadingIndices, 1] # Computing the magnitudes of the changes.
+  }
+  if (any(mags[signflip] > 2)) { # Should all be smaller than 2.
+    # We need the sort(unique()) because if the mean magnitude was larger than 10, all loadings were already constrained.
+    # But some of them might need to be constrained further (sign-flipped and mag > 2).
+    # Subset loading indices and mags to sign-flipped ones, then subset to those for which the magnitude > 2.
+    magOver2 <- loadingIndices[signflip][mags[signflip] > 2] # These can never be fixed loadings, because fixed loadings never change.
+    con.loadings <- sort(unique(c(con.loadings, magOver2)))
+    delta[magOver2, 1] <- -2 * currentParams[magOver2, 1] - currentParams[magOver2, 1]
+    constrained <- TRUE
+    checkConstraints <- TRUE
+    constraintsUsed <- TRUE
+    
+    # We have changed delta so we need to recompute the proposed update.
+    # We don't need to recompute the magnitudes, because the mean magnitude can only
+    # go down if we further constrain updates for sign-flipped loadings.
+    kUpdate <- currentParams + delta
+  }
+  # Now the final part where we check whether all communalities are smaller than 1 - 1e-3:
+  L <- Matrix(kUpdate[loadingIndices, 1], nrow = p, sparse = FALSE, doDiag = FALSE)
+  comms <- rowSums(L^2)
+  m <- ncol(L) # Number of factors.
+  if (any(comms > 1 - 1e-3)) {
+    commOver1 <- which(comms > 1 - 1e-3) # These are the rows of L for which comm > 1 - 1e-3.
+    # We need the indices of all loadings involved in these rows:
+    loadingIndicesMat <- Matrix(loadingIndices, p, m)
+    # Add them to the full vector of constrained, but remove any fixed loadings using setdiff().
+    con.loadings <- sort(unique(c(con.loadings, setdiff(loadingIndicesMat[commOver1,, drop = FALSE]@x, loadingIndices[isFixed[loadingIndices] == 1]))))
+    for (row in commOver1) {
+      # We need to make sure that the scaling results in communalities that are slightly below the threshold of 1 - 1e-3.
+      # This is purely due to machine precision issues. If we compute the scaling factor exactly as sqrt((1 - 1e-3) / comms[row])
+      # the communalities will still be slightly over 0.999. They will be something like 1e-15 too large...
+      scaling <- sqrt((1 - 1e-3 - 1e-9) / comms[row])
+      delta[loadingIndicesMat[row,], 1] <- scaling * kUpdate[loadingIndicesMat[row,], 1] - currentParams[loadingIndicesMat[row,], 1]
+    }
+    constrained <- TRUE
+    checkConstraints <- TRUE
+    constraintsUsed <- TRUE
+  }
+  return(list(delta = delta,
+              constrained = constrained,
+              checkConstraints = checkConstraints,
+              constraintsUsed = constraintsUsed,
+              con.loadings = con.loadings,
+              isFixed = isFixed))
+}
+
 # A simpler wrapper for the Takahashi equations:
 takahashi <- function(L) {
   # sparseinv_wrapper <- utils::getFromNamespace(".sparseinv_wrapper", "sparseinv")
@@ -886,7 +955,6 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     vars <- which(ur.types == "V") # Which of the parameters in k are variances?
     cors <- which(ur.types == "R") # Which of the parameters in k are correlations?
     bws <- which(ur.types == "B") # Which of the parameters in k are bandwidths?
-    # loadings <- which(ur.types == "L") # Which of the parameters in k are bandwidths?
     checkConstraints <- TRUE # Control variable to break the loop after satisfying (1) or (2).
     constraintsUsed <- FALSE # Variable that lets us print to the console if any params were constrained.
     q <- 1 # If we can't get a good update after 10 cycles we stop.
@@ -992,68 +1060,39 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       # (2) The magnitude of the change for any sign-flipped loading cannot be larger than 2. If any is, the delta for that loading is shrunken so the magnitude is 2.
       # (3) The communalities for all features (environments) must be smaller than 1 - 1e-3. If any communality is larger than that threshold, all loadings for that feature i
       #     are scaled back so that the communality becomes 1 - 1e-3, but the direction of the vector L[i,] in m-dimensional space does not change.
+      # See the checkLoadings() function for what checks are done in more detail.
       for (re in 1:nU) {
-        if (any(u.isStack[[re]])) {
-          
-        } else {
-          if (any(struc[[re]] %in% c("fa", "exfa"))) {
-            for (i in which(struc[[re]] %in% c("fa", "exfa"))) {
-              loadingIndices <- indices[[re]][[1 + i]] # Getting the indices for the loadings for this particular structure.
-              signflip <- sign(k[loadingIndices, iter]) * sign(kUpdate[loadingIndices, 1]) == -1 # Detecting sign flips.
-              mags <- abs(kUpdate / k[, iter])[loadingIndices, 1] # Computing the magnitudes of the changes.
-              meanMags <- mean(mags[!isFixed[loadingIndices]]) # Should be smaller than 10.
-              if (meanMags > 10) { # Shrink delta for all loadings.
-                con.loadings <- loadingIndices
-                scaling <- 9 / meanMags # Close enough
-                delta[con.loadings, 1] <- scaling * delta[con.loadings, 1]
-                constrained <- TRUE
-                checkConstraints <- TRUE
-                constraintsUsed <- TRUE
-                
-                # We have changed delta, so we need to recompute the magnitudes (mean magnitude should now be lower than 10).
-                # We also need to recheck the sign-flips, because by shrinking delta some of them could have disappeared.
-                kUpdate <- k[, iter, drop = FALSE] + delta # Easiest way is to start with recomputing the proposed update
-                signflip <- sign(k[loadingIndices, iter]) * sign(kUpdate[loadingIndices, 1]) == -1 # Detecting sign flips.
-                mags <- abs(kUpdate / k[, iter])[loadingIndices, 1] # Computing the magnitudes of the changes.
-              }
-              if (any(mags[signflip] > 2)) { # Should all be smaller than 2.
-                # We need the sort(unique()) because if the mean magnitude was larger than 10, all loadings were already constrained.
-                # But some of them might need to be constrained further (sign-flipped and mag > 2).
-                # Subset loading indices and mags to sign-flipped ones, then subset to those for which the magnitude > 2.
-                magOver2 <- loadingIndices[signflip][mags[signflip] > 2]
-                con.loadings <- sort(unique(c(con.loadings, magOver2)))
-                delta[magOver2, 1] <- -2 * k[magOver2, iter] - k[magOver2, iter]
-                constrained <- TRUE
-                checkConstraints <- TRUE
-                constraintsUsed <- TRUE
-                
-                # We have changed delta so we need to recompute the proposed update.
-                # We don't need to recompute the magnitudes, because the mean magnitude can only
-                # go down if we further constrain updates for sign-flipped loadings.
-                kUpdate <- k[, iter, drop = FALSE] + delta
-              }
-              # Now the final part where we check whether all communalities are smaller than 1 - 1e-3:
-              p <- u.nlevels[[re]][i]
-              L <- Matrix(kUpdate[loadingIndices, 1], nrow = p, sparse = FALSE, doDiag = FALSE)
-              comms <- Matrix::rowSums(L^2)
-              m <- ncol(L) # Number of factors.
-              if (any(comms > 1 - 1e-3)) {
-                commOver1 <- which(comms > 1 - 1e-3) # These are the rows of L for which comm > 1 - 1e-3.
-                # We need the indices of all loadings involved in these rows:
-                loadingIndicesMat <- Matrix(loadingIndices, p, m)
-                con.loadings <- sort(unique(c(con.loadings, loadingIndicesMat[commOver1,]@x)))
-                for (row in commOver1) {
-                  # We need to make sure that the scaling results in communalities that are slightly below the threshold of 1 - 1e-3.
-                  # This is purely due to machine precision issues. If we compute the scaling factor exactly as sqrt((1 - 1e-3) / comms[row])
-                  # the communalities will still be slightly over 0.999. They will be something like 1e-15 too large...
-                  scaling <- sqrt((1 - 1e-3 - 1e-9) / comms[row])
-                  delta[loadingIndicesMat[row,], 1] <- scaling * kUpdate[loadingIndicesMat[row,], 1] - k[loadingIndicesMat[row,], iter]
-                }
-              }
-            } # End of loop over fa/exfa structures for non-stack random effects.
-          } # End of if to check whether there are any fa/exfa structures in this non-stack random effect, not sure if we really need this if...
+        if (any(u.isStack[[re]])) { # If there is a stack in the random effect.
+          # First we check any potential fa/exfa structures in the stack:
+          i.stack <- which(u.isStack[[re]])
+          for (i in which(struc[[re]][[i.stack]] %in% c("fa", "exfa"))) { # Check fa/exfa structures in the stack.
+            indices.stack.start <- 1 + c(0, cumsum(u.nparams.list[[re]][[1 + i.stack]]))[i]
+            indices.stack.end <- indices.stack.start - 1 + u.nparams.list[[re]][[1 + i.stack]][i]
+            indices.stack <- indices.stack.start:indices.stack.end # Indices of the parameters that belong to this layer of the stack.
+            loadingIndices <- indices[[re]][[1 + i.stack]][indices.stack] # Getting the indices for the loadings for this particular structure.
+            check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i.stack])
+            delta <- check$delta
+            constrained <- check$constrained
+            checkConstraints <- check$checkConstraints
+            constraintsUsed <- check$constraintsUsed
+            con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
+          }
         }
+        # Then we check potential fa or exfa structures in the remaining factors.
+        # Note that that block above never runs for non-stack random effects.
+        for (i in which(struc[[re]] %in% c("fa", "exfa"))) {
+          loadingIndices <- indices[[re]][[1 + i]] # Getting the indices for the loadings for this particular structure.
+          check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i])
+          delta <- check$delta
+          constrained <- check$constrained
+          checkConstraints <- check$checkConstraints
+          constraintsUsed <- check$constraintsUsed
+          con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
+        } # End of loop over fa/exfa structures for non-stack random effects.
       } # End of loop over random effects.
+      
+      # Recomputing update:
+      kUpdate <- k[, iter, drop = FALSE] + delta
       
       # Checking whether all unstructured correlation matrices are PD:
       for (re in 1:nU) {
@@ -1127,11 +1166,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       # Now that we have (1) constrained for excessive changes, (2) constrained for boundary
       # issues, and (3) constrained non-PD correlation matrices, we can recompute delta for any
       # unconstrained parameters:
-      AI <- AI
-      scores <- scores
       if (constrained | hitBoundary | nonPD) {
         # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
-        con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.bws, bound.bws)))
+        con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.bws, bound.bws, con.loadings)))
         noncon <- setdiff(1:nrow(delta), con)
         if (length(setdiff(noncon, which(isFixed == 1))) > 0) {
           nConstrained <- length(con)
@@ -1143,7 +1180,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
           scoresff <- scores[con, 1, drop = FALSE]
           deltaff <- delta[con, 1, drop = FALSE]
           if (any(uuisFixed == 1)) { # If there are any fixed parameters in the unconstrained part, remove them from the AIuu matrix before inverting.
-            AIuui <- matrix(0, nrow(AIuu), ncol(AIuu))
+            AIuui <- Matrix(0, nrow(AIuu), ncol(AIuu), sparse = FALSE, doDiag = FALSE)
             uunotFixed <- which(uuisFixed == 0)
             AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
             deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
