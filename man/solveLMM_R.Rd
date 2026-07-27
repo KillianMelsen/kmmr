@@ -31,7 +31,8 @@ solveLMM_R(
   isFixed,
   u.isStack,
   u.nparams.list,
-  sparse
+  sparse,
+  timesToBoundary
 )
 }
 \arguments{
@@ -89,6 +90,8 @@ elements of the AI matrix by 10%.}
 \item{u.nparams.list}{Number of parameters per factor/random effect in list format.}
 
 \item{sparse}{Should the sparse version of the algorithm be used? Useful if C is reasonable sparse.}
+
+\item{timesToBoundary}{How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?}
 }
 \value{
 A list containing the log-likelihood, parameter estimates, average information matrix,

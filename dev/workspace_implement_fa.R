@@ -6,8 +6,8 @@ d <- droplevels(d[d$Man == "R", c("Env", "Gen", "GY")])
 K <- readRDS("dev/exampledata_K.rds")
 Ki <- Matrix(solve(K)) # Make sure any base matrices are in Matrix format!
 attr(Ki, "logDet") <- sum(log(eigen(K)$values)) # We need the log determinant of K, NOT the inverse of K!!!
-ED <- Matrix(readRDS("dev/exampledata_ED.rds"))
-EC <- Matrix(readRDS("dev/exampledata_EC.rds"))
+# ED <- Matrix(readRDS("dev/exampledata_ED.rds"))
+# EC <- Matrix(readRDS("dev/exampledata_EC.rds"))
 # ECi <- solve(EC)
 
 # Initial values for the fa(Env, ext = TRUE) parameters

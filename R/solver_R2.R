@@ -638,7 +638,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       #   # Update the cholesky factor
       # }
     } else {
-      Cchol <- chol(C) # Good for the GPU?
+      Cchol <- Cholesky(C, perm = FALSE) # Good for the GPU?
+      # Cchol <- chol(C) # Good for the GPU?
+      # Cchol <- as.matrix(chol(C)) # Good for the GPU?
     }
     #toc(log = T)
     
@@ -646,7 +648,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #tic("Solving for BLUEs and BLUPs")
     if (sparse) {
       # Apply permutation to the right-hand side of the MME: P %*% t(W) %*% Ri %*% y:
-      permRHS <- solve(Cchol, t(W) %*% Ri %*% y, system = "P")
+      permRHS <- solve(Cchol, crossprod(W, Ri %*% y), system = "P")
       # Sparse triangular forward solve: L %*% z = permRHS where L = Cchol:
       z <- solve(Cchol, permRHS, system = "L")
       # Sparse triangular backward solve: t(L) %*% bu = z where l = Cchol to obtain BLUEs and BLUPs:
@@ -654,9 +656,13 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       # Final reverse permutation t(P) %*% bu to get the BLUEs and BLUPs into model order:
       bu <- solve(Cchol, bu, system = "Pt")
     } else {
-      RHS <- t(W) %*% Ri %*% y
-      z <- Matrix(backsolve(as.matrix(Cchol), RHS, transpose = TRUE))
-      bu <- Matrix(backsolve(as.matrix(Cchol), z))
+      RHS <- crossprod(W, Ri %*% y)
+      bu <- solve(Cchol, RHS)
+      z <- as(Cchol, "dtrMatrix") %*% bu # t(U) %*% U %*% bu = RHS and t(U) %*% z = RHS, therefore, t(U) %*% U %*% bu = t(U) %*% z, thus U %*% bu = z
+      # z <- Matrix(backsolve(as.matrix(Cchol), RHS, transpose = TRUE))
+      # bu <- Matrix(backsolve(as.matrix(Cchol), z))
+      # z <- backsolve(Cchol, RHS, transpose = TRUE)
+      # bu <- Matrix(backsolve(Cchol, z))
     }
     
     # Splitting BLUEs and BLUPs:
@@ -673,7 +679,8 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     if (sparse) {
       logDetC <- determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus
     } else {
-      logDetC <- 2 * sum(log(diag(Cchol)))
+      # logDetC <- 2 * sum(log(diag(Cchol)))
+      logDetC <- sum(log(diag(Cchol))) # Looks strange, but is correct as diag(Cholesky(C, perm = FAlSE)) returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
     }
     
     # logDetG:
@@ -853,8 +860,11 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       buWu <- solve(Cchol, zWu, system = "Lt") # Similar to obtaining bu using a backsolve
     } else {
       XWjxZWj <- crossprod(W, Ri %*% Wu) # t(W) %*% Ri %*% Wu
-      zWu <- backsolve(Cchol, XWjxZWj, transpose = TRUE)
-      buWu <- Matrix(backsolve(Cchol, zWu))
+      buWu <- solve(Cchol, XWjxZWj)
+      # zWu <- backsolve(as.matrix(Cchol), XWjxZWj, transpose = TRUE)
+      # buWu <- Matrix(backsolve(as.matrix(Cchol), zWu))
+      # zWu <- backsolve(Cchol, XWjxZWj, transpose = TRUE)
+      # buWu <- Matrix(backsolve(Cchol, zWu))
     }
     buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
     AI <- (WiWj - buWuXWjxZWj) / 2
@@ -878,7 +888,8 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       inv_Perm <- invPerm(Cchol@perm, zero.p = TRUE, zero.res = FALSE)
       Ci <- takahashi(as(Cchol, "dtCMatrix"))[inv_Perm, inv_Perm]
     } else {
-      Ci <- chol2inv(Cchol)
+      Ci <- chol2inv(as(Cchol, "dtrMatrix"))
+      # Ci <- Matrix(chol2inv(Cchol))
     }
     #toc(log = TRUE)
     
