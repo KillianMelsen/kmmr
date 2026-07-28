@@ -11,7 +11,7 @@ checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
   constraintsUsed <- FALSE
   hitBoundary <- FALSE
   if (meanMags > 10) { # Shrink delta for all loadings.
-    con.loadings <- loadingIndices[isFixed[loadingIndices] == 0] # Loadings that are fixed should not be considered as constrained.
+    con.loadings <- loadingIndices[!isFixed[loadingIndices]] # Loadings that are fixed should not be considered as constrained.
     scaling <- 9 / meanMags # Close enough
     delta[con.loadings, 1] <- scaling * delta[con.loadings, 1]
     constrained <- TRUE
@@ -49,7 +49,7 @@ checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
     # We need the indices of all loadings involved in these rows:
     loadingIndicesMat <- Matrix(loadingIndices, p, m)
     # Add them to the full vector of constrained, but remove any fixed loadings using setdiff().
-    bound.loadings <- sort(unique(c(bound.loadings, setdiff(loadingIndicesMat[commOver1,, drop = FALSE]@x, loadingIndices[isFixed[loadingIndices] == 1]))))
+    bound.loadings <- sort(unique(c(bound.loadings, setdiff(loadingIndicesMat[commOver1,, drop = FALSE]@x, loadingIndices[isFixed[loadingIndices]]))))
     for (row in commOver1) {
       # We need to make sure that the scaling results in communalities that are slightly below the threshold of 1 - 1e-3.
       # This is purely due to machine precision issues. If we compute the scaling factor exactly as sqrt((1 - 1e-3) / comms[row])
@@ -635,12 +635,10 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       # if (iter == 1) {
       #   Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = FALSE)
       # } else {
-      #   # Update the cholesky factor
+      #   # To Do: only update the cholesky factor instead
       # }
     } else {
       Cchol <- Cholesky(C, perm = FALSE) # Good for the GPU?
-      # Cchol <- chol(C) # Good for the GPU?
-      # Cchol <- as.matrix(chol(C)) # Good for the GPU?
     }
     #toc(log = T)
     
@@ -659,10 +657,6 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       RHS <- crossprod(W, Ri %*% y)
       bu <- solve(Cchol, RHS)
       z <- as(Cchol, "dtrMatrix") %*% bu # t(U) %*% U %*% bu = RHS and t(U) %*% z = RHS, therefore, t(U) %*% U %*% bu = t(U) %*% z, thus U %*% bu = z
-      # z <- Matrix(backsolve(as.matrix(Cchol), RHS, transpose = TRUE))
-      # bu <- Matrix(backsolve(as.matrix(Cchol), z))
-      # z <- backsolve(Cchol, RHS, transpose = TRUE)
-      # bu <- Matrix(backsolve(Cchol, z))
     }
     
     # Splitting BLUEs and BLUPs:
@@ -679,8 +673,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     if (sparse) {
       logDetC <- determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus
     } else {
-      # logDetC <- 2 * sum(log(diag(Cchol)))
-      logDetC <- sum(log(diag(Cchol))) # Looks strange, but is correct as diag(Cholesky(C, perm = FAlSE)) returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
+      # Looks strange because the 2 * is missing, but is correct as diag(Cholesky(C, perm = FAlSE))
+      # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
+      logDetC <- sum(log(diag(Cchol)))
     }
     
     # logDetG:
@@ -696,8 +691,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     # logDetR:
     if (useWeights) {
       # For now just assume a diagonal structure:
-      # logDetR <- sum(log(diag(Ri))) * -1 # diag() doesn't work with dgCMatrix...
-      logDetR <- sum(log(Ri@x)) * -1
+      logDetR <- sum(log(diag(Ri))) * -1
     } else {
       logDetR <- n * log(k[nrow(k), iter])
     }
@@ -731,7 +725,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
         nvars <- length(indices[[re]][[1]]) / sos # Number of variances per stack layer
         for (i in 1:u.nparams[[re]]) {
-          if (isFixed[param] == 1) {
+          if (isFixed[param]) {
             param <- param + 1
           } else {
             if (ur.types[param] == "V") {
@@ -796,7 +790,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         } # End of loop over the parameters for this random effect.
       } else { # If there is no stack
         for (i in 1:u.nparams[[re]]) {
-          if (isFixed[param] == 1) {
+          if (isFixed[param]) {
             param <- param + 1
           } else {
             if (ur.types[param] == "V") { # If the parameter is a variance.
@@ -844,7 +838,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #### Residual working variates ====
     #tic("Residual working variates")
     e <- y - W %*% bu
-    if (isFixed[nrow(k)] == 1) {
+    if (isFixed[nrow(k)]) {
       # Wu[, nrow(k)] <- 0
     } else {
       Wu[, nrow(k)] <- (1 / k[nrow(k), iter]) * e@x # I think this is always true for diagonal R (also for non-diagonal fixed R, if that would ever be the case), even with weights.
@@ -861,9 +855,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     } else {
       XWjxZWj <- crossprod(W, Ri %*% Wu) # t(W) %*% Ri %*% Wu
       buWu <- solve(Cchol, XWjxZWj)
-      # zWu <- backsolve(as.matrix(Cchol), XWjxZWj, transpose = TRUE)
-      # buWu <- Matrix(backsolve(as.matrix(Cchol), zWu))
-      # zWu <- backsolve(Cchol, XWjxZWj, transpose = TRUE)
+      # zWu <- backsolve(Cchol, XWjxZWj, transpose = TRUE) # Forward solve of lower triangular matrix t(Cchol)
       # buWu <- Matrix(backsolve(Cchol, zWu))
     }
     buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
@@ -872,9 +864,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       diag(AI) <- diag(AI) * avInfReg[iter]
       # diag(AI)[ur.types == "L"] <- diag(AI)[ur.types == "L"] * avInfReg[iter] # Alternative that only inflates loadings.
     }
-    if (any(isFixed == 1)) { # If there are any fixed parameters, remove them from the AI matrix before inverting.
+    if (any(isFixed)) { # If there are any fixed parameters, remove them from the AI matrix before inverting.
       AIi <- Matrix(0, nrow(AI), ncol(AI), sparse = FALSE, doDiag = FALSE)
-      notFixed <- which(isFixed == 0)
+      notFixed <- which(!isFixed)
       AIi[notFixed, notFixed] <- solve(AI[notFixed, notFixed])
     } else {
       AIi <- solve(AI)
@@ -889,7 +881,6 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       Ci <- takahashi(as(Cchol, "dtCMatrix"))[inv_Perm, inv_Perm]
     } else {
       Ci <- chol2inv(as(Cchol, "dtrMatrix"))
-      # Ci <- Matrix(chol2inv(Cchol))
     }
     #toc(log = TRUE)
     
@@ -934,7 +925,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         basisScores <- -0.5 * (sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - crossprod(umat_sigmai[[re]])) # Last term maybe on the GPU?
       }
       for (i in 1:length(derivs[[re]])) {
-        if (isFixed[param] == 0) {
+        if (!isFixed[param]) {
           scores[param, 1] <- sum(derivs[[re]][[i]] * basisScores)
         }
         param <- param + 1
@@ -946,7 +937,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #tic("Computing residual scores")
     # Can probably be more effecient for diagonal matrices
     evari <- (1 / k[nrow(k), iter])
-    if (isFixed[nrow(k)] == 0) {
+    if (!isFixed[nrow(k)]) {
       WSW <- t(W) %*% S %*% W
       scores[nrow(scores), 1] <- as.numeric(-0.5 * (sum(S * evari) - sum(evari^2 * Ci[cbind(WSW@i + 1, rep(seq_len(ncol(WSW)), diff(WSW@p)))] * WSW@x) - (evari^2 * t(e) %*% S %*% e)))
     }
@@ -1191,7 +1182,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
         con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.bws, bound.bws, con.loadings, bound.loadings)))
         noncon <- setdiff(1:nrow(delta), con)
-        if (length(setdiff(noncon, which(isFixed == 1))) > 0) {
+        if (length(setdiff(noncon, which(isFixed))) > 0) {
           nConstrained <- length(con)
           AIuu <- AI[noncon, noncon, drop = FALSE]
           uuisFixed <- isFixed[noncon]
@@ -1200,9 +1191,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
           scoresuu <- scores[noncon, 1, drop = FALSE]
           scoresff <- scores[con, 1, drop = FALSE]
           deltaff <- delta[con, 1, drop = FALSE]
-          if (any(uuisFixed == 1)) { # If there are any fixed parameters in the unconstrained part, remove them from the AIuu matrix before inverting.
+          if (any(uuisFixed)) { # If there are any fixed parameters in the unconstrained part, remove them from the AIuu matrix before inverting.
             AIuui <- Matrix(0, nrow(AIuu), ncol(AIuu), sparse = FALSE, doDiag = FALSE)
-            uunotFixed <- which(uuisFixed == 0)
+            uunotFixed <- which(!uuisFixed)
             AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
             deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
           } else {
@@ -1216,7 +1207,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     
     # Fixing any parameters that have hit the boundary five times:
     if (any(boundary == timesToBoundary)) {
-      isFixed[which(boundary == timesToBoundary)] <- 1
+      isFixed[which(boundary == timesToBoundary)] <- TRUE
     }
     #toc(log = T)
     

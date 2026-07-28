@@ -10,15 +10,16 @@ kmmr(
   residual = ~units,
   data = NULL,
   maxit = 20,
-  stepSize = c(0.5, 0.75, rep(1, maxit - 2)),
-  avInfReg = rep(1, maxit),
+  stepSize = NULL,
+  avInfReg = NULL,
   weights = NULL,
   init = NULL,
   tolConvLL = 0.001,
   isFixed = NULL,
   verbose = TRUE,
-  sparse,
-  timesToBoundary = 5
+  sparse = FALSE,
+  timesToBoundary = 5,
+  getStartingValues = FALSE
 )
 }
 \arguments{
@@ -50,6 +51,8 @@ elements of the AI matrix by 10% before inverting.}
 \item{sparse}{Optional argument for forcing the sparse or dense versions of the solver.}
 
 \item{timesToBoundary}{How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?}
+
+\item{getStartingValues}{Should the model be fitted, or should suggested starting values be returned?}
 }
 \value{
 A list with the results.

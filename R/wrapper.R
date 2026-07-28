@@ -23,8 +23,78 @@ rotateInitL <- function(L) {
     L.rotated <- L.rotated %*% givens[[i]]
   }
   L.rotated[upper.tri(L.rotated)] <- 0 # Make sure the upper triangle is exactly 0 and not xe-18
-  rotmat <- Reduce("%*%", givens)
+  # rotmat <- Reduce("%*%", givens)
   return(L.rotated)
+}
+
+getInit_fa <- function(factor, m, data, response) {
+  formula <- as.formula(paste0(response, "~", factor))
+  fit.factanal <- factanal(covmat = cov(unstack(data, formula), use = "complete"), factors = m)
+  L <- fit.factanal$loadings[,]
+  L <- as.numeric(rotateInitL(L))
+  return(list(init = L, isFixed = L == 0))
+}
+
+getInit_exfa <- function(factor, m, data, response) {
+  return(getInit_fa(factor, m, data, response))
+}
+
+getInit_gk <- function(factor, base, data, response) {
+  return(list(init = 0.15, isFixed = FALSE))
+}
+
+getInit_cors <- function(factor, data, response) {
+  return(list(init = 0.5, isFixed = FALSE))
+}
+
+getInit_corg <- function(factor, data, response) {
+  p <- length(levels(data[[factor]]))
+  ncors <- (p^2 - p) / 2
+  return(list(init = rep(0.5, ncors), isFixed = rep(FALSE, ncors)))
+}
+
+getInit_stack <- function(formula, data, response) {
+  callsInStack <- strsplit(as.character(formula[2]), "\\s*\\+\\s*")[[1]]
+  resultStack <- lapply(callsInStack, function(call) {
+    if (!(gsub("(.*)\\(.*", "\\1", call) %in% c("lk", "id"))) { # We don't need to do anything if the structure is id or lk as these have no parameters.
+      call <- gsub("(.*\\()([^,]*)(,?.*)\\)", "getInit_\\1'\\2'\\3, data = data, response = response)", call)
+      result <- eval(parse(text = call)[[1]])
+    }
+  })
+  initStack <- unlist(lapply(resultStack, `[[`, "init"))
+  isFixedStack <- unlist(lapply(resultStack, `[[`, "isFixed"))
+  return(list(init = initStack, isFixed = isFixedStack))
+}
+
+#' getInit
+#'
+#' @param response Name of the response variable.
+#' @param call \code{re()} call as a string.
+#' @param data Input dataframe.
+#' @param init Current initial values vector.
+#' @param isFixed Current vector for fixing parameters.
+#' @param indices Parameter indices for this random effect.
+#'
+#' @returns Modified init and isFixed vectors.
+#' @keywords internal
+getInit <- function(response, call, data, init, isFixed, indices) {
+  calls <- strsplit(gsub("re\\(\\s*~\\s*(.*)\\s*,.*", "\\1", call), ":")[[1]]
+  for (j in 1:length(calls)) {
+    currentCall <- calls[j]
+    if (grepl("stack\\(.*", currentCall)) { # If it's a stacked structure.
+      currentCall <- gsub("(.*\\()(.*)\\)", "getInit_\\1\\2, data = data, response = response)", currentCall)
+      result <- eval(parse(text = currentCall)[[1]])
+    } else if (!(gsub("(.*)\\(.*", "\\1", currentCall) %in% c("lk", "id"))) { # We don't need to do anything if the structure is id or lk as these have no parameters.
+      currentCall <- gsub("(.*\\()([^,]*)(,?.*)\\)", "getInit_\\1'\\2'\\3, data = data, response = response)", currentCall)
+      result <- eval(parse(text = currentCall)[[1]])
+    }
+    # 1 + j so we skip indices for the variances.
+    # We leave init values that are not NA. These have been supplied by the user. We will only
+    # set initial values that were not yet set by the user.
+    init[indices[[1 + j]]][is.na(init[indices[[1 + j]]])] <- result$init[is.na(init[indices[[1 + j]]])]
+    isFixed[indices[[1 + j]]][is.na(isFixed[indices[[1 + j]]])] <- result$isFixed[is.na(isFixed[indices[[1 + j]]])]
+  }
+  return(list(init = init, isFixed = isFixed))
 }
 
 #' revInteractions
@@ -476,13 +546,14 @@ stack <- function(formula, ...) {
 #' @param verbose Verbosity.
 #' @param sparse Optional argument for forcing the sparse or dense versions of the solver.
 #' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
+#' @param getStartingValues Should the model be fitted, or should suggested starting values be returned?
 #'
 #' @returns A list with the results.
 #' @export
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
-                 maxit = 20, stepSize = c(0.5, 0.75, rep(1, maxit - 2)), avInfReg = rep(1, maxit),
+                 maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
-                 sparse, timesToBoundary = 5) {
+                 sparse = FALSE, timesToBoundary = 5, getStartingValues = FALSE) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -502,10 +573,10 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   } else if (length(maxit) > 1) {
     stop("The 'maxit' argument must have length 1.")
   }
-  if (!is.numeric(stepSize)) {
-    stop("The 'stepSize' argument must be a numeric vector.")
-  } else if (length(stepSize) != maxit) {
-    stop("The 'stepSize' argument must be of length 'maxit'.")
+  if (!(is.numeric(stepSize) | is.null(stepSize))) {
+    stop("The 'stepSize' argument must be a numeric vector or NULL.")
+  } else if (is.numeric(stepSize) & length(stepSize) != maxit) {
+    stop("A numeric 'stepSize' argument must be of length 'maxit'.")
   }
   if (!(is.character(weights) | is.null(weights))) {
     stop("The 'weights' argument must be NULL or a character.")
@@ -552,7 +623,6 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   # Random effects:
   res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\()", perl = TRUE)[[1]] # split the full random argument into separate re() calls.
   nU <- length(res)
-  stepSize <- stepSize^nU
   
   # Lists to store all specifications:
   Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <-
@@ -622,36 +692,66 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   }
   
   # Initial values:
-  if (is.null(init)) {
-    init <- rep(0.3, length(ur.types))
-  } else if (length(init) != length(ur.types)) {
-    stop("Length of 'init' does not match the number of parameters.")
-  } else if (any(is.na(init))) {
-    init[is.na(init)] <- 0.3
+  if (is.null(init) | any(is.na(init))) {
+    if (is.null(init)) {
+      init <- rep(NA, length(ur.types))
+    }
+    if (is.null(isFixed)) {
+      isFixed <- rep(NA, length(ur.types))
+    }
+    for (i in 1:nU) {
+      # Get initial variances:
+      formula <- as.formula(paste0(response, gsub(".*vars\\s*=\\s*(~.*)\\)", "\\1", res[i])))
+      vars <- diag(cov(unstack(data, formula), use = "complete"))
+      init[indices[[i]][[1]]] <- vars / 20
+      isFixed[indices[[i]][[1]]] <- FALSE
+      
+      # Now do the initial values for the remaining structures in this random effect:
+      ret <- getInit(response = response, call = res[i], data = data, init = init, isFixed = isFixed, indices = indices[[i]])
+      init <- ret$init
+      isFixed <- ret$isFixed
+    }
+    
+    # For now assume that there is a single residual variance:
+    if (is.na(init[length(init)]) & is.na(isFixed[length(isFixed)])) {
+      init[length(init)] <- mean(na.omit(init[ur.types == "V"]))
+      isFixed[length(isFixed)] <- FALSE
+    }
   }
   
-  # Fixed values:
-  if (is.null(isFixed)) {
-    isFixed <- rep(0, length(init))
-  } else if (length(isFixed) != length(ur.types)) {
-    stop("Length of 'isFixed' does not match the number of parameters.")
+  # Setting the AI matrix penalties if not set by the user:
+  # Also adding some penalty to the average information matrix if factor analytic structures are present:
+  if (is.null(avInfReg)) {
+    if (any(unlist(struc) %in% c("fa", "exfa"))) {
+      avInfReg <- c(1.1, 1.05, rep(1, maxit - 2))
+    } else {
+      avInfReg <- rep(1, maxit)
+    }
+  }
+  
+  # Setting the step sizes if they were not set by the user:
+  if (is.null(stepSize)) {
+    stepSize <- c(0.5, 0.75, rep(1, maxit - 2))
+    stepSize <- stepSize^nU
+  }
+  
+  if (getStartingValues) {
+    result <- data.frame(Parameter = unlist(params),
+                         Init = init,
+                         Fixed = isFixed)
   } else {
-    isFixed <- as.numeric(isFixed)
+    # Fitting:
+    result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, weights = weights, useWeights = useWeights,
+                         maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
+                         tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
+                         ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
+                         u.forFactor = u.forFactor, u.indexCor = u.indexCor,
+                         bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
+                         isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
+                         timesToBoundary = timesToBoundary)
+    result$params <- unlist(params)
+    class(result) <- "kmmrFit"
   }
-  
-  # Fitting:
-  # browser()
-  sparse = FALSE
-  result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, weights = weights, useWeights = useWeights,
-                       maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
-                       tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
-                       ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
-                       u.forFactor = u.forFactor, u.indexCor = u.indexCor,
-                       bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
-                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                       timesToBoundary = timesToBoundary)
-  result$params <- unlist(params)
-  class(result) <- "kmmrFit"
   return(result)
 }
 

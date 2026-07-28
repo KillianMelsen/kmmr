@@ -6,38 +6,43 @@ d <- droplevels(d[d$Man == "R", c("Env", "Gen", "GY")])
 K <- readRDS("dev/exampledata_K.rds")
 Ki <- Matrix(solve(K)) # Make sure any base matrices are in Matrix format!
 attr(Ki, "logDet") <- sum(log(eigen(K)$values)) # We need the log determinant of K, NOT the inverse of K!!!
-# ED <- Matrix(readRDS("dev/exampledata_ED.rds"))
+ED <- Matrix(readRDS("dev/exampledata_ED.rds"))
 # EC <- Matrix(readRDS("dev/exampledata_EC.rds"))
 # ECi <- solve(EC)
 
 # Initial values for the fa(Env, ext = TRUE) parameters
-vars <- diag(cov(unstack(d, GY ~ Env), use = "complete"))
-fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 3)
-L <- fit.factanal$loadings[,]
-L <- kmmr:::rotateInitL(L)
-resvar <- mean(vars) / 20
-genvar <- vars / 20
-init <- c(genvar, matrix(L), resvar)
-# init <- c(rep(genvar / 2, 2), matrix(L), resvar)
-# init <- c(rep(genvar / 2, 2), 0.15, matrix(L), resvar)
-isFixed <- rep(FALSE, length(init))
-isFixed[init == 0] <- TRUE
+# vars <- diag(cov(unstack(d, GY ~ Env), use = "complete"))
+# fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 3)
+# L <- fit.factanal$loadings[,]
+# L <- kmmr:::rotateInitL(L)
+# resvar <- mean(vars) / 20
+# genvar <- vars / 20
+# init <- c(genvar, matrix(L), resvar)
+# # init <- c(rep(genvar / 2, 2), matrix(L), resvar)
+# # init <- c(rep(genvar / 2, 2), 0.15, matrix(L), resvar)
+# isFixed <- rep(FALSE, length(init))
+# isFixed[init == 0] <- TRUE
 
 # Normal FA models:
 system.time(
-fit <- kmmr(fixed = GY ~ -1 + Env,
-            random = ~ re(~ fa(Env, 3):lk(Gen, Ki), vars = ~ Env),
-            residual = ~ units,
-            data = d,
-            init = init,
-            isFixed = isFixed,
-            sparse = FALSE,
-            maxit = 25,
-            tolConvLL = 1e-3,
-            stepSize = c(0.25, 0.50, 0.75, rep(1, 22)),
-            avInfReg = seq(1.1, 1.0, length.out = 25),
-            timesToBoundary = 7)
+  fit <- kmmr(fixed = GY ~ -1 + Env,
+              random = ~ re(~ fa(Env, 3):lk(Gen, Ki), vars = ~ Env),
+              residual = ~ units,
+              data = d,
+              timesToBoundary = 7,
+              getStartingValues = FALSE)
 )
+
+# system.time(
+#   fit <- kmmr(fixed = GY ~ -1 + Env,
+#               random = ~ re(~ stack(~ gk(Env, ED) + fa(Env, 2)):lk(Gen, Ki), vars = ~ Env),
+#               residual = ~ units,
+#               data = d,
+#               timesToBoundary = 7,
+#               stepSize = c(0.25, 0.35, 0.45, 0.5, 0.75, rep(1, 20)),
+#               avInfReg = c(rep(1.05, 25)),
+#               maxit = 25, getStartingValues = T)
+# )
 
 library(asreml)
 asreml.options(workspace = "5000mb", pworkspace = "5000mb", wvr = F, score = F, threads = -1)

@@ -67,3 +67,6 @@ dlogdetCdx.AD <- sum(dCdx * WS)
 
 all.equal(dlogdetCdx.naive, dlogdetCdx.AD) # TRUE
 
+WS
+solve(C)
+WS / 2 + diag(diag(WS / 2))
