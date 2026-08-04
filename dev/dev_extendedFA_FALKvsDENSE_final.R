@@ -322,7 +322,7 @@ K <- Matrix(readRDS("dev/exampledata_K.rds"))
 
 # Initial values for the fa(Env, ext = TRUE) parameters
 vars <- diag(cov(unstack(d, GY ~ Env), use = "complete"))
-fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 2)
+fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 3)
 L <- fit.factanal$loadings[,]
 L <- Matrix(rotateInitL(L)$L.rotated, sparse = F)
 PSI <- Matrix(diag(1 - diag(L %*% t(L))))
@@ -330,7 +330,7 @@ resvar <- mean(vars) / 20
 genvar <- vars / 20
 
 # Matrix of parameter estimates:
-k <- Matrix(0, 14 + 28 + 1, 10, sparse = F)
+k <- Matrix(0, 14 + 42 + 1, 10, sparse = F)
 k[, 1] <- c(genvar, matrix(L), resvar) # k[, 1] <- init # For comparison with asreml
 isFixed <- numeric(nrow(k))
 isFixed[14 + 15] <- 1
