@@ -4,7 +4,7 @@
 \alias{summary.kmmrFit}
 \title{summary.kmmrFit}
 \usage{
-\method{summary}{kmmrFit}(object, round = 5, ...)
+summary.kmmrFit(object, round = 5, ...)
 }
 \arguments{
 \item{object}{kmmrFit object.}

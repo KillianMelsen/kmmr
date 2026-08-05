@@ -4,7 +4,7 @@
 \alias{print.summary.kmmrFit}
 \title{print.summary.kmmrFit}
 \usage{
-\method{print}{summary.kmmrFit}(x, ...)
+print.summary.kmmrFit(x, ...)
 }
 \arguments{
 \item{x}{summary.kmmrFit object.}

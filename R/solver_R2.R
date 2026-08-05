@@ -72,20 +72,20 @@ checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
 }
 
 # A simpler wrapper for the Takahashi equations:
-takahashi <- function(L) {
-  # sparseinv_wrapper <- utils::getFromNamespace(".sparseinv_wrapper", "sparseinv")
-  n <- nrow(L)
-  d <- diag(L)
-  L <- tril(L %*% Diagonal(x = 1 / d), -1)
-  d <- d^2
-  D <- Diagonal(x = d)
-  dp <- diff(L@p)
-  jj <- rep(seq_along(dp), dp)
-  Zpattern <- sparseMatrix(c(L@i + 1, jj, 1:n), c(jj, L@i + 1, 1:n))
-  Z <- forceSymmetric(sparseinv:::.sparseinv_wrapper(L, d, L, Zpattern))
-  # Z <- forceSymmetric(sparseinv_wrapper(L, d, L, Zpattern))
-  return(Z)
-}
+# takahashi <- function(L) {
+#   # sparseinv_wrapper <- utils::getFromNamespace(".sparseinv_wrapper", "sparseinv")
+#   n <- nrow(L)
+#   d <- diag(L)
+#   L <- tril(L %*% Diagonal(x = 1 / d), -1)
+#   d <- d^2
+#   D <- Diagonal(x = d)
+#   dp <- diff(L@p)
+#   jj <- rep(seq_along(dp), dp)
+#   Zpattern <- sparseMatrix(c(L@i + 1, jj, 1:n), c(jj, L@i + 1, 1:n))
+#   Z <- forceSymmetric(sparseinv:::.sparseinv_wrapper(L, d, L, Zpattern))
+#   # Z <- forceSymmetric(sparseinv_wrapper(L, d, L, Zpattern))
+#   return(Z)
+# }
 
 getCormat_corg <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
   if (p != (1 + sqrt(1 + 8 * length(params))) / 2) {
@@ -432,9 +432,14 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     
     ### Computing C = t(W) %*% Ri %*% W
     if (sparse) {
-      C <- forceSymmetric(crossprod(W, Ri %*% W))
+      C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "TsparseMatrix") # Converting to triplet form for adding sparse Gi's later
+      # C_i <- C@i
+      # C_j <- C@j
+      # C_x <- C@x
+      C_dim <- dim(C)
+      # rm(C)
     } else {
-      C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "unpackedMatrix") # Store as a dense matrix since C will be dense after adding Gi.
+      C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "unpackedMatrix") # Store as a dense matrix since C will be dense anyway after adding Gi.
     }
     # if (useWeights) {
     #   # We need to compute the entire thing every time? Hopefully not for diagonal R...
@@ -453,7 +458,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     sigmai <- vector("list", nU)
     logDetvarGtotal <- numeric(nU)
     vars <- vector("list", nU)
-    C.start <- nX + 1
+    offset <- nX + 1
     for (re in 1:nU) { # Start loop over random effects
       # Computing Gi every iteration:
       if (any(u.isStack[[re]])) { # If there is a stack in the random effect
@@ -520,33 +525,60 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
           stop("Something is wrong, n.var[re] > 0 is FALSE for a random effect with a stack...")
         }
         if (n.nvar[re] > 0) {
-          Gi <- kronecker(sigmai[[re]], nvarGi[[re]]) # This is a bit slow as well.
+          Gi <- as(kronecker(sigmai[[re]], nvarGi[[re]]), "TsparseMatrix") # This is a bit slow as well.
         } else {
-          Gi <- sigmai[[re]]
+          Gi <- as(sigmai[[re]], "TsparseMatrix")
         }
 
         # Now add to C:
+        dimGi <- nrow(Gi)
         if (sparse) {
-          # If we want C to be sparse but still have a dense random effect, we need to store the Gi for that
+          # If we want the full C to be sparse but still have a dense random effect, we need to store the Gi for that
           # dense random effect in sparse format.
           if (!is(Gi, "sparseMatrix")) {
-            Gi <- as(Gi, "CsparseMatrix")
+            Gi <- as(Gi, "TsparseMatrix")
           }
+          # Collecting the values of the previous C and current Gi.
           # Padding Gi with zeros to make it conformable with the sparse base C.
-          Gi <- sparseMatrix(i = Gi@i + 1 + C.start - 1,
-                             j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + C.start - 1,
-                             x = Gi@x,
-                             dims = dim(C),
-                             symmetric = TRUE)
-          C <- C + Gi
+          C_i_combined <- c(C@i, Gi@i + offset - 1)
+          C_j_combined <- c(C@j, Gi@j + offset - 1)
+          C_x_combined <- c(C@x, Gi@x)
+          rm(Gi, C) # We have all we need in the three vectors above, so get rid of Gi and the old C to free up memory.
+          
+          # Constructing the new C:
+          if (re == nU) {
+            repr <- "C" # Finally convert C to dsCMatrix to prepare for CF if there are no more random effects.
+          } else {
+            repr <- "T" # Keep C in triplet form if we have more random effects.
+          }
+          C <- sparseMatrix(i = C_i_combined + 1,
+                            j = C_j_combined + 1,
+                            x = C_x_combined,
+                            dims = C_dim,
+                            symmetric = TRUE,
+                            repr = repr)
+          
+          # Alternative approach, collecting all i's, j's, x's and building C after looping
+          # over all random effects.
+          # C_i <- c(C_i, Gi@i + offset - 1)
+          # C_j <- c(C_j, Gi@j + offset - 1)
+          # C_x <- c(C_x, Gi@x)
+          
+          # Gi <- sparseMatrix(i = Gi@i + 1 + offset - 1,
+          #                    j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + offset - 1,
+          #                    x = Gi@x,
+          #                    dims = dim(C),
+          #                    symmetric = TRUE)
+          # C <- C + Gi
         } else {
-          dimGi <- prod(u.nlevels[[re]])
-          C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] <- C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] + Gi
-          C.start <- C.start + dimGi
+          C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] <- C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] + Gi
         }
+        offset <- offset + dimGi # Moving offset to the next random effect.
       } else { # If there is no stack in the random effect
         # Always the outer product of standard deviations first:
-        vars[[re]] <- tcrossprod(sqrt(k[indices[[re]][[1]], iter, drop = FALSE]))
+        #### REMOVE THIS AFTER CHECKING EXFA MANUALLY! ====
+        vars[[re]] <- tcrossprod(rbind(sqrt(k[indices[[re]][[1]], iter, drop = FALSE]), 1, 1, 1))
+        # vars[[re]] <- tcrossprod(sqrt(k[indices[[re]][[1]], iter, drop = FALSE]))
         if (n.var[re] > 0) { # Only form the correlation matrices for variable factors if there are variable factors.
           cormatis <- vector("list", n.var[re]) # One inverse correlation matrix for every variable factor.
           cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
@@ -600,45 +632,89 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
           logDetvarGtotal[re] <- -1 * log(sigmai[[re]])@x
         }
         if (n.nvar[re] > 0) {
-          Gi <- kronecker(sigmai[[re]], nvarGi[[re]]) # This is a bit slow as well.
+          Gi <- as(kronecker(sigmai[[re]], nvarGi[[re]]), "TsparseMatrix") # This is a bit slow as well.
         } else {
-          Gi <- sigmai[[re]]
+          Gi <- as(sigmai[[re]], "TsparseMatrix")
         }
         
         # Now add to C:
+        dimGi <- nrow(Gi)
         if (sparse) {
           # If we want C to be sparse but still have a dense random effect, we need to store the Gi for that
           # dense random effect in sparse format.
           if (!is(Gi, "sparseMatrix")) {
-            Gi <- as(Gi, "CsparseMatrix")
+            Gi <- as(Gi, "TsparseMatrix")
           }
+          # Collecting the values of the previous C and current Gi.
           # Padding Gi with zeros to make it conformable with the sparse base C.
-          Gi <- sparseMatrix(i = Gi@i + 1 + C.start - 1,
-                             j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + C.start - 1,
-                             x = Gi@x,
-                             dims = dim(C),
-                             symmetric = TRUE)
-          C <- C + Gi
+          C_i_combined <- c(C@i, Gi@i + offset - 1)
+          C_j_combined <- c(C@j, Gi@j + offset - 1)
+          C_x_combined <- c(C@x, Gi@x)
+          rm(Gi, C) # We have all we need in the three vectors above, so get rid of Gi and the old C to free up memory.
+          
+          # Constructing the new C:
+          if (re == nU) {
+            repr <- "C" # Finally convert C to dsCMatrix to prepare for CF if there are no more random effects.
+          } else {
+            repr <- "T" # Keep C in triplet form if we have more random effects.
+          }
+          C <- sparseMatrix(i = C_i_combined + 1,
+                            j = C_j_combined + 1,
+                            x = C_x_combined,
+                            dims = C_dim,
+                            symmetric = TRUE,
+                            repr = repr)
+          
+          # Alternative approach, collecting all i's, j's, x's and building C after looping
+          # over all random effects.
+          # C_i <- c(C_i, Gi@i + offset - 1)
+          # C_j <- c(C_j, Gi@j + offset - 1)
+          # C_x <- c(C_x, Gi@x)
+          
+          # Padding Gi with zeros to make it conformable with the sparse base C.
+          # Gi <- sparseMatrix(i = Gi@i + 1 + offset - 1,
+          #                    j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + offset - 1,
+          #                    x = Gi@x,
+          #                    dims = dim(C),
+          #                    symmetric = TRUE)
+          # C <- C + Gi
         } else {
-          dimGi <- prod(u.nlevels[[re]])
-          C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] <- C[C.start:(C.start - 1 + dimGi), C.start:(C.start - 1 + dimGi)] + Gi # This one is also slow
-          C.start <- C.start + dimGi
+          C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] <- C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] + Gi # This one is also slow
         }
+        offset <- offset + dimGi # Moving offset to next random effect.
       }
     } # End loop over random effects.
+    # rm(Gi) # No more need for Gi, so get rid of it.
+    
+    # If C is sparse, we need to actually construct it once we have collected all
+    # i's, j's, and x's for all random effects:
+    # if (sparse) {
+    #   C <- sparseMatrix(i = C_i + 1,
+    #                     j = C_j + 1,
+    #                     x = C_x,
+    #                     dims = C_dim,
+    #                     symmetric = TRUE,
+    #                     repr = "C")
+    # }
     #toc(log = T)
     
     ### Cholesky decomposition of C ====
+    # Overwrite C with its simplicial/supernodal Cholesky factor.
+    # We don't need C anymore.
     #tic(msg = "Cholesky decomp of C")
     if (sparse) {
-      Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = FALSE)
+      if (super) {
+        C <- Cholesky(C, LDL = FALSE, perm = TRUE, super = TRUE)
+      } else {
+        C <- Cholesky(C, LDL = TRUE, perm = TRUE, super = FALSE)
+      }
       # if (iter == 1) {
       #   Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = FALSE)
       # } else {
       #   # To Do: only update the cholesky factor instead
       # }
     } else {
-      Cchol <- Cholesky(C, perm = FALSE) # Good for the GPU?
+      C <- Cholesky(C, perm = FALSE) # Good for the GPU?
     }
     #toc(log = T)
     
@@ -646,17 +722,17 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #tic("Solving for BLUEs and BLUPs")
     if (sparse) {
       # Apply permutation to the right-hand side of the MME: P %*% t(W) %*% Ri %*% y:
-      permRHS <- solve(Cchol, crossprod(W, Ri %*% y), system = "P")
-      # Sparse triangular forward solve: L %*% z = permRHS where L = Cchol:
-      z <- solve(Cchol, permRHS, system = "L")
-      # Sparse triangular backward solve: t(L) %*% bu = z where l = Cchol to obtain BLUEs and BLUPs:
-      bu <- solve(Cchol, z, system = "Lt")
+      permRHS <- solve(C, crossprod(W, Ri %*% y), system = "P")
+      # Sparse triangular forward solve: L %*% z = permRHS where L = C (remember that C is now actually the CF of C):
+      z <- solve(C, permRHS, system = "L")
+      # Sparse triangular backward solve: t(L) %*% bu = z where l = C to obtain BLUEs and BLUPs:
+      bu <- solve(C, z, system = "Lt")
       # Final reverse permutation t(P) %*% bu to get the BLUEs and BLUPs into model order:
-      bu <- solve(Cchol, bu, system = "Pt")
+      bu <- solve(C, bu, system = "Pt")
     } else {
       RHS <- crossprod(W, Ri %*% y)
-      bu <- solve(Cchol, RHS)
-      z <- as(Cchol, "dtrMatrix") %*% bu # t(U) %*% U %*% bu = RHS and t(U) %*% z = RHS, therefore, t(U) %*% U %*% bu = t(U) %*% z, thus U %*% bu = z
+      bu <- solve(C, RHS)
+      z <- as(C, "dtrMatrix") %*% bu # t(U) %*% U %*% bu = RHS and t(U) %*% z = RHS, therefore, t(U) %*% U %*% bu = t(U) %*% z, thus U %*% bu = z
     }
     
     # Splitting BLUEs and BLUPs:
@@ -671,11 +747,11 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     
     # logdetC:
     if (sparse) {
-      logDetC <- determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus
+      logDetC <- determinant(C, sqrt = FALSE, logarithm = TRUE)$modulus
     } else {
       # Looks strange because the 2 * is missing, but is correct as diag(Cholesky(C, perm = FAlSE))
       # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
-      logDetC <- sum(log(diag(Cchol)))
+      logDetC <- sum(log(diag(C)))
     }
     
     # logDetG:
@@ -709,9 +785,13 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     u.start <- 1
     param <- 1 # Keeping track of which column/parameter of Wu we are working on.
     for (re in 1:nU) { # Start of loop over random effects
-      dim.total <- dim.var[re] * dim.nvar[re]
+      #### REMOVE THIS AFTER CHECKING EXFA MANUALLY! ====
+      dim.total <- 17 * dim.nvar[re]
+      # dim.total <- dim.var[re] * dim.nvar[re]
       if (n.nvar[re] > 0) {
-        umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = dim.nvar[re], ncol = dim.var[re])
+        #### REMOVE THIS AFTER CHECKING EXFA MANUALLY! ====
+        umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = dim.nvar[re], ncol = 17)
+        # umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = dim.nvar[re], ncol = dim.var[re])
       } else {
         umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = 1, ncol = dim.var[re])
       }
@@ -801,7 +881,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
                   derivs[[re]][[i]] <- Matrix(1, sparse = FALSE, doDiag = FALSE)
                 }
               } else { # If variances are applied to 1 or more factors.
-                A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
+                #### REMOVE THIS AFTER CHECKING EXFA MANUALLY! ====
+                A <- Matrix(0, 17, 17, sparse = FALSE, doDiag = FALSE)
+                # A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
                 A[i,] <- 0.5
                 if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
                   derivs[[re]][[i]] <- (A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter]
@@ -849,14 +931,14 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #tic("Computing the AI matrix and its inverse")
     WiWj <- forceSymmetric(crossprod(Wu, Ri %*% Wu)) # Similar to t(y) %*% Ri %*% y
     if (sparse) {
-      XWjxZWj <- solve(Cchol, crossprod(W, Ri %*% Wu), system = "P") # Similar to permRHS
-      zWu <- solve(Cchol, XWjxZWj, system = "L") # Similar to z
-      buWu <- solve(Cchol, zWu, system = "Lt") # Similar to obtaining bu using a backsolve
+      XWjxZWj <- solve(C, crossprod(W, Ri %*% Wu), system = "P") # Similar to permRHS
+      zWu <- solve(C, XWjxZWj, system = "L") # Similar to z
+      buWu <- solve(C, zWu, system = "Lt") # Similar to obtaining bu using a backsolve
     } else {
       XWjxZWj <- crossprod(W, Ri %*% Wu) # t(W) %*% Ri %*% Wu
-      buWu <- solve(Cchol, XWjxZWj)
-      # zWu <- backsolve(Cchol, XWjxZWj, transpose = TRUE) # Forward solve of lower triangular matrix t(Cchol)
-      # buWu <- Matrix(backsolve(Cchol, zWu))
+      buWu <- solve(C, XWjxZWj)
+      # zWu <- backsolve(C, XWjxZWj, transpose = TRUE) # Forward solve of lower triangular matrix t(C)
+      # buWu <- Matrix(backsolve(C, zWu))
     }
     buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
     AI <- (WiWj - buWuXWjxZWj) / 2
@@ -874,18 +956,17 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #toc(log = T)
     
     ### Computing the inverse of the coefficient matrix ====
+    # We can again overwrite C as we no longer need the CF after this.
     #tic("Inversion of C from cholesky factor")
     if (sparse) {
-      # Sparse inverse subset and changing it back to model order:
-      inv_Perm <- invPerm(Cchol@perm, zero.p = TRUE, zero.res = FALSE)
-      Ci <- takahashi(as(Cchol, "dtCMatrix"))[inv_Perm, inv_Perm]
+      C <- SIS(C) # The cholmod_extra code already returns the SIS in original model order.
     } else {
-      Ci <- chol2inv(as(Cchol, "dtrMatrix"))
+      C <- chol2inv(as(C, "dtrMatrix"))
     }
     #toc(log = TRUE)
     
     ### Computing scores ====
-    #tic("Computing genetic scores")
+    # tic("Computing genetic scores")
     # See equations (18) and (15) from Jensen, Mantysaari, Madsen, & Thompson 1997:
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
     # mixed linear models using average information"
@@ -896,7 +977,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     for (re in 1:nU) { # Start of loop over random effects
       if (n.nvar[re] > 0) {
         traces <- Matrix(0, nrow(sigmai[[re]]), ncol(sigmai[[re]]), sparse = FALSE, doDiag = FALSE)
-        
+        tic("traces")
         for (i in 1:nrow(sigmai[[re]])) {
           for (j in 1:ncol(sigmai[[re]])) {
             if (j >= i) { # Only do the upper triangle
@@ -904,9 +985,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
               rend <- rstart - 1 + dim.nvar[re]
               cstart <- (corner + (j - 1) * dim.nvar[re])
               cend <- cstart - 1 + dim.nvar[re]
-              # I suspect this can be done faster for a sparse Ci by selecting the relevant (nonzero) elements from the current block of Ci
+              # I suspect this can be done faster for a sparse inverse subset (C) by selecting the relevant (nonzero) elements from the current block of C
               # and the corresonding elements of nvarGi. But for now let's keep the simple subsetting and hadamard product.
-              traces[i, j] <- sum(nvarGi[[re]] * Ci[rstart:rend, cstart:cend])
+              traces[i, j] <- sum(nvarGi[[re]] * C[rstart:rend, cstart:cend])
             }
           }
         }
@@ -914,8 +995,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         if (nrow(traces) > 1) {
           traces <- forceSymmetric(traces)
         }
+        toc()
       } else {
-        traces <- Ci[corner:(corner - 1 + dim.var[re]), corner:(corner - 1 + dim.var[re])]
+        traces <- C[corner:(corner - 1 + dim.var[re]), corner:(corner - 1 + dim.var[re])]
         corner <- corner + dim.var[re]
       }
       
@@ -939,7 +1021,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     evari <- (1 / k[nrow(k), iter])
     if (!isFixed[nrow(k)]) {
       WSW <- t(W) %*% S %*% W
-      scores[nrow(scores), 1] <- as.numeric(-0.5 * (sum(S * evari) - sum(evari^2 * Ci[cbind(WSW@i + 1, rep(seq_len(ncol(WSW)), diff(WSW@p)))] * WSW@x) - (evari^2 * t(e) %*% S %*% e)))
+      scores[nrow(scores), 1] <- as.numeric(-0.5 * (sum(S * evari) - sum(evari^2 * C[cbind(WSW@i + 1, rep(seq_len(ncol(WSW)), diff(WSW@p)))] * WSW@x) - (evari^2 * t(e) %*% S %*% e)))
     }
     #toc(log = T)
     
