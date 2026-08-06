@@ -30,8 +30,11 @@ rotateInitL <- function(L) {
 getInit_fa <- function(factor, m, data, response) {
   formula <- as.formula(paste0(response, "~", factor))
   fit.factanal <- factanal(covmat = cov(unstack(data, formula), use = "complete"), factors = m)
-  L <- fit.factanal$loadings[,]
-  L <- as.numeric(rotateInitL(L))
+  L <- fit.factanal$loadings[,, drop = FALSE]
+  if (ncol(L) > 1) {
+    L <- rotateInitL(L)
+  }
+  L <- as.numeric(L)
   return(list(init = L, isFixed = L == 0))
 }
 

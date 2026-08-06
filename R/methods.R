@@ -5,7 +5,7 @@
 #' @param ... Extra arguments.
 #' 
 #' @keywords internal
-#' @export
+#' @exportS3Method summary kmmrFit
 summary.kmmrFit <- function(object, round = 5, ...) {
   estimates <- object$k[, ncol(object$k)]
   ses <- rep(NA, length(estimates))
@@ -44,7 +44,7 @@ summary.kmmrFit <- function(object, round = 5, ...) {
 #' @param ... Extra arguments.
 #' 
 #' @keywords internal
-#' @export
+#' @exportS3Method print summary.kmmrFit
 print.summary.kmmrFit <- function(x, ...) {
   # Is bold text possible?
   ansi <- interactive() && !is.null(Sys.getenv("TERM"))

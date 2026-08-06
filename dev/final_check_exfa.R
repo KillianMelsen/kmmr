@@ -9,8 +9,8 @@ asreml.options(workspace = "10000mb", pworkspace = "10000mb")
 
 system.time({
 fit.asr <- asreml(fixed = GY ~ -1 + Env,
-                  random = ~ fa(Env, 3):vm(Gen, Ki),
-                  residual = ~ idv(units),
+                  random = ~ fa(Env, 1):vm(Gen, Ki),
+                  residual = ~ units,
                   data = d,
                   maxit = 50)
 }) # 74.580 seconds, 34 iterations, 2.193529 s/iter, LL = -684.787

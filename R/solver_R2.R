@@ -968,8 +968,8 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
     AI <- (WiWj - buWuXWjxZWj) / 2
     if (avInfReg[iter] > 1) { # Potential inflation of diagonal elements of the AI matrix
-      diag(AI) <- diag(AI) * avInfReg[iter]
-      # diag(AI)[ur.types == "L"] <- diag(AI)[ur.types == "L"] * avInfReg[iter] # Alternative that only inflates loadings.
+      # diag(AI) <- diag(AI) * avInfReg[iter]
+      diag(AI)[ur.types == "L"] <- diag(AI)[ur.types == "L"] * avInfReg[iter] # Alternative that only inflates loadings.
     }
     if (any(isFixed)) { # If there are any fixed parameters, remove them from the AI matrix before inverting.
       AIi <- Matrix(0, nrow(AI), ncol(AI), sparse = FALSE, doDiag = FALSE)
