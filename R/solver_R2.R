@@ -339,6 +339,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @param u.nparams.list Number of parameters per factor/random effect in list format.
 #' @param sparse Should the sparse version of the algorithm be used? Useful if C is reasonable sparse.
 #' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
+#' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
 #'
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
@@ -346,7 +347,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                        bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
-                       timesToBoundary) {
+                       timesToBoundary, super) {
   ## Prelims ====
   k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
@@ -576,9 +577,17 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         offset <- offset + dimGi # Moving offset to the next random effect.
       } else { # If there is no stack in the random effect
         # Always the outer product of standard deviations first:
-        #### REMOVE THIS AFTER CHECKING EXFA MANUALLY! ====
-        vars[[re]] <- tcrossprod(rbind(sqrt(k[indices[[re]][[1]], iter, drop = FALSE]), 1, 1, 1))
-        # vars[[re]] <- tcrossprod(sqrt(k[indices[[re]][[1]], iter, drop = FALSE]))
+        # For now, exfa is guaranteed/assumed to be the first factor in a random
+        # effect, with variances applied to that factor, e.g., environments.
+        if (any(struc[[re]] == "exfa")) {
+          # 1 + 1, because the first entry are the variances, and exfa is guaranteed to be the second entry.
+          # 1 for the u.nlevels as exfa is guaranteed to be the first structure.
+          m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
+          vars[[re]] <- tcrossprod(rbind(sqrt(k[indices[[re]][[1]], iter, drop = FALSE]), Matrix(1, m, 1)))
+        } else {
+          m <- 0
+          vars[[re]] <- tcrossprod(sqrt(k[indices[[re]][[1]], iter, drop = FALSE]))
+        }
         if (n.var[re] > 0) { # Only form the correlation matrices for variable factors if there are variable factors.
           cormatis <- vector("list", n.var[re]) # One inverse correlation matrix for every variable factor.
           cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
@@ -615,16 +624,23 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
             sigmai[[re]] <- kronecker((1 / vars[[re]]) * Reduce(kronecker, cormatis[u.applyvars[[re]]]), Reduce(kronecker, cormatis[-u.applyvars[[re]]])) # Form the inverse covariance matrix.
             # Form the log determinant of sigma:
             # First form the log determinant of the part with variances:
-            u.nlevels.applyvar <- u.nlevels[[re]][u.applyvars[[re]]] # Numbers of levels for (variable, obviously) factors that have variances applied to them
+            # If there is an exfa structure, m is the number of levels and u.applyvars[[re]] is guaranteed to be 1.
+            # If there is no exfa structure, m is 0 so nothing changes.
+            u.nlevels.applyvar <- u.nlevels[[re]][u.applyvars[[re]]] + m # Numbers of levels for (variable, obviously) factors that have variances applied to them
             u.nlevels.napplyvar <- u.nlevels.var[[re]][-u.applyvars[[re]]] # Number of levels for variable factors that do not have variances applied to them
             logDetvarGtotal[re] <- sum(log(diag(vars[[re]])))
-            for (i in u.applyvars[[re]]) {
+            for (i in u.applyvars[[re]]) { # for (i in 1) in the case of exfa.
               logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * prod(u.nlevels.applyvar[-i]) # prod(numeric(0)) = 1
             }
             logDetvarGtotal[re] <- logDetvarGtotal[re] * prod(u.nlevels.napplyvar)
             # Now we can form the full log determinant:
+            if (any(struc[[re]] == "exfa")) {
+              dim.var.corrected <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
+            } else {
+              dim.var.corrected <- dim.var[re]
+            }
             for (i in i.var[[re]][-u.applyvars[[re]]]) {
-              logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var[re] / u.nlevels.var[[re]][i])
+              logDetvarGtotal[re] <- logDetvarGtotal[re] + logDetvarG[i] * (dim.var.corrected / u.nlevels.var[[re]][i])
             }
           }
         } else { # if there are no variable factors.
@@ -757,8 +773,14 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     # logDetG:
     logDetG <- 0
     for (re in 1:nU) { # Start loop over random effects
+      if (any(struc[[re]] == "exfa")) {
+        m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
+        dim.var.corrected <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
+      } else {
+        dim.var.corrected <- dim.var[re]
+      }
       if (n.nvar[re] > 0) {
-        logDetG <- logDetG + dim.nvar[re] * logDetvarGtotal[re] + dim.var[re] * logDetnvarGtotal[re]
+        logDetG <- logDetG + dim.nvar[re] * logDetvarGtotal[re] + dim.var.corrected * logDetnvarGtotal[re]
       } else {
         logDetG <- logDetG + dim.nvar[re] * logDetvarGtotal[re]
       }
@@ -785,13 +807,16 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     u.start <- 1
     param <- 1 # Keeping track of which column/parameter of Wu we are working on.
     for (re in 1:nU) { # Start of loop over random effects
-      #### REMOVE THIS AFTER CHECKING EXFA MANUALLY! ====
-      dim.total <- 17 * dim.nvar[re]
-      # dim.total <- dim.var[re] * dim.nvar[re]
+      if (any(struc[[re]] == "exfa")) {
+        m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
+        dim.var.corrected <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
+      } else {
+        m <- 0
+        dim.var.corrected <- dim.var[re]
+      }
+      dim.total <- dim.var.corrected * dim.nvar[re]
       if (n.nvar[re] > 0) {
-        #### REMOVE THIS AFTER CHECKING EXFA MANUALLY! ====
-        umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = dim.nvar[re], ncol = 17)
-        # umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = dim.nvar[re], ncol = dim.var[re])
+        umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = dim.nvar[re], ncol = dim.var.corrected)
       } else {
         umat <- Matrix(u[u.start:(u.start - 1 + dim.total), 1], nrow = 1, ncol = dim.var[re])
       }
@@ -881,9 +906,9 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
                   derivs[[re]][[i]] <- Matrix(1, sparse = FALSE, doDiag = FALSE)
                 }
               } else { # If variances are applied to 1 or more factors.
-                #### REMOVE THIS AFTER CHECKING EXFA MANUALLY! ====
-                A <- Matrix(0, 17, 17, sparse = FALSE, doDiag = FALSE)
-                # A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
+                # If there is no exfa structure, m = 0 and nothing changes.
+                # If there is an exfa structure, u.applyvars[[re]] = 1 by definition and m is added to the number of levels of the factor modeled by the exfa structure.
+                A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]) + m, prod(u.nlevels[[re]][u.applyvars[[re]]]) + m, sparse = FALSE, doDiag = FALSE)
                 A[i,] <- 0.5
                 if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
                   derivs[[re]][[i]] <- (A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter]
@@ -975,30 +1000,44 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     corner <- nX + 1
     param <- 1
     for (re in 1:nU) { # Start of loop over random effects
+      if (any(struc[[re]] == "exfa")) {
+        m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
+        dim.var.corrected <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
+      } else {
+        dim.var.corrected <- dim.var[re]
+      }
       if (n.nvar[re] > 0) {
-        traces <- Matrix(0, nrow(sigmai[[re]]), ncol(sigmai[[re]]), sparse = FALSE, doDiag = FALSE)
-        tic("traces")
-        for (i in 1:nrow(sigmai[[re]])) {
-          for (j in 1:ncol(sigmai[[re]])) {
-            if (j >= i) { # Only do the upper triangle
-              rstart <- (corner + (i - 1) * dim.nvar[re])
-              rend <- rstart - 1 + dim.nvar[re]
-              cstart <- (corner + (j - 1) * dim.nvar[re])
-              cend <- cstart - 1 + dim.nvar[re]
-              # I suspect this can be done faster for a sparse inverse subset (C) by selecting the relevant (nonzero) elements from the current block of C
-              # and the corresonding elements of nvarGi. But for now let's keep the simple subsetting and hadamard product.
-              traces[i, j] <- sum(nvarGi[[re]] * C[rstart:rend, cstart:cend])
+        if (sparse) {
+          C_start <- corner
+          C_end <- corner + dim.var.corrected * dim.nvar[re] - 1
+          C_sub <- C[C_start:C_end, C_start:C_end, drop = FALSE]
+          traces <- forceSymmetric(getTraces(C_sub@p,
+                                             C_sub@i,
+                                             C_sub@x,
+                                             as.matrix(nvarGi[[re]]),
+                                             dim.var.corrected,
+                                             dim.nvar[re]))
+        } else {
+          traces <- Matrix(0, nrow(sigmai[[re]]), ncol(sigmai[[re]]), sparse = FALSE, doDiag = FALSE)
+          for (i in 1:nrow(sigmai[[re]])) {
+            for (j in 1:ncol(sigmai[[re]])) {
+              if (j >= i) { # Only do the upper triangle
+                rstart <- (corner + (i - 1) * dim.nvar[re])
+                rend <- rstart - 1 + dim.nvar[re]
+                cstart <- (corner + (j - 1) * dim.nvar[re])
+                cend <- cstart - 1 + dim.nvar[re]
+                traces[i, j] <- sum(nvarGi[[re]] * C[rstart:rend, cstart:cend])
+              }
             }
           }
+          if (nrow(traces) > 1) {
+            traces <- forceSymmetric(traces)
+          }
         }
-        corner <- corner + dim.var[re] * dim.nvar[re]
-        if (nrow(traces) > 1) {
-          traces <- forceSymmetric(traces)
-        }
-        toc()
+        corner <- corner + dim.var.corrected * dim.nvar[re]
       } else {
-        traces <- C[corner:(corner - 1 + dim.var[re]), corner:(corner - 1 + dim.var[re])]
-        corner <- corner + dim.var[re]
+        traces <- C[corner:(corner - 1 + dim.var.corrected), corner:(corner - 1 + dim.var.corrected)]
+        corner <- corner + dim.var.corrected
       }
       
       if (n.nvar[re] > 0) {

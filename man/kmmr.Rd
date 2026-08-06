@@ -19,7 +19,8 @@ kmmr(
   verbose = TRUE,
   sparse = FALSE,
   timesToBoundary = 5,
-  getStartingValues = FALSE
+  getStartingValues = FALSE,
+  super = TRUE
 )
 }
 \arguments{
@@ -53,6 +54,8 @@ elements of the AI matrix by 10% before inverting.}
 \item{timesToBoundary}{How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?}
 
 \item{getStartingValues}{Should the model be fitted, or should suggested starting values be returned?}
+
+\item{super}{Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?}
 }
 \value{
 A list with the results.

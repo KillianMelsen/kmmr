@@ -32,7 +32,8 @@ solveLMM_R(
   u.isStack,
   u.nparams.list,
   sparse,
-  timesToBoundary
+  timesToBoundary,
+  super
 )
 }
 \arguments{
@@ -92,6 +93,8 @@ elements of the AI matrix by 10%.}
 \item{sparse}{Should the sparse version of the algorithm be used? Useful if C is reasonable sparse.}
 
 \item{timesToBoundary}{How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?}
+
+\item{super}{Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?}
 }
 \value{
 A list containing the log-likelihood, parameter estimates, average information matrix,

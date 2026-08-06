@@ -135,8 +135,8 @@ re <- function(formula, vars = ~ 1, ...) {
   data <- list(...)$data
   calls <- strsplit(as.character(formula[2]), ":")[[1]] # vector of function calls for each structure/factor.
   results <- lapply(calls, function(call) {
-    callStack <- grepl("stack\\(.*", call)
-    if (callStack) {
+    stackInCalls <- grepl("stack\\(.*", call)
+    if (stackInCalls) {
       expr <- parse(text = call)[[1]]
       expr$data <- data
       eval(expr)
@@ -258,7 +258,17 @@ re <- function(formula, vars = ~ 1, ...) {
   }
   
   # Construct the design matrix:
-  superlevels <- do.call(paste, c(rev(expand.grid(rev(levels))), sep = ":"))
+  # If we have an exfa structure we need to add some levels for the factors:
+  if (any(struc == "exfa")) {
+    levelsExtended <- levels # Make a copy of the list of levels.
+    for (f in which(struc == "exfa")) {
+      m <- nparams[1 + f] / length(levels[[f]]) # Add 1 because the first entry is the number of variances.
+      levelsExtended[[f]] <- c(levelsExtended[[f]], sprintf("%s-F%d", factorNames[f], 1:m))
+    }
+    superlevels <- do.call(paste, c(rev(expand.grid(rev(levelsExtended))), sep = ":"))
+  } else {
+    superlevels <- do.call(paste, c(rev(expand.grid(rev(levels))), sep = ":"))
+  }
   superfactor <- factor(do.call(paste, c(data[factorNames], sep = ":")), superlevels)
   Z <- sparse.model.matrix(~ -1 + superfactor)
   colnames(Z) <- superlevels
@@ -547,13 +557,14 @@ stack <- function(formula, ...) {
 #' @param sparse Optional argument for forcing the sparse or dense versions of the solver.
 #' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
 #' @param getStartingValues Should the model be fitted, or should suggested starting values be returned?
+#' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
 #'
 #' @returns A list with the results.
 #' @export
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
-                 sparse = FALSE, timesToBoundary = 5, getStartingValues = FALSE) {
+                 sparse = FALSE, timesToBoundary = 5, getStartingValues = FALSE, super = TRUE) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -748,7 +759,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                          u.forFactor = u.forFactor, u.indexCor = u.indexCor,
                          bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
                          isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                         timesToBoundary = timesToBoundary)
+                         timesToBoundary = timesToBoundary, super = super)
     result$params <- unlist(params)
     class(result) <- "kmmrFit"
   }

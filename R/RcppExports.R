@@ -9,3 +9,7 @@ SIS <- function(choleskyFactor) {
     .Call(`_kmmr_SIS`, choleskyFactor)
 }
 
+getTraces <- function(p_ptr, i_ptr, x_ptr, G, p, d) {
+    .Call(`_kmmr_getTraces`, p_ptr, i_ptr, x_ptr, G, p, d)
+}
+

@@ -22,9 +22,26 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// getTraces
+NumericMatrix getTraces(IntegerVector p_ptr, IntegerVector i_ptr, NumericVector x_ptr, NumericMatrix G, int p, int d);
+RcppExport SEXP _kmmr_getTraces(SEXP p_ptrSEXP, SEXP i_ptrSEXP, SEXP x_ptrSEXP, SEXP GSEXP, SEXP pSEXP, SEXP dSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type p_ptr(p_ptrSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type i_ptr(i_ptrSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x_ptr(x_ptrSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type G(GSEXP);
+    Rcpp::traits::input_parameter< int >::type p(pSEXP);
+    Rcpp::traits::input_parameter< int >::type d(dSEXP);
+    rcpp_result_gen = Rcpp::wrap(getTraces(p_ptr, i_ptr, x_ptr, G, p, d));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_SIS", (DL_FUNC) &_kmmr_SIS, 1},
+    {"_kmmr_getTraces", (DL_FUNC) &_kmmr_getTraces, 6},
     {NULL, NULL, 0}
 };
 
