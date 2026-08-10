@@ -505,6 +505,34 @@ lk <- function(factor, base) {
               part = "nvar"))
 }
 
+#' \code{exfalk} is for an extended factor analytic approximation of a linear kernel.
+#' Only used for approximating a fully dense kinship matrix.
+#'
+#' @param factor Data factor.
+#' @param setup Setup returned from the \code{exfalkSetup()} function.
+#'
+#' @returns List with all information on this correlation structure.
+#' @keywords internal
+exfalk <- function(factor, setup) {
+  levels <- c(levels(factor), sprintf("%s-F%d", "Gen", 1:setup$m))
+  p <- length(levels)
+  nparams <- 0
+  PSIi_L <- setup$PSIi %*% setup$L
+  base <- forceSymmetric(rbind(cbind(setup$PSIi, PSIi_L),
+                               cbind(t(PSIi_L), Diagonal(setup$m) + crossprod(setup$L, PSIi_L))))
+  rownames(base) <- colnames(base) <- c(rownames(setup$L), sprintf("%s-F%d", "Gen", 1:setup$m))
+  if (!all.equal(rownames(base), levels)) {
+    base <- base[levels, levels]
+  }
+  return(list(base = base,
+              levels = levels,
+              nlevels = p,
+              nparams = nparams,
+              types = NA,
+              indexCor = NA,
+              part = "nvar"))
+}
+
 #' stack
 #'
 #' @param formula The formula for the stacked correlation matrices
