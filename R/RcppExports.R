@@ -13,3 +13,7 @@ getTraces <- function(p_ptr, i_ptr, x_ptr, G, p, d) {
     .Call(`_kmmr_getTraces`, p_ptr, i_ptr, x_ptr, G, p, d)
 }
 
+getTracesSparse <- function(C_p, C_i, C_x, G_p, G_i, G_x, p, d) {
+    .Call(`_kmmr_getTracesSparse`, C_p, C_i, C_x, G_p, G_i, G_x, p, d)
+}
+

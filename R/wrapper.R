@@ -87,7 +87,7 @@ getInit <- function(response, call, data, init, isFixed, indices) {
     if (grepl("stack\\(.*", currentCall)) { # If it's a stacked structure.
       currentCall <- gsub("(.*\\()(.*)\\)", "getInit_\\1\\2, data = data, response = response)", currentCall)
       result <- eval(parse(text = currentCall)[[1]])
-    } else if (!(gsub("(.*)\\(.*", "\\1", currentCall) %in% c("lk", "id"))) { # We don't need to do anything if the structure is id or lk as these have no parameters.
+    } else if (!(gsub("(.*)\\(.*", "\\1", currentCall) %in% c("lk", "id", "exfalk"))) { # We don't need to do anything if the structure is id, lk, or exfalk as these have no parameters.
       currentCall <- gsub("(.*\\()([^,]*)(,?.*)\\)", "getInit_\\1'\\2'\\3, data = data, response = response)", currentCall)
       result <- eval(parse(text = currentCall)[[1]])
     }
@@ -514,13 +514,13 @@ lk <- function(factor, base) {
 #' @returns List with all information on this correlation structure.
 #' @keywords internal
 exfalk <- function(factor, setup) {
-  levels <- c(levels(factor), sprintf("%s-F%d", "Gen", 1:setup$m))
+  levels <- c(levels(factor), sprintf("%s-F%d", deparse(substitute(factor)), 1:setup$m))
   p <- length(levels)
   nparams <- 0
   PSIi_L <- setup$PSIi %*% setup$L
   base <- forceSymmetric(rbind(cbind(setup$PSIi, PSIi_L),
                                cbind(t(PSIi_L), Diagonal(setup$m) + crossprod(setup$L, PSIi_L))))
-  rownames(base) <- colnames(base) <- c(rownames(setup$L), sprintf("%s-F%d", "Gen", 1:setup$m))
+  rownames(base) <- colnames(base) <- c(rownames(setup$L), sprintf("%s-F%d", deparse(substitute(factor)), 1:setup$m))
   if (!all.equal(rownames(base), levels)) {
     base <- base[levels, levels]
   }
@@ -792,6 +792,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                          isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
                          timesToBoundary = timesToBoundary, super = super)
     result$params <- unlist(params)
+    rownames(result$u) <- colnames(Z[[1]])
     class(result) <- "kmmrFit"
   }
   return(result)

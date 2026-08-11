@@ -1,0 +1,203 @@
+library(asreml)
+asreml.options(workspace = "10000mb")
+
+# DROPS ====
+d <- readRDS("~/repos/kmmr/dev/exampledata.rds")
+d <- droplevels(d[d$Man == "R",])
+K <- readRDS("~/repos/kmmr/dev/exampledata_K.rds")
+Ki <- Matrix(solve(K))
+m <- 100
+setup <- exfalkSetup(K, m = m)
+
+fit1 <- kmmr(fixed = GY ~ -1 + Env,
+             random = ~ re(~ exfa(Env, 3):exfalk(Gen, setup), vars = ~ Env),
+             residual = ~ units,
+             data = d,
+             sparse = TRUE)
+
+falki <- solve(tcrossprod(setup$L) + solve(setup$PSIi))
+fit2 <- kmmr(fixed = GY ~ -1 + Env,
+             random = ~ re(~ exfa(Env, 3):lk(Gen, falki), vars = ~ Env),
+             residual = ~ units,
+             data = d,
+             sparse = TRUE)
+
+system.time(
+fit3 <- kmmr(fixed = GY ~ -1 + Env,
+             random = ~ re(~ exfa(Env, 3):lk(Gen, Ki), vars = ~ Env),
+             residual = ~ units,
+             data = d,
+             sparse = TRUE)
+)
+
+isZero <- kronecker(c(rep(F, length(levels(d$Env))), rep(T, 3)),
+                    c(rep(F, nrow(K)), rep(T, m)),
+                    FUN = "|")
+
+plot(fit1$u[which(!isZero),], fit2$u[1:3444,])
+plot(fit1$u[which(!isZero),], fit3$u[1:3444,])
+
+cor(fit1$u[which(!isZero),], fit2$u[1:3444,])
+cor(fit1$u[which(!isZero),], fit3$u[1:3444,])
+
+# CIMMYT ====
+d <- read.csv("dev/Krause_et_al_2018_Yield_BLUEs.csv")
+d <- droplevels(d[d$Breeding.Cycle == "2016-17",])
+d$GID <- paste0("G", d$GID)
+d$Man <- factor(d$Managed_Treatment, unique(d$Managed_Treatment), unique(d$Managed_Treatment))
+d$Gen <- factor(d$GID, unique(d$GID), unique(d$GID))
+d <- d[, c("Man", "Gen", "Grain_Yield_BLUE")]
+colnames(d)[3] <- "GY"
+K <- Matrix(readRDS("dev/Krause_K.rds"))
+rownames(K) <- colnames(K) <- paste0("G", rownames(K))
+K <- K[levels(d$Gen), levels(d$Gen)]
+Ki.asr <- solve(as.matrix(K)); attr(Ki.asr, "INVERSE") <- TRUE
+Ki.kmr <- solve(K)
+
+system.time(
+  fit.asr <- asreml(fixed = GY ~ -1 + Man,
+                    random = ~ fa(Man, 2):vm(Gen, Ki.asr),
+                    residual = ~ units,
+                    data = d,
+                    maxit = 25)
+) # 181.533 seconds, 14 iterations, 12.97 seconds/iter
+
+system.time(
+  fit.kmr <- kmmr(fixed = GY ~ -1 + Man,
+                  random = ~ re(~ exfa(Man, 2):lk(Gen, Ki.kmr), vars = ~ Man),
+                  residual = ~ units,
+                  data = d,
+                  maxit = 25,
+                  stepSize = c(0.15, 0.25, 0.5, 0.75, rep(1, 21)),
+                  avInfReg = c(1.1, 1.1, 1.05, 1.05, rep(1, 21)),
+                  sparse = TRUE)
+)  # 96.837 seconds, 15 iterations, 6.46 seconds/iter
+plot(fit.kmr$u[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d)])
+cor(fit.kmr$u[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d)])
+
+system.time(
+  fit.kmr2 <- kmmr(fixed = GY ~ -1 + Man,
+                  random = ~ re(~ exfa(Man, 2):lk(Gen, Ki.kmr), vars = ~ Man),
+                  residual = ~ units,
+                  data = d,
+                  init = summary(fit.kmr)$varcomp$Estimate,
+                  isFixed = summary(fit.kmr)$varcomp$Estimate == 0,
+                  maxit = 25,
+                  stepSize = c(0.15, 0.25, 0.5, 0.75, rep(1, 21)),
+                  avInfReg = c(1.1, 1.1, 1.05, 1.05, rep(1, 21)),
+                  sparse = TRUE)
+) # 69.555 seconds, 11 iterations, 6.32 seconds/iter
+plot(fit.kmr2$u[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d)])
+cor(fit.kmr2$u[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d)])
+
+# You cannot directly compare the variance components of asreml and kmmr as they
+# are estimated on different scales!
+# You have to compare the FA implied covariance matrices:
+covmat.asr <- matrix(summary(fit.asr)$varcomp[6:15, 1], 5, 2) %*% t(matrix(summary(fit.asr)$varcomp[6:15, 1], 5, 2)) + diag(summary(fit.asr)$varcomp[1:5, 1])
+cormat.asr <- cov2cor(covmat.asr)
+cormat.kmr2 <- matrix(summary(fit.kmr2)$varcomp[6:15, 2], 5, 2) %*% t(matrix(summary(fit.kmr2)$varcomp[6:15, 2], 5, 2))
+diag(cormat.kmr2) <- 1
+covmat.kmr2 <- outer(sqrt(summary(fit.kmr2)$varcomp[1:5, 2]), sqrt(summary(fit.kmr2)$varcomp[1:5, 2])) * cormat.kmr2
+
+m <- 100
+setup <- exfalkSetup(K, m = m)
+system.time(
+  fit.kmr.exfalk <- kmmr(fixed = GY ~ -1 + Man,
+                         random = ~ re(~ exfa(Man, 2):exfalk(Gen, setup), vars = ~ Man),
+                         residual = ~ units,
+                         data = d,
+                         maxit = 25,
+                         stepSize = c(0.15, 0.25, 0.5, 0.75, rep(1, 21)),
+                         avInfReg = c(1.1, 1.1, 1.05, 1.05, rep(1, 21)),
+                         sparse = TRUE)
+)
+
+isZero <- kronecker(c(rep(F, length(levels(d$Man))), rep(T, 2)),
+                    c(rep(F, nrow(K)), rep(T, m)),
+                    FUN = "|")
+
+plot(fit.kmr.exfalk$u[which(!isZero),], fit.kmr2$u[1:nrow(d)])
+cor(fit.kmr.exfalk$u[which(!isZero),], fit.kmr2$u[1:nrow(d)])
+
+
+
+runs <- 50
+results <- expand.grid(Run = 1:runs,
+                       Model = c("Full", "exfalk"),
+                       Man = levels(d$Man),
+                       cor = NA)
+setup <- exfalkSetup(K, m = 100)
+set.seed(1997)
+for (run in 1:runs) {
+  test.set <- sample(rownames(K), 200)
+  d.train <- d
+  d.train[d.train$Gen %in% test.set, "GY"] <- NA
+  
+  system.time(
+    fit.kmr <- kmmr(fixed = GY ~ -1 + Man,
+                    random = ~ re(~ exfa(Man, 2):lk(Gen, Ki.kmr), vars = ~ Man),
+                    residual = ~ units,
+                    data = d.train,
+                    maxit = 25,
+                    stepSize = c(0.15, 0.25, 0.5, 0.75, rep(1, 21)),
+                    avInfReg = c(1.1, 1.1, 1.05, 1.05, rep(1, 21)),
+                    sparse = TRUE)
+  )
+  
+  system.time( # Check LL convergence criteria for run = 1!
+    fit.kmr.exfalk <- kmmr(fixed = GY ~ -1 + Man,
+                           random = ~ re(~ exfa(Man, 2):exfalk(Gen, setup), vars = ~ Man),
+                           residual = ~ units,
+                           data = d.train,
+                           maxit = 25,
+                           stepSize = c(0.15, 0.25, 0.5, 0.75, rep(1, 21)),
+                           avInfReg = c(1.1, 1.1, 1.05, 1.05, rep(1, 21)),
+                           sparse = TRUE)
+  )
+  
+  isZero <- kronecker(c(rep(F, length(levels(d$Man))), rep(T, 2)), c(rep(F, nrow(K)), rep(T, setup$m)), FUN = "|")
+  
+  preds.kmr <- fit.kmr$u[1:nrow(d),, drop = FALSE]
+  preds.kmr <- data.frame(Man = gsub("(.*):(.*)", "\\1", rownames(preds.kmr)),
+                          Gen = gsub("(.*):(.*)", "\\2", rownames(preds.kmr)),
+                          pred = preds.kmr@x)
+  
+  preds.kmr.exfalk <- fit.kmr.exfalk$u[which(!isZero),, drop = FALSE]
+  preds.kmr.exfalk <- data.frame(Man = gsub("(.*):(.*)", "\\1", rownames(preds.kmr.exfalk)),
+                                 Gen = gsub("(.*):(.*)", "\\2", rownames(preds.kmr.exfalk)),
+                                 pred = preds.kmr.exfalk@x)
+  
+  preds.kmr <- droplevels(preds.kmr[preds.kmr$Gen %in% test.set,])
+  preds.kmr.exfalk <- droplevels(preds.kmr.exfalk[preds.kmr.exfalk$Gen %in% test.set,])
+  target <- droplevels(d[d$Gen %in% test.set,])
+  
+  for (i in 1:length(levels(d$Man))) {
+    target.ss <- droplevels(target[target$Man == levels(target$Man)[i],])
+    preds.kmr.ss <- droplevels(preds.kmr[preds.kmr$Man == levels(target$Man)[i],])
+    preds.kmr.exfalk.ss <- droplevels(preds.kmr.exfalk[preds.kmr.exfalk$Man == levels(target$Man)[i],])
+    preds.kmr.ss <- preds.kmr.ss[match(as.character(target.ss$Gen), preds.kmr.ss$Gen),]
+    preds.kmr.exfalk.ss <- preds.kmr.exfalk.ss[match(as.character(target.ss$Gen), preds.kmr.exfalk.ss$Gen),]
+    
+    results[results$Run == run & results$Model == "Full" & results$Man == levels(target$Man)[i], "cor"] <- cor(preds.kmr.ss$pred, target.ss$GY)
+    results[results$Run == run & results$Model == "exfalk" & results$Man == levels(target$Man)[i], "cor"] <- cor(preds.kmr.exfalk.ss$pred, target.ss$GY)
+  }
+}
+aggregate(results, cor ~ Model, FUN = mean)
+aggregate(results, cor ~ Model, FUN = median)
+# Only 5 runs, but exfalk is actually slightly better than the full GRM!
+# > aggregate(results, cor ~ Model, FUN = mean)
+# Model       cor
+# 1   Full 0.4779071
+# 2 exfalk 0.4867265
+# > aggregate(results, cor ~ Model, FUN = median)
+# Model       cor
+# 1   Full 0.4835658
+# 2 exfalk 0.4982492
+
+# AGT ====
+d <- read.csv("dev/Grain.yield_adjusted.csv")
+M <- read.csv("dev/genetic_marker_matrix_M.csv")
+rownames(M) <- d$Genotype
+gdata <- statgenGWAS::createGData(geno = M)
+gdata <- statgenGWAS::codeMarkers(gdata, removeDuplicates = TRUE)
+

@@ -30,7 +30,8 @@ checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
     # Subset loading indices and mags to sign-flipped ones, then subset to those for which the magnitude > 2.
     magOver2 <- loadingIndices[signflip][mags[signflip] > 2] # These can never be fixed loadings, because fixed loadings never change.
     con.loadings <- sort(unique(c(con.loadings, magOver2)))
-    delta[magOver2, 1] <- -2 * currentParams[magOver2, 1] - currentParams[magOver2, 1]
+    # We need the -1e-9 because if we use exactly 2 we can run into numerical issues where it keeps saying that mags[signflip] > 2 == TRUE even after constraining...
+    delta[magOver2, 1] <- -(2 - 1e-9) * currentParams[magOver2, 1] - currentParams[magOver2, 1]
     constrained <- TRUE
     checkConstraints <- TRUE
     constraintsUsed <- TRUE
@@ -420,7 +421,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       S <- t(weights) %*% S %*% weights
     }
     Ri <- 1 / k[nrow(k), iter] * S # The residual variance is always last in kappa for now
-    #toc(log = T)
+    #toc()
     
     ### Forming W = [X Z] ====
     #tic("Forming W and C = t(W) %*% Ri %*% W")
@@ -451,7 +452,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #   }
     #   C <- C0 * (1 / k[nrow(k), iter])
     # }
-    #toc(log = T)
+    #toc()
     
     ### Adding Gi to C ====
     #tic("Computing Gi")
@@ -712,12 +713,12 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #                     symmetric = TRUE,
     #                     repr = "C")
     # }
-    #toc(log = T)
+    #toc()
     
     ### Cholesky decomposition of C ====
     # Overwrite C with its simplicial/supernodal Cholesky factor.
     # We don't need C anymore.
-    #tic(msg = "Cholesky decomp of C")
+    #tic("Cholesky decomp of C")
     if (sparse) {
       if (super) {
         C <- Cholesky(C, LDL = FALSE, perm = TRUE, super = TRUE)
@@ -732,7 +733,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     } else {
       C <- Cholesky(C, perm = FALSE) # Good for the GPU?
     }
-    #toc(log = T)
+    #toc()
     
     ### BLUEs/BLUPs ====
     #tic("Solving for BLUEs and BLUPs")
@@ -754,7 +755,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     # Splitting BLUEs and BLUPs:
     b <- bu[1:nX, 1, drop = FALSE]
     u <- bu[(nX + 1):nrow(bu), 1, drop = FALSE]
-    #toc(log = T)
+    #toc()
     
     ### Computing the log-likelihood ====
     #tic("Computing log-likelihood")
@@ -796,7 +797,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     
     # Full LL:
     LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
-    #toc(log = T)
+    #toc()
     
     ### Working variates ====
     #### Genetic working variates ====
@@ -940,7 +941,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         }
       }
     } # End of loop over random effects
-    #toc(log = T)
+    #toc()
     
     #### Residual working variates ====
     #tic("Residual working variates")
@@ -950,7 +951,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     } else {
       Wu[, nrow(k)] <- (1 / k[nrow(k), iter]) * e@x # I think this is always true for diagonal R (also for non-diagonal fixed R, if that would ever be the case), even with weights.
     }
-    #toc(log = T)
+    #toc()
     
     ### Computing the AI matrix ====
     #tic("Computing the AI matrix and its inverse")
@@ -978,7 +979,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     } else {
       AIi <- solve(AI)
     }
-    #toc(log = T)
+    #toc()
     
     ### Computing the inverse of the coefficient matrix ====
     # We can again overwrite C as we no longer need the CF after this.
@@ -988,10 +989,10 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     } else {
       C <- chol2inv(as(C, "dtrMatrix"))
     }
-    #toc(log = TRUE)
+    #toc()
     
     ### Computing scores ====
-    # tic("Computing genetic scores")
+    #tic("Computing genetic scores")
     # See equations (18) and (15) from Jensen, Mantysaari, Madsen, & Thompson 1997:
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
     # mixed linear models using average information"
@@ -1011,12 +1012,23 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
           C_start <- corner
           C_end <- corner + dim.var.corrected * dim.nvar[re] - 1
           C_sub <- C[C_start:C_end, C_start:C_end, drop = FALSE]
-          traces <- forceSymmetric(getTraces(C_sub@p,
-                                             C_sub@i,
-                                             C_sub@x,
-                                             as.matrix(nvarGi[[re]]),
-                                             dim.var.corrected,
-                                             dim.nvar[re]))
+          if (is(nvarGi[[re]], "sparseMatrix")) {
+            traces <- forceSymmetric(getTracesSparse(C_sub@p,
+                                                     C_sub@i,
+                                                     C_sub@x,
+                                                     nvarGi[[re]]@p,
+                                                     nvarGi[[re]]@i,
+                                                     nvarGi[[re]]@x,
+                                                     dim.var.corrected,
+                                                     dim.nvar[re]))
+          } else {
+            traces <- forceSymmetric(getTraces(C_sub@p,
+                                               C_sub@i,
+                                               C_sub@x,
+                                               as.matrix(nvarGi[[re]]),
+                                               dim.var.corrected,
+                                               dim.nvar[re]))
+          }
         } else {
           traces <- Matrix(0, nrow(sigmai[[re]]), ncol(sigmai[[re]]), sparse = FALSE, doDiag = FALSE)
           for (i in 1:nrow(sigmai[[re]])) {
@@ -1052,7 +1064,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         param <- param + 1
       }
     } # End of loop over random effects.
-    #toc(log = T)
+    #toc()
     
     #### Residual scores ====
     #tic("Computing residual scores")
@@ -1062,7 +1074,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       WSW <- t(W) %*% S %*% W
       scores[nrow(scores), 1] <- as.numeric(-0.5 * (sum(S * evari) - sum(evari^2 * C[cbind(WSW@i + 1, rep(seq_len(ncol(WSW)), diff(WSW@p)))] * WSW@x) - (evari^2 * t(e) %*% S %*% e)))
     }
-    #toc(log = T)
+    #toc()
     
     ### Updating parameters ====
     #tic("Updating parameters and checking constraints")
@@ -1330,10 +1342,10 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     if (any(boundary == timesToBoundary)) {
       isFixed[which(boundary == timesToBoundary)] <- TRUE
     }
-    #toc(log = T)
+    #toc()
     
     # Printing:
-    #tic("Printing info")
+    ##tic("Printing info")
     stop <- Sys.time()
     duration <- as.numeric(stop - start, units = "secs")
     duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
@@ -1353,7 +1365,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     } else {
       cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
     }
-    #toc(log = T)
+    ##toc(log = T)
     
     # Checking for convergence:
     if (iter > 1) {

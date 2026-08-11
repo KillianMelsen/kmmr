@@ -38,10 +38,29 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// getTracesSparse
+NumericMatrix getTracesSparse(IntegerVector C_p, IntegerVector C_i, NumericVector C_x, IntegerVector G_p, IntegerVector G_i, NumericVector G_x, int p, int d);
+RcppExport SEXP _kmmr_getTracesSparse(SEXP C_pSEXP, SEXP C_iSEXP, SEXP C_xSEXP, SEXP G_pSEXP, SEXP G_iSEXP, SEXP G_xSEXP, SEXP pSEXP, SEXP dSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type C_p(C_pSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type C_i(C_iSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type C_x(C_xSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type G_p(G_pSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type G_i(G_iSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type G_x(G_xSEXP);
+    Rcpp::traits::input_parameter< int >::type p(pSEXP);
+    Rcpp::traits::input_parameter< int >::type d(dSEXP);
+    rcpp_result_gen = Rcpp::wrap(getTracesSparse(C_p, C_i, C_x, G_p, G_i, G_x, p, d));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_SIS", (DL_FUNC) &_kmmr_SIS, 1},
     {"_kmmr_getTraces", (DL_FUNC) &_kmmr_getTraces, 6},
+    {"_kmmr_getTracesSparse", (DL_FUNC) &_kmmr_getTracesSparse, 8},
     {NULL, NULL, 0}
 };
 
