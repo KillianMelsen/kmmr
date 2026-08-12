@@ -259,17 +259,17 @@ fit <- kmmr(fixed = GY ~ 1,
 # Kcor.ss <- Kcor[1:200, 1:200]
 
 # 10 factors:
-#       p    t10    t20 t30
+#       p    t10    t20    t100
 # 1   200   0.10
 # 2   400   0.25
 # 3   800   1.40
 # 4  1600   6.20
 # 5  3200  30.00
 # 6  6400  78.00 
-# 7 10375 281.00 606.00 xxx
+# 7 10375 281.00 606.00 2839.00
 # system.time(fit <- fad::fad(factors = 40, covmat = Kcor.ss))
 
-setup <- exfalkSetup(K, 10, "fad")
+system.time(setup <- exfalkSetup(K, 200, "fad"))
 fit2 <- kmmr(fixed = GY ~ 1,
              random = ~ re(~ exfalk(Gen, setup), vars = ~ 1),
              residual = ~ units,
