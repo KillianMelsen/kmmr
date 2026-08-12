@@ -322,7 +322,7 @@ K <- Matrix(readRDS("dev/exampledata_K.rds"))
 
 # Initial values for the fa(Env, ext = TRUE) parameters
 vars <- diag(cov(unstack(d, GY ~ Env), use = "complete"))
-fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 3)
+fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 2)
 L <- fit.factanal$loadings[,]
 L <- Matrix(rotateInitL(L)$L.rotated, sparse = F)
 PSI <- Matrix(diag(1 - diag(L %*% t(L))))
@@ -330,7 +330,7 @@ resvar <- mean(vars) / 20
 genvar <- vars / 20
 
 # Matrix of parameter estimates:
-k <- Matrix(0, 14 + 42 + 1, 10, sparse = F)
+k <- Matrix(0, 14 + 28 + 1, 10, sparse = F)
 k[, 1] <- c(genvar, matrix(L), resvar) # k[, 1] <- init # For comparison with asreml
 isFixed <- numeric(nrow(k))
 isFixed[14 + 15] <- 1
@@ -932,7 +932,7 @@ getLoadingDerivs <- function(indexL, p, loadings) {
 }
 
 # falk kinship matrix:
-m <- 10
+m <- 50
 K <- readRDS("dev/exampledata_K.rds")
 sds <- diag(sqrt(diag(K)))
 FAK.fit <- factanal(covmat = K, factors = m)
@@ -943,7 +943,7 @@ falki <- Matrix(rbind(cbind(solve(PSI), solve(PSI) %*% L),
 
 # Initial values for the fa(Env, ext = TRUE) parameters
 vars <- diag(cov(unstack(d, GY ~ Env), use = "complete"))
-fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 2)
+fit.factanal <- factanal(covmat = cov(unstack(d, GY ~ Env), use = "complete"), factors = 3)
 L <- fit.factanal$loadings[,]
 L <- Matrix(rotateInitL(L)$L.rotated, sparse = F)
 PSI <- Matrix(diag(1 - diag(L %*% t(L))))
@@ -951,10 +951,10 @@ resvar <- mean(vars) / 20
 genvar <- vars / 20
 
 # Matrix of parameter estimates:
-k <- Matrix(0, 14 + 28 + 1, 10, sparse = F)
+k <- Matrix(0, 14 + 42 + 1, 10, sparse = F)
 k[, 1] <- c(genvar, matrix(L), resvar) # k[, 1] <- init # For comparison with asreml
 isFixed <- numeric(nrow(k))
-isFixed[14 + 15] <- 1
+isFixed[k[, 1] == 0] <- 1
 
 # Design matrices and data vector:
 y <- Matrix(d$GY)
@@ -990,7 +990,7 @@ system.time({
   vars <- tcrossprod(Matrix(c(sqrt(k[1:14, iter]), rep(1, ncol(L)))))
   result <- formCormatChol(struc = "exfa",
                            p = 14,
-                           params = k[15:42, iter],
+                           params = k[15:56, iter],
                            base = NULL,
                            doChol = TRUE) # Returns (1) the correlation matrix, (2) the cholesky factor of the correlation matrix
   cormats <- list(result[[1]])

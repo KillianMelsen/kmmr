@@ -13,9 +13,14 @@ exfalkSetup <- function(K, m = 50, method = "factanal") {
   scaling <- sqrt(diag(K))
   if (method == "factanal") {
     fit <- factanal(covmat = K, factors = m)
-    L <- scaling * Matrix(fit$loadings[,, drop = FALSE])
-    PSIi <- Diagonal(nrow(L), 1 / (fit$uniquenesses * scaling^2))
+  } else if (method == "fad") {
+    fit <- fad(covmat = K, factors = m)
+    rownames(fit$loadings) <- rownames(K)
+  } else {
+    stop("No valid method!")
   }
+  L <- scaling * Matrix(fit$loadings[,, drop = FALSE])
+  PSIi <- Diagonal(nrow(L), 1 / (fit$uniquenesses * scaling^2))
   return(list(m = ncol(L),
               L = L,
               PSIi = PSIi))

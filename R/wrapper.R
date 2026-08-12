@@ -90,12 +90,13 @@ getInit <- function(response, call, data, init, isFixed, indices) {
     } else if (!(gsub("(.*)\\(.*", "\\1", currentCall) %in% c("lk", "id", "exfalk"))) { # We don't need to do anything if the structure is id, lk, or exfalk as these have no parameters.
       currentCall <- gsub("(.*\\()([^,]*)(,?.*)\\)", "getInit_\\1'\\2'\\3, data = data, response = response)", currentCall)
       result <- eval(parse(text = currentCall)[[1]])
+      
+      # 1 + j so we skip indices for the variances.
+      # We leave init values that are not NA. These have been supplied by the user. We will only
+      # set initial values that were not yet set by the user.
+      init[indices[[1 + j]]][is.na(init[indices[[1 + j]]])] <- result$init[is.na(init[indices[[1 + j]]])]
+      isFixed[indices[[1 + j]]][is.na(isFixed[indices[[1 + j]]])] <- result$isFixed[is.na(isFixed[indices[[1 + j]]])]
     }
-    # 1 + j so we skip indices for the variances.
-    # We leave init values that are not NA. These have been supplied by the user. We will only
-    # set initial values that were not yet set by the user.
-    init[indices[[1 + j]]][is.na(init[indices[[1 + j]]])] <- result$init[is.na(init[indices[[1 + j]]])]
-    isFixed[indices[[1 + j]]][is.na(isFixed[indices[[1 + j]]])] <- result$isFixed[is.na(isFixed[indices[[1 + j]]])]
   }
   return(list(init = init, isFixed = isFixed))
 }
@@ -744,7 +745,11 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     for (i in 1:nU) {
       # Get initial variances:
       formula <- as.formula(paste0(response, gsub(".*vars\\s*=\\s*(~.*)\\)", "\\1", res[i])))
-      vars <- diag(cov(unstack(data, formula), use = "complete"))
+      if (formula == as.formula(paste0(response, "~ 1"))) {
+        vars <- var(data[[response]])
+      } else {
+        vars <- diag(cov(unstack(data, formula), use = "complete"))
+      }
       init[indices[[i]][[1]]] <- vars / 20
       isFixed[indices[[i]][[1]]] <- FALSE
       
@@ -760,7 +765,6 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
       isFixed[length(isFixed)] <- FALSE
     }
   }
-  
   # Setting the AI matrix penalties if not set by the user:
   # Also adding some penalty to the average information matrix if factor analytic structures are present:
   if (is.null(avInfReg)) {

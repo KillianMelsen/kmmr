@@ -389,7 +389,11 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
         if (!is.null(attr(bases[[re]][[i]], "logDet"))) {
           logDetnvarG[i - n.var[re]] <- attr(bases[[re]][[i]], "logDet")
         } else {
-          logDetnvarG[i - n.var[re]] <- -1 * sum(log(eigen(bases[[re]][[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices? 
+          if (is(bases[[re]][[i]], "sparseMatrix")) {
+            logDetnvarG[i - n.var[re]] <- -1 * determinant(Cholesky(bases[[re]][[i]], LDL = FALSE, perm = TRUE, super = TRUE), sqrt = FALSE, logarithm = TRUE)$modulus
+          } else {
+            logDetnvarG[i - n.var[re]] <- -1 * sum(log(eigen(bases[[re]][[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices? 
+          }
         }
       }
       

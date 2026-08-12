@@ -4,6 +4,7 @@
 #' @importFrom methods as
 #' @importFrom Matrix nearPD Matrix t tcrossprod crossprod sparse.model.matrix Cholesky chol forceSymmetric diag chol2inv solve rowSums
 #' @importFrom stats na.omit terms as.formula
+#' @importFrom fad fad
 "_PACKAGE"
 
 ## usethis namespace: start
