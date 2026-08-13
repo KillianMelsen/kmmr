@@ -197,12 +197,12 @@ for (run in 1:runs) {
                                  Gen = gsub("(.*):(.*)", "\\2", rownames(preds.kmr.exfalk)),
                                  pred = preds.kmr.exfalk@x)
 
-  preds.asr <- droplevels(preds.asr[preds.asr$Gen %in% test.set,])
-  preds.kmr <- droplevels(preds.kmr[preds.kmr$Gen %in% test.set,])
-  preds.kmr.exfalk <- droplevels(preds.kmr.exfalk[preds.kmr.exfalk$Gen %in% test.set,])
+  preds.asr <- droplevels(preds.asr[preds.asr$Gen %in% test.set[[run]],])
+  preds.kmr <- droplevels(preds.kmr[preds.kmr$Gen %in% test.set[[run]],])
+  preds.kmr.exfalk <- droplevels(preds.kmr.exfalk[preds.kmr.exfalk$Gen %in% test.set[[run]],])
   
   ## Computing accuracies ====
-  target <- droplevels(d[d$Gen %in% test.set,])
+  target <- droplevels(d[d$Gen %in% test.set[[run]],])
   for (i in 1:length(levels(d$Man))) {
     target.ss <- droplevels(target[target$Man == levels(target$Man)[i],])
     preds.asr.ss <- droplevels(preds.asr[preds.asr$Man == levels(target$Man)[i],])
