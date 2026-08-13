@@ -128,7 +128,7 @@ results <- expand.grid(Run = 1:runs,
                        cor = NA,
                        LL = NA,
                        time = NA)
-setup <- exfalkSetup(K, m = 100)
+setup <- exfalkSetup(K, m = 100, method = "fad")
 
 ## Sampling training/test sets ====
 test.set <- vector("list", runs)
@@ -226,7 +226,7 @@ for (run in 1:runs) {
     results[results$Run == run & results$Model == "exfalk" & results$Man == levels(target$Man)[i], "time"] <- time.kmr.exfalk
   }
 }
-saveRDS(results, "dev/results.exfalk.CIMMYT.rds")
+saveRDS(results, "dev/results.exfalk.CIMMYT.fad.rds")
 aggregate(results, cor ~ Model, FUN = mean)
 aggregate(results, cor ~ Model, FUN = median)
 
