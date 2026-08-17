@@ -143,15 +143,15 @@ for (run in 1:runs) {
   d.train[d.train$Gen %in% test.set[[run]], "GY"] <- NA
   
   ## Fitting models ====
-  start <- proc.time()[3]
-  fit.asr <- asreml(fixed = GY ~ -1 + Man,
-                    random = ~ fa(Man, 2):vm(Gen, Ki.asr),
-                    residual = ~ units,
-                    data = d.train,
-                    maxit = 25)
-  stop <- proc.time()[3]
-  time.asr <- stop - start
-  LL.asr <- fit.asr$loglik
+  # start <- proc.time()[3]
+  # fit.asr <- asreml(fixed = GY ~ -1 + Man,
+  #                   random = ~ fa(Man, 2):vm(Gen, Ki.asr),
+  #                   residual = ~ units,
+  #                   data = d.train,
+  #                   maxit = 25)
+  # stop <- proc.time()[3]
+  # time.asr <- stop - start
+  # LL.asr <- fit.asr$loglik
   
   start <- proc.time()[3]
   fit.kmr <- kmmr(fixed = GY ~ -1 + Man,
@@ -182,10 +182,10 @@ for (run in 1:runs) {
   ## Gathering predictions ====
   isZero <- kronecker(c(rep(F, length(levels(d$Man))), rep(T, 2)), c(rep(F, nrow(K)), rep(T, setup$m)), FUN = "|")
 
-  preds.asr <- fit.asr$coefficients$random[1:nrow(d),]
-  preds.asr <- data.frame(Man = gsub("fa\\(Man, 2\\)_(.*):vm\\(Gen, Ki.asr\\)_(.*)", "\\1", names(preds.asr)),
-                          Gen = gsub("fa\\(Man, 2\\)_(.*):vm\\(Gen, Ki.asr\\)_(.*)", "\\2", names(preds.asr)),
-                          pred = as.numeric(preds.asr))
+  # preds.asr <- fit.asr$coefficients$random[1:nrow(d),]
+  # preds.asr <- data.frame(Man = gsub("fa\\(Man, 2\\)_(.*):vm\\(Gen, Ki.asr\\)_(.*)", "\\1", names(preds.asr)),
+  #                         Gen = gsub("fa\\(Man, 2\\)_(.*):vm\\(Gen, Ki.asr\\)_(.*)", "\\2", names(preds.asr)),
+  #                         pred = as.numeric(preds.asr))
   
   preds.kmr <- fit.kmr$u[1:nrow(d),, drop = FALSE]
   preds.kmr <- data.frame(Man = gsub("(.*):(.*)", "\\1", rownames(preds.kmr)),
@@ -197,7 +197,7 @@ for (run in 1:runs) {
                                  Gen = gsub("(.*):(.*)", "\\2", rownames(preds.kmr.exfalk)),
                                  pred = preds.kmr.exfalk@x)
 
-  preds.asr <- droplevels(preds.asr[preds.asr$Gen %in% test.set[[run]],])
+  # preds.asr <- droplevels(preds.asr[preds.asr$Gen %in% test.set[[run]],])
   preds.kmr <- droplevels(preds.kmr[preds.kmr$Gen %in% test.set[[run]],])
   preds.kmr.exfalk <- droplevels(preds.kmr.exfalk[preds.kmr.exfalk$Gen %in% test.set[[run]],])
   
@@ -205,23 +205,23 @@ for (run in 1:runs) {
   target <- droplevels(d[d$Gen %in% test.set[[run]],])
   for (i in 1:length(levels(d$Man))) {
     target.ss <- droplevels(target[target$Man == levels(target$Man)[i],])
-    preds.asr.ss <- droplevels(preds.asr[preds.asr$Man == levels(target$Man)[i],])
+    # preds.asr.ss <- droplevels(preds.asr[preds.asr$Man == levels(target$Man)[i],])
     preds.kmr.ss <- droplevels(preds.kmr[preds.kmr$Man == levels(target$Man)[i],])
     preds.kmr.exfalk.ss <- droplevels(preds.kmr.exfalk[preds.kmr.exfalk$Man == levels(target$Man)[i],])
     
-    preds.asr.ss <- preds.asr.ss[match(as.character(target.ss$Gen), preds.asr.ss$Gen),]
+    # preds.asr.ss <- preds.asr.ss[match(as.character(target.ss$Gen), preds.asr.ss$Gen),]
     preds.kmr.ss <- preds.kmr.ss[match(as.character(target.ss$Gen), preds.kmr.ss$Gen),]
     preds.kmr.exfalk.ss <- preds.kmr.exfalk.ss[match(as.character(target.ss$Gen), preds.kmr.exfalk.ss$Gen),]
 
-    results[results$Run == run & results$Model == "asreml" & results$Man == levels(target$Man)[i], "cor"] <- cor(preds.asr.ss$pred, target.ss$GY)
+    # results[results$Run == run & results$Model == "asreml" & results$Man == levels(target$Man)[i], "cor"] <- cor(preds.asr.ss$pred, target.ss$GY)
     results[results$Run == run & results$Model == "Full" & results$Man == levels(target$Man)[i], "cor"] <- cor(preds.kmr.ss$pred, target.ss$GY)
     results[results$Run == run & results$Model == "exfalk" & results$Man == levels(target$Man)[i], "cor"] <- cor(preds.kmr.exfalk.ss$pred, target.ss$GY)
     
-    results[results$Run == run & results$Model == "asreml" & results$Man == levels(target$Man)[i], "LL"] <- LL.asr
+    # results[results$Run == run & results$Model == "asreml" & results$Man == levels(target$Man)[i], "LL"] <- LL.asr
     results[results$Run == run & results$Model == "Full" & results$Man == levels(target$Man)[i], "LL"] <- LL.kmr
     results[results$Run == run & results$Model == "exfalk" & results$Man == levels(target$Man)[i], "LL"] <- LL.kmr.exfalk
     
-    results[results$Run == run & results$Model == "asreml" & results$Man == levels(target$Man)[i], "time"] <- time.asr
+    # results[results$Run == run & results$Model == "asreml" & results$Man == levels(target$Man)[i], "time"] <- time.asr
     results[results$Run == run & results$Model == "Full" & results$Man == levels(target$Man)[i], "time"] <- time.kmr
     results[results$Run == run & results$Model == "exfalk" & results$Man == levels(target$Man)[i], "time"] <- time.kmr.exfalk
   }
