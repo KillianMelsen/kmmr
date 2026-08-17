@@ -349,6 +349,7 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
                        bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
                        timesToBoundary, super) {
   ## Prelims ====
+  browser()
   start <- proc.time()[3]
   k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
@@ -527,7 +528,7 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
       C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "unpackedMatrix") # Store as a dense matrix since C will be dense anyway after adding Gi.
     }
     #toc()
-    
+    browser()
     ### Adding Gi to C ====
     #tic("Computing Gi")
     # cormats <- vector("list", nU)
