@@ -454,7 +454,7 @@ id <- function(factor) {
   levels <- levels(factor)
   p <- length(levels)
   nparams <- 0
-  return(list(base = diag(p),
+  return(list(base = Diagonal(p),
               levels = levels,
               nlevels = p,
               nparams = nparams,
@@ -605,9 +605,9 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   if (is.null(random)) {
     stop("At least one random effect must be specified.")
   }
-  if (residual != ~ units) {
-    stop("Only the '~ units' residual structure has currently been implemented.")
-  }
+  # if (residual != ~ units) {
+  #   stop("Only the '~ units' residual structure has currently been implemented.")
+  # }
   if (is.null(data)) {
     stop("The 'data' argument must be specified.")
   }
@@ -656,24 +656,36 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   # Getting the name of the response column:
   response <- as.character(fixed[2])
   
-  # Getting rid of any missing values and adding a unit factor:
+  # Getting rid of any missing values:
   data <- na.omit(data)
-  data$Units <- factor(paste0("U", 1:nrow(data)), paste0("U", 1:nrow(data)))
   
   # Fixed effects:
   X <- sparse.model.matrix(revInteractions(fixed), data)
   
-  # Random effects:
-  res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\()", perl = TRUE)[[1]] # split the full random argument into separate re() calls.
-  nU <- length(res)
+  # Random effects and residual effect:
+  # Some stuff for the residual effect that needs to be generalized:
+  data$units <- character(nrow(data))
+  n.units <- 0
+  data[data$Man == "R", "units"] <- sprintf("U%d", 1:nrow(data[data$Man == "R",]))
+  n.units <- max(n.units, nrow(data[data$Man == "R",]))
+  data[data$Man == "W", "units"] <- sprintf("U%d", 1:nrow(data[data$Man == "W",]))
+  n.units <- max(n.units, nrow(data[data$Man == "R",]))
+  data$units <- factor(data$units, sprintf("U%d", 1:n.units), sprintf("U%d", 1:n.units))
+  # data$units <- sprintf("U%d", 1:nrow(data))
+  # data$units <- factor(data$units, data$units, data$units)
   
-  # Lists to store all specifications:
+  # S <- Diagonal(n.units)
+  res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\()", perl = TRUE)[[1]] # split the full random argument into separate re() calls.
+  nU <- length(res) # Number of random effects.
+  res <- c(res, as.character(residual[2])) # Residual effect
+  
+  # Lists to store all specifications, note that the very last entry is reserved for the residual effect:
   Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <-
     u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar  <-
-    u.isStack <- u.nparams.list <- vector("list", nU)
-  params <- vector("list", nU + 1)
+    u.isStack <- u.nparams.list <- params <- vector("list", nU + 1)
+  # params <- vector("list", nU + 1)
   i <- 1
-  for (i in 1:nU) {
+  for (i in 1:(nU + 1)) {
     expr <- parse(text = res[i])[[1]]
     expr$data <- data
     spec <- eval(expr)
@@ -689,25 +701,30 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     u.nparams[[i]] <- spec$nparams
     i.var[[i]] <- spec$i.var
     i.nvar[[i]] <- spec$i.nvar
-    params[[i]] <- sprintf("re%s(%s)", i, spec$params)
+    if (i <= nU) { # Labels for random effects.
+      params[[i]] <- sprintf("re%s(%s)", i, spec$params)
+    } else { # Labels for the residual effect.
+      params[[i]] <- sprintf("residual(%s)", spec$params)
+    }
     u.isStack[[i]] <- spec$isStack
     u.nparams.list[[i]] <- spec$nparams.list
   }
   
-  # Shifting indices if there are multiple random effects so we can use a single big vector k:
-  if (nU > 1) {
-    for (i in 2:nU) {
-      # indices[[i]] <- lapply(indices[[i]], function(x) x + u.nparams[[i - 1]])
-      indices[[i]] <- lapply(indices[[i]], function(x) x + sum(unlist(u.nparams[1:(i - 1)])))
-    }
+  # Shifting indices so we can use a single big vector k:
+  for (i in 2:(nU + 1)) {
+    indices[[i]] <- lapply(indices[[i]], function(x) x + sum(unlist(u.nparams[1:(i - 1)])))
   }
   
-  # Residual effects, just assume there is one simple iid effect for now:
-  nR <- 1
-  S <- vector("list", nR)
-  S[[1]] <- sparse.model.matrix(~ -1 + Units, data)
-  ur.types <- c(unlist(u.types), "V") # This assumes just a single residual variance.
-  params[[nU + 1]] <- "residual(vars{units})"
+  # Vector of parameter types
+  ur.types <- unlist(u.types)
+  
+  # Shifting indices if there are multiple random effects so we can use a single big vector k:
+  # if (nU > 1) {
+  #   for (i in 2:nU) {
+  #     # indices[[i]] <- lapply(indices[[i]], function(x) x + u.nparams[[i - 1]])
+  #     indices[[i]] <- lapply(indices[[i]], function(x) x + sum(unlist(u.nparams[1:(i - 1)])))
+  #   }
+  # }
   
   # Response matrix:
   y <- Matrix(data[[response]], sparse = FALSE, doDiag = FALSE)
@@ -717,21 +734,11 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     weights <- NA
   } else {
     useWeights <- TRUE
-    if (weightsIsMatrix) {
-      weights <- chol(weights) # Let's not worry about the full covariance matrix yet, in this case 'weights' would be omega^-1
-    } else {
-      # For the diagonal approximation, 'weights' is a vector containing the diagonal elements of omega^-1, see Damesa et al. 2017, https://doi.org/10.2134/agronj2016.07.0395
-      # In this case we can estimate the inverse residual correlation matrix Ri if needed, or just use an identity matrix for independent residuals so that Ri = I.
-      # Then multiply on the left and right with a diagonal matrix of the square roots of the original weights: weights %*% Ri %*% weights.
-      # Or maybe alternatively, solve(outer(diag(weights), diag(weights)) * Ri) to obtain the residual covariance matrix.
-      # (outer(diag(weights), diag(weights)) * Ri is the inverse residual covariance matrix).
-      # Note that any residual variances must be fixed to 1.0
-      if (is.numeric(weights)) {
-        weights <- diag(sqrt(weights))
-      } else {
-        weights <- Matrix(diag(sqrt(data[[weights]])))
-      }
-    }
+    # For the diagonal approximation, 'weights' is the name of the column of the dataframe containing the diagonal elements of omega^-1, see Damesa et al. 2017, https://doi.org/10.2134/agronj2016.07.0395
+    # In this case we can estimate the inverse residual correlation matrix Ri if needed, or just use an identity matrix for independent residuals so that Ri = I.
+    # Then multiply on the left and right with a diagonal matrix of the square roots of the original weights: weights %*% Ri %*% weights.
+    # Note that any residual variances must be fixed to 1.0
+    weights <- Diagonal(nrow(data), sqrt(data[[weights]])) # Will be a ddiMatrix
   }
   
   # Initial values:
@@ -742,7 +749,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     if (is.null(isFixed)) {
       isFixed <- rep(NA, length(ur.types))
     }
-    for (i in 1:nU) {
+    for (i in 1:(nU + 1)) {
       # Get initial variances:
       formula <- as.formula(paste0(response, gsub(".*vars\\s*=\\s*(~.*)\\)", "\\1", res[i])))
       if (formula == as.formula(paste0(response, "~ 1"))) {
@@ -753,16 +760,10 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
       init[indices[[i]][[1]]] <- vars / 20
       isFixed[indices[[i]][[1]]] <- FALSE
       
-      # Now do the initial values for the remaining structures in this random effect:
+      # Now do the initial values for the remaining structures in this random effect (or residual effect if 1 == nU + 1):
       ret <- getInit(response = response, call = res[i], data = data, init = init, isFixed = isFixed, indices = indices[[i]])
       init <- ret$init
       isFixed <- ret$isFixed
-    }
-    
-    # For now assume that there is a single residual variance:
-    if (is.na(init[length(init)]) & is.na(isFixed[length(isFixed)])) {
-      init[length(init)] <- mean(na.omit(init[ur.types == "V"]))
-      isFixed[length(isFixed)] <- FALSE
     }
   }
   # Setting the AI matrix penalties if not set by the user:
@@ -787,7 +788,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                          Fixed = isFixed)
   } else {
     # Fitting:
-    result <- solveLMM_R(y = y, X = X, Z = Z, S = S, init = init, weights = weights, useWeights = useWeights,
+    # browser()
+    result <- solveLMM_R(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
                          maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
                          tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
                          ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
@@ -796,7 +798,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                          isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
                          timesToBoundary = timesToBoundary, super = super)
     result$params <- unlist(params)
-    rownames(result$u) <- colnames(Z[[1]])
+    rownames(result$u) <- unlist(lapply(Z[-length(Z)], colnames)) # Last design matrix is for the residual effect.
     class(result) <- "kmmrFit"
   }
   return(result)

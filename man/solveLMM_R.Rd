@@ -8,7 +8,6 @@ solveLMM_R(
   y,
   X,
   Z,
-  S,
   init,
   weights,
   useWeights,
@@ -42,8 +41,6 @@ solveLMM_R(
 \item{X}{Numeric fixed effect design matrix.}
 
 \item{Z}{List containing numeric random effect design matrices. One for each random effect.}
-
-\item{S}{List containing numeric residual covariance matrices.}
 
 \item{init}{Numeric vector of initial values for the parameters.}
 

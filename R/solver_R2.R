@@ -313,7 +313,6 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @param y Numeric vector containing the response data.
 #' @param X Numeric fixed effect design matrix.
 #' @param Z List containing numeric random effect design matrices. One for each random effect.
-#' @param S List containing numeric residual covariance matrices.
 #' @param init Numeric vector of initial values for the parameters.
 #' @param weights Numeric matrix of weights. This can be based on the full covariance matrix $\Omega^{-1}$.
 #' Alternatively, for a diagonal approximation, the weights can be based on the reciprocals of known variances, i.e., the diagonal entries of $\Omega^{-1}$ or plot numbers.
@@ -345,33 +344,31 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
 #' @keywords internal
-solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
+solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                        bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
                        timesToBoundary, super) {
   ## Prelims ====
+  start <- proc.time()[3]
   k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
   boundary <- numeric(length(init)) # Vector to hold how many times each parameter has crossed the boundary.
   n <- nrow(y)
   
-  nU <- length(Z) # Number of random effects
-  nR <- length(S) # Number of residual effects
+  nU <- length(Z) - 1 # Number of random effects
+  nR <- 1 # Number of residual effects
   nUR <- nU + nR # Number of random effects + residual
   nX <- ncol(X) # Number of fixed effects
   intercept <- sum(X[, 1]) == nrow(X) # Is there an intercept?
   
-  # Assume for now we have just one random and residual effect:
-  S <- S[[1]]
-  
   ## Computing determinants of matrices associated with non-variable terms before iterating ====
-  n.var <- numeric(nU)
-  n.nvar <- numeric(nU)
-  dim.var <- numeric(nU)
-  dim.nvar <- numeric(nU)
-  u.nlevels.var <- vector("list", nU) 
-  u.nlevels.nvar <- vector("list", nU) 
-  for (re in 1:nU) { # Start loop over random effects
+  n.var <- numeric(nUR)
+  n.nvar <- numeric(nUR)
+  dim.var <- numeric(nUR)
+  dim.nvar <- numeric(nUR)
+  u.nlevels.var <- vector("list", nUR) 
+  u.nlevels.nvar <- vector("list", nUR) 
+  for (re in 1:nUR) { # Start loop over random effects and residual effect
     n.var[re] <- length(i.var[[re]]) # How many variable factors are there?
     n.nvar[re] <- length(i.nvar[[re]]) # How many non-variable factors are there?
     u.nlevels.var[[re]] <- u.nlevels[[re]][i.var[[re]]] # Vector of levels for each variable factor for each random effect.
@@ -380,6 +377,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     dim.nvar[re] <- prod(u.nlevels.nvar[[re]]) # Total dimension of the non-variable part of each random effect.
   } # End loop over random effects
   
+  # Forming non-variable structures for random effects:
   nvarGi <- vector("list", nU)
   logDetnvarGtotal <- numeric(nU)
   for (re in 1:nU) { # Start loop over random effects
@@ -413,18 +411,99 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     }
   } # End loop over random effects
   
+  # Forming non-variable structure for the residual effect:
+  re <- nUR
+  if (n.nvar[re] > 0) { # This should always be true for the residual effect due to the id(units) component.
+    # Form the non-variable part of R using kronecker products before iterating if it exists:
+    S <- Reduce(kronecker, bases[[re]][i.nvar[[re]]])
+  }
+  stop <- proc.time()[3]
+  duration <- as.numeric(stop - start)
+  duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
+  if (verbose) {
+    ansi <- interactive() && !is.null(Sys.getenv("TERM"))
+    if (ansi) {
+      cat("\033[1m", sprintf("%-11s %-15s %-20s", "Iteration", "LogLik", "Duration (hh:mm:ss)"), "\033[0m", "\n", sep = "")
+    } else {
+      cat(sprintf("%-11s %-15s %-20s \n", "Iteration", "LogLik", "Duration (hh:mm:ss)"))
+    }
+    cat(sprintf("%-11s %-15.3f %-20s\n", "Setup", NA, duration))
+  }
+  
   ## Start iterating ====
   LL <- numeric(maxit + 1)
   converged <- FALSE
   iter <- 1
   while (!(converged) & iter <= maxit) {
-    start <- Sys.time()
-    ### Compute Ri ====
+    start <- proc.time()[3]
+    ### Computing Ri ====
     #tic("Computing Ri")
-    if (useWeights & iter == 1) { # Apply weights in the first iteration if they need to be used.
-      S <- t(weights) %*% S %*% weights
+    # if (useWeights & iter == 1) { # Apply weights in the first iteration if they need to be used.
+    #   S <- t(weights) %*% S %*% weights
+    # }
+    # Ri <- 1 / k[nrow(k), iter] * S # The residual variance is always last in kappa for now
+    # These lists will also be used later for the random effects:
+    cormats <- vector("list", nUR)
+    sigmai <- vector("list", nUR)
+    logDetvarGtotal <- numeric(nUR)
+    vars <- vector("list", nUR)
+    re <- nUR # First do the very last structure, which is the residual effect.
+    vars[[re]] <- tcrossprod(sqrt(k[indices[[re]][[1]], iter, drop = FALSE]))
+    if (n.var[re] > 0) { # Only form the correlation matrices for variable factors if there are variable factors.
+      cormats[[re]] <- vector("list", n.var[re]) # One correlation matrix for every variable factor.
+      for (i in i.var[[re]]) { # Loop to form the correlations matrices
+        # For the residual effect we are not going to compute the log determinants and inverses
+        # of component matrices because we need to select columns/rows so it matches the data
+        # anyway.
+        result <- getCormat(struc = struc[[re]][i], # Which structure should be formed?
+                            p = u.nlevels[[re]][i], # How many levels are there in this factor?
+                            params = k[indices[[re]][[1 + i]], iter], # Which parameters should be used to form the correlation matrix?
+                            base = bases[[re]][[i]], # Which, if any, base matrix should be used?
+                            doLogDet = FALSE,
+                            doCormati = FALSE) 
+        cormats[[re]][[i]] <- result[[1]] # Correlation matrix
+      } # End of loop to form the correlation matrices
+      if (u.applyvars[[re]][1] == 0) { # If there is just a single variance.
+        sigma <- vars[[re]]@x * Reduce(kronecker, cormats[[re]]) # Form the covariance matrix.
+      } else if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
+        sigma <- vars[[re]] * Reduce(kronecker, cormats[[re]]) # Form the inverse covariance matrix.
+      } else { # If variances are applied to 1 or more factors, but not all factors.
+        sigma <- kronecker(vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]), Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]])) # Form the covariance matrix.
+      }
+    } else { # if there are no variable factors.
+      sigma <- vars[[re]]
     }
-    Ri <- 1 / k[nrow(k), iter] * S # The residual variance is always last in kappa for now
+    # This should always be true for the residual effect as we always have an
+    # identity matrix for the units:
+    if (n.nvar[re] > 0) {
+      R <- kronecker(sigma, S) # This is a bit slow as well.
+      # This is where we multiple on the left and right with the residual effect
+      # "design" matrices. These are actually just selection matrices that select
+      # the appropriate rows/cols of R. This is necessary because the data may be
+      # unbalanced: for a simple 3-trait GBLUP model, not all genotypes may have
+      # data on all three traits. Some may only have data for a single trait or 2
+      # of the 3 traits. This means that unlike the G matrices, the R matrix may
+      # not be a clean Kronecker product. That means we have to explicitly form the
+      # potentially messy R matrix before computing it's log determinant and inverse.
+      # That's fine though, because the messy R will be incredibly sparse.
+      # It's going to banded or maybe block-diagonal with potentially different sized
+      # blocks.
+      R <- forceSymmetric(tcrossprod(Z[[re]] %*% R, Z[[re]]))
+      if (useWeights) {
+        R <- weights %*% R %*% weights
+      }
+      if (isDiagonal(R)) {
+        logDetR <- sum(log(R@x))
+        Ri <- solve(R)
+      } else {
+        Rchol <- Cholesky(R, LDL = FALSE, perm = TRUE, super = FALSE)
+        logDetR <- determinant(Rchol, sqrt = FALSE, logarithm = TRUE)$modulus
+        Ri <- solve(Rchol)
+      }
+    } else {
+      R <- sigmai[[re]]
+      stop("Something went wrong, the residual effect should always have a nonvariable part corresponding to id(units)...")
+    }
     #toc()
     
     ### Forming W = [X Z] ====
@@ -447,23 +526,14 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     } else {
       C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "unpackedMatrix") # Store as a dense matrix since C will be dense anyway after adding Gi.
     }
-    # if (useWeights) {
-    #   # We need to compute the entire thing every time? Hopefully not for diagonal R...
-    #   C <- t(W) %*% Ri %*% W
-    # } else {
-    #   if (iter == 1) {
-    #     C0 <- t(W) %*% W # Maybe use something like syrk()?
-    #   }
-    #   C <- C0 * (1 / k[nrow(k), iter])
-    # }
     #toc()
     
     ### Adding Gi to C ====
     #tic("Computing Gi")
-    cormats <- vector("list", nU)
-    sigmai <- vector("list", nU)
-    logDetvarGtotal <- numeric(nU)
-    vars <- vector("list", nU)
+    # cormats <- vector("list", nU)
+    # sigmai <- vector("list", nU)
+    # logDetvarGtotal <- numeric(nU)
+    # vars <- vector("list", nU)
     offset <- nX + 1
     for (re in 1:nU) { # Start loop over random effects
       # Computing Gi every iteration:
@@ -791,14 +861,6 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
       }
     } # End loop over random effects
     
-    # logDetR:
-    if (useWeights) {
-      # For now just assume a diagonal structure:
-      logDetR <- sum(log(diag(Ri))) * -1
-    } else {
-      logDetR <- n * log(k[nrow(k), iter])
-    }
-    
     # Full LL:
     LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
     #toc()
@@ -808,7 +870,7 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #tic("Genetic working variates")
     Wu <- Matrix(0, n, nrow(k), sparse = FALSE, doDiag = FALSE) # Matrix for the working variates.
     umat_sigmai <- vector("list", nU) # We will store these matrices for computing the scores later.
-    derivs <- vector("list", nU) # Same thing for all derivatives.
+    derivs <- vector("list", nUR) # Same thing for all derivatives, except the last entry is reserved for the residual effect.
     u.start <- 1
     param <- 1 # Keeping track of which column/parameter of Wu we are working on.
     for (re in 1:nU) { # Start of loop over random effects
@@ -950,10 +1012,49 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     #### Residual working variates ====
     #tic("Residual working variates")
     e <- y - W %*% bu
-    if (isFixed[nrow(k)]) {
-      # Wu[, nrow(k)] <- 0
-    } else {
-      Wu[, nrow(k)] <- (1 / k[nrow(k), iter]) * e@x # I think this is always true for diagonal R (also for non-diagonal fixed R, if that would ever be the case), even with weights.
+    re <- nUR
+    derivs[[re]] <- vector("list", u.nparams[[re]])
+    for (i in 1:u.nparams[[re]]) {
+      if (isFixed[param]) {
+        param <- param + 1
+      } else {
+        if (ur.types[param] == "V") { # If the parameter is a variance.
+          if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
+            # Don't forget to multiply with the non-variable structure and selection matrices:
+            derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% Reduce(kronecker, c(cormats[[re]], S)), Z[[re]])
+          } else { # If variances are applied to 1 or more factors.
+            A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
+            A[i,] <- 0.5
+            if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
+              derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter], S), Z[[re]])
+            } else { # If variances are applied to 1 or more factors, but not all factors.
+              derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% kronecker(kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]])), S), Z[[re]])
+            }
+          }
+        } else { # If the parameter is not a variance.
+          j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
+          cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
+          cormats1[[j]] <- getDeriv(struc = struc[[re]][j],
+                                    type = ur.types[param],
+                                    cormatIndex = u.indexCor[[re]][[i]],
+                                    params = k[indices[[re]][[1 + j]], iter],
+                                    p = u.nlevels[[re]][j],
+                                    base = bases[[re]][[j]],
+                                    inverse = FALSE)
+          if (u.applyvars[[re]][1] == 0) {
+            derivs[[re]][[i]] <- vars[[re]]@x * Reduce(kronecker, c(cormats1, S))
+          } else if (all(u.applyvars[[re]] == i.var[[re]])) {
+            derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% kronecker(vars[[re]] * Reduce(kronecker, cormats1), S), Z[[re]])
+          } else {
+            derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% kronecker(kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]])), S), Z[[re]])
+          }
+        }
+        if (useWeights) {
+          derivs[[re]][[i]] <- weights %*% derivs[[re]][[i]] %*% weights
+        }
+        Wu[, param] <- derivs[[re]][[i]] %*% Ri %*% e
+        param <- param + 1
+      }
     }
     #toc()
     
@@ -1072,11 +1173,13 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     
     #### Residual scores ====
     #tic("Computing residual scores")
-    # Can probably be more effecient for diagonal matrices
-    evari <- (1 / k[nrow(k), iter])
-    if (!isFixed[nrow(k)]) {
-      WSW <- t(W) %*% S %*% W
-      scores[nrow(scores), 1] <- as.numeric(-0.5 * (sum(S * evari) - sum(evari^2 * C[cbind(WSW@i + 1, rep(seq_len(ncol(WSW)), diff(WSW@p)))] * WSW@x) - (evari^2 * t(e) %*% S %*% e)))
+    re <- nUR
+    for (i in 1:length(derivs[[re]])) {
+      if (!isFixed[param]) {
+        RidRRi <- Ri %*% derivs[[re]][[i]] %*% Ri
+        scores[param, 1] <- -0.5 * (sum(diag(derivs[[re]][[i]] %*% Ri)) - sum(diag(crossprod(W, RidRRi %*% W) %*% C)) - crossprod(e, RidRRi %*% e))
+      }
+      param <- param + 1
     }
     #toc()
     
@@ -1350,24 +1453,18 @@ solveLMM_R <- function(y, X, Z, S, init, weights, useWeights, maxit, stepSize, a
     
     # Printing:
     ##tic("Printing info")
-    stop <- Sys.time()
-    duration <- as.numeric(stop - start, units = "secs")
+    stop <- proc.time()[3]
+    duration <- as.numeric(stop - start)
     duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
-    if (iter == 1) {
-      ansi <- interactive() && !is.null(Sys.getenv("TERM"))
-      if (ansi) {
-        cat("\033[1m", sprintf("%-11s %-15s %-20s", "Iteration", "LogLik", "Duration (hh:mm:ss)"), "\033[0m", "\n", sep = "")
+    if (verbose) {
+      if (constraintsUsed) {
+        msg <- paste0("(", paste(c(
+          if (constraintsUsed) sprintf("%d constrained", nConstrained)
+        ), collapse = " and "), ")")
+        cat(sprintf("%-11d %-15.3f %-20s %-5s %-s\n", iter, LL[iter], duration, "", msg), sep = "")
       } else {
-        cat(sprintf("%-11s %-15s %-20s \n", "Iteration", "LogLik", "Duration (hh:mm:ss)"))
+        cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
       }
-    }
-    if (constraintsUsed) {
-      msg <- paste0("(", paste(c(
-        if (constraintsUsed) sprintf("%d constrained", nConstrained)
-      ), collapse = " and "), ")")
-      cat(sprintf("%-11d %-15.3f %-20s %-5s %-s\n", iter, LL[iter], duration, "", msg), sep = "")
-    } else {
-      cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
     }
     ##toc(log = T)
     
