@@ -28,8 +28,24 @@ rotateInitL <- function(L) {
 }
 
 getInit_fa <- function(factor, m, data, response) {
-  formula <- as.formula(paste0(response, "~", factor))
-  fit.factanal <- factanal(covmat = cov(unstack(data, formula), use = "complete"), factors = m)
+  idCols <- setdiff(colnames(data), c(factor, response, "units"))
+  dataWide <- reshape(data[, setdiff(colnames(data), "units")], direction = "wide", idvar = idCols, timevar = factor, v.names = response)
+  dataWide <- dataWide[, setdiff(colnames(dataWide), idCols)]
+  colnames(dataWide) <- gsub(paste0("^", response, "\\."), "", colnames(dataWide))
+  dataWide <- as.matrix(dataWide)[, levels(data[[factor]])]
+  covmat <- cov(dataWide, use = "pairwise.complete.obs") # Normal covariance matrix if there are no missing values (equal to use = "complete").
+  if (any(is.na(covmat))) { # If we have pairs with no overlap and thus NAs, we need to impute using column means.
+    means <- colMeans(dataWide, na.rm = TRUE)
+    naCoords <- which(is.na(dataWide), arr.ind = TRUE)
+    dataWide[naCoords] <- means[naCoords[, "col"]]
+    covmat <- cov(dataWide, use = "pairwise.complete.obs")
+    if (min(eigen(covmat, only.values = TRUE)$values) <= 0) { # Still check for PDness
+      covmat <- as.matrix(nearPD(covmat, tol)$mat)
+    }
+  } else if (min(eigen(covmat, only.values = TRUE)$values) <= 0) { # If we don't have any NAs, we still need to check whether covmat is PD.
+    covmat <- as.matrix(nearPD(covmat, tol)$mat)
+  }
+  fit.factanal <- factanal(covmat = covmat, factors = m)
   L <- fit.factanal$loadings[,, drop = FALSE]
   if (ncol(L) > 1) {
     L <- rotateInitL(L)
@@ -363,7 +379,8 @@ re <- function(formula, vars = ~ 1, ...) {
               nparams.list = nparams.list,
               i.var = i.var,
               i.nvar = i.nvar,
-              params = params))
+              params = params,
+              factorNames = factorNames))
 }
 
 #' \code{corg} is for a general correlation structure
@@ -663,16 +680,14 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   X <- sparse.model.matrix(revInteractions(fixed), data)
   
   # Random effects and residual effect:
-  # Some stuff for the residual effect that needs to be generalized:
-  data$units <- character(nrow(data))
-  n.units <- 0
-  data[data$Man == "R", "units"] <- sprintf("U%d", 1:nrow(data[data$Man == "R",]))
-  n.units <- max(n.units, nrow(data[data$Man == "R",]))
-  data[data$Man == "W", "units"] <- sprintf("U%d", 1:nrow(data[data$Man == "W",]))
-  n.units <- max(n.units, nrow(data[data$Man == "R",]))
-  data$units <- factor(data$units, sprintf("U%d", 1:n.units), sprintf("U%d", 1:n.units))
-  # data$units <- sprintf("U%d", 1:nrow(data))
-  # data$units <- factor(data$units, data$units, data$units)
+  # Short-hand notation for the residuals: 'residual = ~ units'
+  # This results in 'residual = ~ re(~ id(units), vars = ~ 1)' where
+  # units is an internally made factor in the dataframe where each row corresponds
+  # to one level. So it results in iid residuals.
+  if (as.character(residual[2]) == "units") { # Short-hand 'residual = ~ units'...
+    residual <- ~ re(~ id(units), vars = ~ 1) #...becomes 'residual = ~ re(~ id(units), vars = ~ 1)', that is, iid residuals.
+    data$units <- factor(sprintf("U%d", 1:nrow(data)), sprintf("U%d", 1:nrow(data)), sprintf("U%d", 1:nrow(data)))
+  }
   
   # S <- Diagonal(n.units)
   res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\()", perl = TRUE)[[1]] # split the full random argument into separate re() calls.
@@ -682,7 +697,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   # Lists to store all specifications, note that the very last entry is reserved for the residual effect:
   Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <-
     u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar  <-
-    u.isStack <- u.nparams.list <- params <- vector("list", nU + 1)
+    u.isStack <- u.nparams.list <- params <- factorNames <- vector("list", nU + 1)
   # params <- vector("list", nU + 1)
   i <- 1
   for (i in 1:(nU + 1)) {
@@ -708,6 +723,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     }
     u.isStack[[i]] <- spec$isStack
     u.nparams.list[[i]] <- spec$nparams.list
+    factorNames[[i]] <- spec$factorNames
   }
   
   # Shifting indices so we can use a single big vector k:
@@ -742,6 +758,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   }
   
   # Initial values:
+  factorNames <- unique(unlist(factorNames))
+  data <- data[, c(factorNames, response)] # Dropping any irrelevant columns to avoid issues with getting initial values.
   if (is.null(init) | any(is.na(init))) {
     if (is.null(init)) {
       init <- rep(NA, length(ur.types))
@@ -755,7 +773,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
       if (formula == as.formula(paste0(response, "~ 1"))) {
         vars <- var(data[[response]])
       } else {
-        vars <- diag(cov(unstack(data, formula), use = "complete"))
+        # vars <- diag(cov(unstack(data, formula), use = "complete"))
+        vars <- aggregate(data, formula, var)[[response]]
       }
       init[indices[[i]][[1]]] <- vars / 20
       isFixed[indices[[i]][[1]]] <- FALSE
