@@ -72,6 +72,10 @@ getInit_corg <- function(factor, data, response) {
   return(list(init = rep(0.5, ncors), isFixed = rep(FALSE, ncors)))
 }
 
+getInit_ar1 <- function(factor, data, response) {
+  return(list(init = 0.1, isFixed = FALSE))
+}
+
 getInit_stack <- function(formula, data, response) {
   callsInStack <- strsplit(as.character(formula[2]), "\\s*\\+\\s*")[[1]]
   resultStack <- lapply(callsInStack, function(call) {
@@ -320,50 +324,72 @@ re <- function(formula, vars = ~ 1, ...) {
   
   # Figure out the labels for the other factors/structures:
   for (i in 1:length(factorNames)) {
-    if (nparams[i + 1] > 0) { # + 1 because we can skip the variances
+    if (nparams[i + 1] > 0) {
       if (isStack[i]) {
         for (s in 1:sos) {
           p <- nparams.list[[i + 1]][s]
-          structure <- struc[[i]][s]
-          if (structure == "corg") {
-            labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
-            params[h:(h - 1 + p)] <- sprintf("corg{%s-%s|stack-%d}", factorNames[i], labels, s)
-            h <- h + p
-          } else if (structure == "cors") {
-            params[h] <- sprintf("cors{%s|stack-%d}", factorNames[i], s)
-            h <- h + 1
-          } else if (structure == "gk") {
-            params[h] <- sprintf("bw{%s|stack-%d}", factorNames[i], s)
-            h <- h + 1
-          } else if (structure %in% c("fa", "exfa")) {
-            m <- p / nlevels[i]
-            labels <- paste(rep(levels[[i]], m), rep(sprintf("F%d", 1:m), each = nlevels[i]), sep = ":")
-            params[h:(h - 1 + p)] <- sprintf("loading{%s-%s|stack-%d}", factorNames[i], labels, s)
-            h <- h + p
-          }
+          params[h:(h - 1 + p)] <- addParamLabels(structure = struc[[i]][s], levels = levels[[i]], factorName = factorNames[i], p = p, s = s)
+          h <- h + p
         }
       } else {
         p <- nparams[i + 1]
-        structure <- struc[i]
-        if (structure == "corg") {
-          labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
-          params[h:(h - 1 + p)] <- sprintf("corg{%s-%s}", factorNames[i], labels)
-          h <- h + p
-        } else if (structure == "cors") {
-          params[h] <- sprintf("cors{%s}", factorNames[i])
-          h <- h + 1
-        } else if (structure == "gk") {
-          params[h] <- sprintf("bw{%s}", factorNames[i])
-          h <- h + 1
-        } else if (structure %in% c("fa", "exfa")) {
-          m <- p / nlevels[i]
-          labels <- paste(rep(levels[[i]], m), rep(sprintf("F%d", 1:m), each = nlevels[i]), sep = ":")
-          params[h:(h - 1 + p)] <- sprintf("loading{%s-%s}", factorNames[i], labels)
-          h <- h + p
-        }
+        params[h:(h - 1 + p)] <- addParamLabels(structure = struc[i], levels = levels[[i]], factorName = factorNames[i], p = p)
+        h <- h + p
       }
     }
   }
+  # This should probably be wrapped in a function...
+  # for (i in 1:length(factorNames)) {
+  #   if (nparams[i + 1] > 0) { # + 1 because we can skip the variances
+  #     if (isStack[i]) {
+  #       for (s in 1:sos) {
+  #         p <- nparams.list[[i + 1]][s]
+  #         structure <- struc[[i]][s]
+  #         if (structure == "corg") {
+  #           labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
+  #           params[h:(h - 1 + p)] <- sprintf("corg{%s-%s|stack-%d}", factorNames[i], labels, s)
+  #           h <- h + p
+  #         } else if (structure == "cors") {
+  #           params[h] <- sprintf("cors{%s|stack-%d}", factorNames[i], s)
+  #           h <- h + 1
+  #         } else if (structure == "gk") {
+  #           params[h] <- sprintf("bw{%s|stack-%d}", factorNames[i], s)
+  #           h <- h + 1
+  #         } else if (structure %in% c("fa", "exfa")) {
+  #           m <- p / nlevels[i]
+  #           labels <- paste(rep(levels[[i]], m), rep(sprintf("F%d", 1:m), each = nlevels[i]), sep = ":")
+  #           params[h:(h - 1 + p)] <- sprintf("loading{%s-%s|stack-%d}", factorNames[i], labels, s)
+  #           h <- h + p
+  #         } else if (structure == "ar1") {
+  #           params[h] <- sprintf("ar1{%s}", factorNames[i])
+  #           h <- h + 1
+  #         }
+  #       }
+  #     } else {
+  #       p <- nparams[i + 1]
+  #       structure <- struc[i]
+  #       if (structure == "corg") {
+  #         labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
+  #         params[h:(h - 1 + p)] <- sprintf("corg{%s-%s}", factorNames[i], labels)
+  #         h <- h + p
+  #       } else if (structure == "cors") {
+  #         params[h] <- sprintf("cors{%s}", factorNames[i])
+  #         h <- h + 1
+  #       } else if (structure == "gk") {
+  #         params[h] <- sprintf("bw{%s}", factorNames[i])
+  #         h <- h + 1
+  #       } else if (structure %in% c("fa", "exfa")) {
+  #         m <- p / nlevels[i]
+  #         labels <- paste(rep(levels[[i]], m), rep(sprintf("F%d", 1:m), each = nlevels[i]), sep = ":")
+  #         params[h:(h - 1 + p)] <- sprintf("loading{%s-%s}", factorNames[i], labels)
+  #         h <- h + p
+  #       } else if (structure == "ar1") {
+  #         params[h] <- sprintf("ar1{%s}", factorNames[i])
+  #         h <- h + 1
+  #       }
+  #     }
+  #   }
+  # }
   
   return(list(Z = Z,
               indices = indices,
@@ -381,6 +407,31 @@ re <- function(formula, vars = ~ 1, ...) {
               i.nvar = i.nvar,
               params = params,
               factorNames = factorNames))
+}
+
+addParamLabels <- function(structure, levels, factorName, p, s = NULL) {
+  # Making the standard labels:
+  if (structure == "corg") {
+    labels <- t(outer(levels, levels, function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, length(levels), length(levels)))]
+    labels <- sprintf("corg{%s-%s}", factorName, labels)
+  } else if (structure == "cors") {
+    labels <- sprintf("cors{%s}", factorName)
+  } else if (structure == "gk") {
+    labels <- sprintf("bw{%s}", factorName)
+  } else if (structure %in% c("fa", "exfa")) {
+    m <- p / length(levels)
+    labels <- paste(rep(levels, m), rep(sprintf("F%d", 1:m), each = length(levels)), sep = ":")
+    labels <- sprintf("loading{%s-%s}", factorName, labels)
+  } else if (structure == "ar1") {
+    labels <- sprintf("ar1{%s}", factorName)
+  }
+  
+  # Adding the stack label if required:
+  if (!is.null(s)) {
+    labels <- gsub("(.*)}", sprintf("\\1|stack-%d}", s), labels)
+  }
+  
+  return(labels)
 }
 
 #' \code{corg} is for a general correlation structure
@@ -549,6 +600,25 @@ exfalk <- function(factor, setup) {
               types = NA,
               indexCor = NA,
               part = "nvar"))
+}
+
+#' \code{ar1} is for an order 1 autoregressive correlation structure
+#'
+#' @param factor Data factor.
+#'
+#' @returns List with all information on this correlation structure.
+#' @keywords internal
+ar1 <- function(factor) {
+  levels <- levels(factor)
+  indices <- as.numeric(levels)
+  D <- Matrix(abs(outer(indices, indices, FUN = "-")), dimnames = list(levels, levels))
+  return(list(base = D,
+              levels = levels,
+              nlevels = length(levels),
+              nparams = 1,
+              types = "AR",
+              indexCor = NA,
+              part = "var"))
 }
 
 #' stack

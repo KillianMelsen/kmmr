@@ -140,6 +140,31 @@ getCormat_gk <- function(params, base, doCormat = TRUE, doCormati = TRUE, doLogD
   return(list(cormat, logDet, cormati))
 }
 
+getCormat_ar1 <- function(params, base, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
+  cormat <- logDet <- cormati <- NULL
+  n <- nrow(base)
+  if (doCormat) {
+    cormat <- params[1]^base
+  }
+  if (doLogDet) {
+    superDiag <- base@x[(1:(n - 1)) * (n + 1)]
+    logDet <- sum(log(1 - params[1]^(2 * superDiag)))
+  }
+  if (doCormati) {
+    superDiag <- params[1]^base@x[(1:(n - 1)) * (n + 1)]
+    denom <- 1 - superDiag^2
+    a <- superDiag / denom
+    b <- superDiag^2 / denom
+    c <- 1 / denom
+    d <- c(c[1], c[-1] + b[-length(b)], c[length(c)])
+    cormati <- Matrix(0, n, n, sparse = TRUE, doDiag = FALSE)
+    diag(cormati) <- d
+    cormati[cbind(1:(n - 1), 2:n)] <- -a
+    cormati <- forceSymmetric(cormati)
+  }
+  return(list(cormat, logDet, cormati))
+}
+
 getCormat_lk <- function(base, doCormat = TRUE, doCormati = TRUE, doLogDet = TRUE) {
   cormat <- logDet <- cormati <- NULL
   if (doCormat) {
@@ -241,6 +266,8 @@ getCormat <- function(struc, p = NULL, params = NULL, base = NULL, doCormat = TR
     ret <- getCormat_fa(p = p, params = params, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
   } else if (struc == "exfa") {
     ret <- getCormat_exfa(p = p, params = params, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
+  } else if (struc == "ar1") {
+    ret <- getCormat_ar1(params = params, base = base, doCormat = doCormat, doCormati = doCormati, doLogDet = doLogDet)
   }
   return(ret)
 }
@@ -254,6 +281,15 @@ getDeriv_cor <- function(cormatIndex, p) {
 
 getDeriv_gk <- function(params, base) {
   deriv <- -base * exp(-params[1] * base)
+  return(deriv)
+}
+
+getDeriv_ar1 <- function(params, base) {
+  if (params[1] == 0) {
+    deriv <- 1 * (base == 1)
+  } else {
+    deriv <- base * params[1]^(base - 1)
+  }
   return(deriv)
 }
 
@@ -301,6 +337,8 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
     ret <- getDeriv_gk(params = params, base = base)
   } else if (struc %in% c("corg", "cors")) {
     ret <- getDeriv_cor(cormatIndex = cormatIndex, p = p)
+  } else if (struc == "ar1") {
+    ret <- getDeriv_ar1(params = params, base = base)
   }
   return(ret)
 }
@@ -1202,6 +1240,7 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
     con <- c() # Vector to keep the total set of constrained parameters across cycles. We need this for recomputing delta for unconstrained params.
     vars <- which(ur.types == "V") # Which of the parameters in k are variances?
     cors <- which(ur.types == "R") # Which of the parameters in k are correlations?
+    autoCors <- which(ur.types == "AR") # Which of the parameters in k are autocorrelations?
     bws <- which(ur.types == "B") # Which of the parameters in k are bandwidths?
     checkConstraints <- TRUE # Control variable to break the loop after satisfying (1) or (2).
     constraintsUsed <- FALSE # Variable that lets us print to the console if any params were constrained.
@@ -1217,10 +1256,12 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
       nonPD <- FALSE # Were any correlations constrained because they resulted in a non-PD corg matrix?
       con.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas being too large.
       con.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas being too large.
+      con.autoCors <- c() # Vector with indices of autocorrelations that were constrained in the current cycle due to the deltas being too large.
       con.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas being too large.
       con.loadings <- c() # Vector with indices of loadings that were constrained in the current cycle due to the deltas being too large.
       bound.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas pushing them across boundaries.
       bound.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas pushing them across boundaries.
+      bound.autoCors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas pushing them across boundaries.
       bound.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas pushing them across boundaries.
       bound.loadings <- c() # Vector with indices of loadings that were constrained in the current cycle due to the deltas pushing the communalities over 1 - 1e-3.
       npd.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the presence of non-PD corg matrices.
@@ -1250,6 +1291,16 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
       if (any(abs(deltaChange) > 0.3)) {
         con.cors <- cors[abs(deltaChange) > 0.3]
         delta[con.cors, 1] <- sign(delta[con.cors, 1]) * 0.3
+        constrained <- TRUE
+        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+        constraintsUsed <- TRUE
+      }
+      
+      # Checking autocorrelations for absolute changes larger than 0.3:
+      deltaChange <- delta[autoCors, 1]
+      if (any(abs(deltaChange) > 0.3)) {
+        con.autoCors <- autoCors[abs(deltaChange) > 0.3]
+        delta[con.autoCors, 1] <- sign(delta[con.autoCors, 1]) * 0.3
         constrained <- TRUE
         checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
         constraintsUsed <- TRUE
@@ -1289,6 +1340,24 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
         constraintsUsed <- TRUE
       }
       
+      # Checking autocorrelations for boundaries:
+      if (any(kUpdate[autoCors, 1] > 0.99)) {
+        bound.autoCors <- autoCors[kUpdate[autoCors, 1] > 0.99]
+        boundary[bound.autoCors] <- boundary[bound.autoCors] + 1
+        delta[bound.autoCors, 1] <- 0.9333333 - k[bound.autoCors, iter]
+        hitBoundary <- TRUE
+        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+        constraintsUsed <- TRUE
+      }
+      if (any(kUpdate[autoCors, 1] < 0)) {
+        bound.autoCors <- autoCors[kUpdate[autoCors, 1] < 0]
+        boundary[bound.autoCors] <- boundary[bound.autoCors] + 1
+        delta[bound.autoCors, 1] <- 0 - k[bound.autoCors, iter]
+        hitBoundary <- TRUE
+        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+        constraintsUsed <- TRUE
+      }
+      
       # Checking bandwidths for boundaries:
       if (any(kUpdate[bws, 1] < 1e-3)) {
         bound.bws <- bws[kUpdate[bws, 1] < 1e-3]
@@ -1320,10 +1389,10 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
             loadingIndices <- indices[[re]][[1 + i.stack]][indices.stack] # Getting the indices for the loadings for this particular structure.
             check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i.stack])
             delta <- check$delta
-            constrained <- check$constrained
-            checkConstraints <- check$checkConstraints
-            constraintsUsed <- check$constraintsUsed
-            hitBoundary <- check$hitBoundary
+            constrained <- (constrained | check$constrained)
+            checkConstraints <- (checkConstraints | check$checkConstraints)
+            constraintsUsed <- (constraintsUsed | check$constraintsUsed)
+            hitBoundary <- (hitBoundary | check$hitBoundary)
             con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
             bound.loadings <- sort(unique(c(bound.loadings, check$bound.loadings)))
           }
@@ -1334,9 +1403,10 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
           loadingIndices <- indices[[re]][[1 + i]] # Getting the indices for the loadings for this particular structure.
           check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i])
           delta <- check$delta
-          constrained <- check$constrained
-          checkConstraints <- check$checkConstraints
-          constraintsUsed <- check$constraintsUsed
+          constrained <- (constrained | check$constrained)
+          checkConstraints <- (checkConstraints | check$checkConstraints)
+          constraintsUsed <- (constraintsUsed | check$constraintsUsed)
+          hitBoundary <- (hitBoundary | check$hitBoundary)
           con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
           bound.loadings <- sort(unique(c(bound.loadings, check$bound.loadings)))
         } # End of loop over fa/exfa structures for non-stack random effects.
@@ -1347,7 +1417,7 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
       kUpdate <- k[, iter, drop = FALSE] + delta
       
       # Checking whether all unstructured correlation matrices are PD:
-      for (re in 1:nU) {
+      for (re in 1:nUR) {
         if (any(u.isStack[[re]])) {
           i.stack <- which(u.isStack[[re]])
           sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
@@ -1420,7 +1490,7 @@ solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avIn
       # unconstrained parameters:
       if (constrained | hitBoundary | nonPD) {
         # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
-        con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.bws, bound.bws, con.loadings, bound.loadings)))
+        con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.autoCors, bound.autoCors, con.bws, bound.bws, con.loadings, bound.loadings)))
         noncon <- setdiff(1:nrow(delta), con)
         if (length(setdiff(noncon, which(isFixed))) > 0) {
           nConstrained <- length(con)

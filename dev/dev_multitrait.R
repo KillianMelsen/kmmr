@@ -200,7 +200,7 @@ K <- readRDS("dev/exampledata_K.rds")[levels(d$Gen), levels(d$Gen)]
 Ki.asr <- solve(K); attr(Ki.asr, "INVERSE") <- TRUE
 Ki <- Matrix(solve(K))
 
-# Interesting, at seed 1997 asreml gets a lower LL, at seed 2005 kmmr gets a lower LL...
+# Interesting, at seed 1997 asreml gets a higher LL, at seed 2005 kmmr gets a higher LL...
 set.seed(2005)
 d2 <- d[sample(1:nrow(d), nrow(d)),]
 d2$GY[sample(1:nrow(d), nrow(d) * 0.25)] <- NA
