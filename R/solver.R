@@ -343,9 +343,9 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
   return(ret)
 }
 
-#' solveLMM_R
+#' solveLMM
 #' 
-#' R implementation of the average information algorithm for fitting linear mixed
+#' Implementation of the average information algorithm for fitting linear mixed
 #' models.
 #'
 #' @param y Numeric vector containing the response data.
@@ -382,7 +382,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
 #' @keywords internal
-solveLMM_R <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
+solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
                        indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                        bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
                        timesToBoundary, super) {

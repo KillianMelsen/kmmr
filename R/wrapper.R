@@ -658,6 +658,31 @@ stack <- function(formula, ...) {
   return(stackResults)
 }
 
+atEach <- function(factor, formula, levels = NULL, ...) {
+  data <- list(...)$data
+  if (is.null(levels)) {
+    levels <- levels(data[[factor]])
+  } else if (any(!(levels %in% levels(data[[factor]])))) {
+    stop("The 'levels' argument of one of the atEach() calls contains levels not present in the data...")
+  }
+  specs <- vector("list", length(levels))
+  l <- 1
+  for (lvl in levels) {
+    rowIndices <- which(data[[factor]] == lvl)
+    dataSubset <- droplevels(data[rowIndices,])
+    expr <- parse(text = as.character(formula[2]))[[1]]
+    expr$data <- dataSubset
+    specs[[l]] <- eval(expr)
+    expandedZ <- Matrix(0, nrow(data), ncol(specs[[l]]$Z), sparse = TRUE, doDiag = FALSE)
+    expandedZ[rowIndices,] <- specs[[l]]$Z
+    colnames(expandedZ) <- colnames(specs[[l]]$Z)
+    specs[[l]]$Z <- expandedZ
+    names(specs)[l] <- sprintf("%s-%s", factor, lvl)
+    l <- l + 1
+  }
+  return(specs)
+}
+
 #' kmmr
 #'
 #' @param fixed Formular for the fixed effects.
@@ -705,8 +730,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   }
   if (!(is.numeric(stepSize) | is.null(stepSize))) {
     stop("The 'stepSize' argument must be a numeric vector or NULL.")
-  } else if (is.numeric(stepSize) & length(stepSize) != maxit) {
-    stop("A numeric 'stepSize' argument must be of length 'maxit'.")
+  } else if (is.numeric(stepSize) & length(stepSize) > maxit) {
+    stop("A numeric 'stepSize' argument must be of length 'maxit' or smaller.")
   }
   if (!(is.character(weights) | is.null(weights))) {
     stop("The 'weights' argument must be NULL or a character.")
@@ -763,37 +788,85 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\()", perl = TRUE)[[1]] # split the full random argument into separate re() calls.
   nU <- length(res) # Number of random effects.
   res <- c(res, as.character(residual[2])) # Residual effect
+  n.atEach <- sum(grepl("^atEach.*", res))
+  
+  ## Working on atEach() ====
+  if (n.atEach > 0) {
+    specs.atEach <- vector("list", n.atEach)
+    for (i in 1:n.atEach) {
+      expr <- parse(text = res[which(grepl("^atEach.*", res))[i]])[[1]]
+      expr$data <- data
+      specs.atEach[[i]] <- eval(expr)
+    }
+    # We need to calculate how many random effects we now actually have (+1 for the residual effect):
+    nU <- 0
+    i.atEach <- 1 # Index to keep track of which atEach() call we are.
+    for (i in 1:(length(res) - 1)) {
+      if (grepl("^atEach.*", res[i])) {
+        nU <- nU + length(specs.atEach[[i.atEach]])
+        i.atEach <- i.atEach + 1
+      } else {
+        nU <- nU + 1
+      }
+    }
+  }
   
   # Lists to store all specifications, note that the very last entry is reserved for the residual effect:
+  # The length of these lists already takes additional random effects due to atEach() calls into account.
   Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <-
     u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar  <-
     u.isStack <- u.nparams.list <- params <- factorNames <- vector("list", nU + 1)
-  # params <- vector("list", nU + 1)
-  i <- 1
-  for (i in 1:(nU + 1)) {
-    expr <- parse(text = res[i])[[1]]
-    expr$data <- data
-    spec <- eval(expr)
-    Z[[i]] <- spec$Z
-    indices[[i]] <- spec$indices
-    u.applyvars[[i]] <- spec$applyvars
-    u.types[[i]] <- spec$types
-    u.nlevels[[i]] <- spec$nlevels
-    u.forFactor[[i]] <- spec$forFactor
-    u.indexCor[[i]] <- spec$indexCor
-    bases[[i]] <- spec$bases
-    struc[[i]] <- spec$struc
-    u.nparams[[i]] <- spec$nparams
-    i.var[[i]] <- spec$i.var
-    i.nvar[[i]] <- spec$i.nvar
-    if (i <= nU) { # Labels for random effects.
-      params[[i]] <- sprintf("re%s(%s)", i, spec$params)
-    } else { # Labels for the residual effect.
-      params[[i]] <- sprintf("residual(%s)", spec$params)
+  j <- 1 # Index to keep track of the actual random effect spec we are working on.
+  k <- 1 # Index to keep track of which atEach() spec we are at.
+  # for (i in 1:(nU + 1)) {
+  for (i in 1:length(res)) { # We now need to iterate over the calls in res.
+    if (grepl("^atEach.*", res[i])) { # If we are dealing with an atEach() call that expands into several random effects.
+      for (l in 1:length(specs.atEach[[k]])) {
+        Z[[j]] <- specs.atEach[[k]][[l]]$Z
+        indices[[j]] <- specs.atEach[[k]][[l]]$indices
+        u.applyvars[[j]] <- specs.atEach[[k]][[l]]$applyvars
+        u.types[[j]] <- specs.atEach[[k]][[l]]$types
+        u.nlevels[[j]] <- specs.atEach[[k]][[l]]$nlevels
+        u.forFactor[[j]] <- specs.atEach[[k]][[l]]$forFactor
+        u.indexCor[[j]] <- specs.atEach[[k]][[l]]$indexCor
+        bases[[j]] <- specs.atEach[[k]][[l]]$bases
+        struc[[j]] <- specs.atEach[[k]][[l]]$struc
+        u.nparams[[j]] <- specs.atEach[[k]][[l]]$nparams
+        i.var[[j]] <- specs.atEach[[k]][[l]]$i.var
+        i.nvar[[j]] <- specs.atEach[[k]][[l]]$i.nvar
+        params[[j]] <- sprintf("atEach%s(re%s(%s|%s))", k, j, specs.atEach[[k]][[l]]$params, names(specs.atEach[[k]])[l])
+        u.isStack[[j]] <- specs.atEach[[k]][[l]]$isStack
+        u.nparams.list[[j]] <- specs.atEach[[k]][[l]]$nparams.list
+        factorNames[[j]] <- specs.atEach[[k]][[l]]$factorNames
+        j <- j + 1
+      }
+      k <- k + 1
+    } else { # If we are dealing with an re() call that results in a specification for a single random effect.
+      expr <- parse(text = res[i])[[1]]
+      expr$data <- data
+      spec <- eval(expr)
+      Z[[j]] <- spec$Z
+      indices[[j]] <- spec$indices
+      u.applyvars[[j]] <- spec$applyvars
+      u.types[[j]] <- spec$types
+      u.nlevels[[j]] <- spec$nlevels
+      u.forFactor[[j]] <- spec$forFactor
+      u.indexCor[[j]] <- spec$indexCor
+      bases[[j]] <- spec$bases
+      struc[[j]] <- spec$struc
+      u.nparams[[j]] <- spec$nparams
+      i.var[[j]] <- spec$i.var
+      i.nvar[[j]] <- spec$i.nvar
+      if (j <= nU) { # Labels for random effects.
+        params[[j]] <- sprintf("re%s(%s)", j, spec$params)
+      } else { # Labels for the residual effect.
+        params[[j]] <- sprintf("residual(%s)", spec$params)
+      }
+      u.isStack[[j]] <- spec$isStack
+      u.nparams.list[[j]] <- spec$nparams.list
+      factorNames[[j]] <- spec$factorNames
+      j <- j + 1
     }
-    u.isStack[[i]] <- spec$isStack
-    u.nparams.list[[i]] <- spec$nparams.list
-    factorNames[[i]] <- spec$factorNames
   }
   
   # Shifting indices so we can use a single big vector k:
@@ -803,14 +876,6 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   
   # Vector of parameter types
   ur.types <- unlist(u.types)
-  
-  # Shifting indices if there are multiple random effects so we can use a single big vector k:
-  # if (nU > 1) {
-  #   for (i in 2:nU) {
-  #     # indices[[i]] <- lapply(indices[[i]], function(x) x + u.nparams[[i - 1]])
-  #     indices[[i]] <- lapply(indices[[i]], function(x) x + sum(unlist(u.nparams[1:(i - 1)])))
-  #   }
-  # }
   
   # Response matrix:
   y <- Matrix(data[[response]], sparse = FALSE, doDiag = FALSE)
@@ -867,8 +932,10 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   
   # Setting the step sizes if they were not set by the user:
   if (is.null(stepSize)) {
-    stepSize <- c(0.5, 0.75, rep(1, maxit - 2))
+    stepSize <- c(0.25, 0.5, 0.75, rep(1, maxit - 3))
     stepSize <- stepSize^nU
+  } else if (length(stepSize) < maxit) {
+    stepSize <- c(stepSize, rep(1, maxit - length(stepSize)))
   }
   
   if (getStartingValues) {
@@ -878,15 +945,20 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   } else {
     # Fitting:
     # browser()
-    result <- solveLMM_R(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
-                         maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
-                         tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
-                         ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
-                         u.forFactor = u.forFactor, u.indexCor = u.indexCor,
-                         bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
-                         isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                         timesToBoundary = timesToBoundary, super = super)
+    result <- solveLMM(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
+                       maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
+                       tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
+                       ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
+                       u.forFactor = u.forFactor, u.indexCor = u.indexCor,
+                       bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
+                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
+                       timesToBoundary = timesToBoundary, super = super)
     result$params <- unlist(params)
+    result$trace <- rbind(result$LL[1:ncol(result$k)],
+                          stepSize[1:ncol(result$k)],
+                          avInfReg[1:ncol(result$k)],
+                          result$k)
+    rownames(result$trace) <- c("Log-likelihood", "Stepsize", "AI penalty", result$params)
     rownames(result$u) <- unlist(lapply(Z[-length(Z)], colnames)) # Last design matrix is for the residual effect.
     class(result) <- "kmmrFit"
   }
