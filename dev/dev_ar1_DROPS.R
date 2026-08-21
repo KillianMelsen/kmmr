@@ -52,11 +52,21 @@ ggplot2::ggplot(dss, ggplot2::aes(x = as.numeric(as.character(Col)), y = as.nume
   ggplot2::geom_point(size = 5) +
   ggplot2::scale_color_continuous(palette = "viridis")
 
+# Rep is not really an appropriate name here as it doesn't identify a unique row for B73:
+dss[dss$Env == "Gai12" & dss$Gen == "B73" & dss$Rep == 1,]
+
+# Instead, call it a complete block and call the other blocks incomplete:
+colnames(dss)[colnames(dss) == "Rep"] <- "compBlock"
+colnames(dss)[colnames(dss) == "Block"] <- "incompBlock"
+# Then add an actual replicate factor that, for each Env and Gen, uniquely identifies a single record:
+dss$Rep <- ave(numeric(nrow(dss)), dss$Env, dss$Gen, FUN = seq_along)
+dss$Rep <- factor(dss$Rep, 1:max(dss$Rep))
+
 system.time(
 fit.asr <- asreml(GY ~ -1 + Env,
                   random = ~ at(Env):ar1v(Row):ar1(Col) +
-                             corgv(Env):vm(Gen, Ki.asr),
-                  residual = ~ idv(units),
+                             corgh(Env):vm(Gen, Ki.asr),
+                  residual = ~ dsum(~ units | Env),
                   data = dss,
                   maxit = 30)
 )
@@ -64,12 +74,12 @@ fit.asr <- asreml(GY ~ -1 + Env,
 system.time(
 fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  random = ~ atEach("Env", ~ re(~ ar1(Row):ar1(Col), vars = ~ 1)) +
-                            re(~ corg(Env):lk(Gen, Ki.kmmr), vars = ~ 1),
-                 residual = ~ units,
+                            re(~ corg(Env):lk(Gen, Ki.kmmr), vars = ~ Env),
+                 residual = ~ re(~ id(Env):id(Gen):id(Rep), vars = ~ Env),
                  data = dss,
                  stepSize = c(0.1, 0.3, 0.5),
-                 init = c(0.1193462, 0.1, 0.1, 0.1193462, 0.1, 0.1, 0.1078008, 0.5, 0.1078008),
-                 isFixed = c(F, F, F, F, F, F, F, F, F),
+                 init = c(0.11, 0.1, 0.1, 0.11, 0.1, 0.1, 0.11, 0.11, 0.5, 0.11, 0.11),
+                 isFixed = c(F, F, F, F, F, F, F, F, F, F, F),
                  sparse = TRUE,
                  maxit = 30)
 )
@@ -79,23 +89,6 @@ u.asr <- as.numeric(fit.asr$coefficients$random[(nrow(fit.asr$coefficients$rando
 u.kmmr <- as.numeric(fit.kmmr$u@x[(length(fit.kmmr$u@x) - 492 + 1):length(fit.kmmr$u@x)])
 plot(u.asr, u.kmmr)
 cor(u.asr, u.kmmr)
-
-fixed = GY ~ -1 + Env:Gen
-random = ~ atEach("Env", ~ re(~ ar1(Row):ar1(Col), vars = ~ 1))
-residual = ~ units
-data = dss
-maxit = 20
-stepSize = NULL
-avInfReg = NULL
-weights = NULL
-init = NULL
-tolConvLL = 0.001
-isFixed = NULL
-verbose = TRUE
-sparse = FALSE
-timesToBoundary = 5
-getStartingValues = FALSE
-super = TRUE
 
 
 

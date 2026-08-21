@@ -156,6 +156,7 @@ K <- readRDS("dev/exampledata_K.rds")[levels(d$Gen), levels(d$Gen)]
 Ki.asr <- solve(K); attr(Ki.asr, "INVERSE") <- TRUE
 Ki <- Matrix(solve(K))
 
+system.time(
 fit.asr <- asreml(fixed = GY ~ -1 + Env,
                   random = ~ fa(Env, 3):vm(Gen, Ki.asr),
                   residual = ~ units,
@@ -163,6 +164,7 @@ fit.asr <- asreml(fixed = GY ~ -1 + Env,
                   maxit = 25,
                   family = asr_gaussian(dispersion = 1.0),
                   weights = weight)
+)
 
 # First we get starting values:
 init <- kmmr(fixed = GY ~ -1 + Env,
@@ -177,6 +179,7 @@ init$Init[init$Parameter == "residual(vars{1})"] <- 1.0
 init$Fixed[init$Parameter == "residual(vars{1})"] <- TRUE
 
 # Then we fit the model and supply weights:
+system.time(
 fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  random = ~ re(~ exfa(Env, 3):lk(Gen, Ki), vars = ~ Env),
                  residual = ~ units,
@@ -185,6 +188,7 @@ fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  init = init$Init,
                  isFixed = init$Fixed,
                  weights = "weight.kmmr")
+)
 
 plot(fit.kmmr$u@x[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d),])
 cor(fit.kmmr$u@x[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d),])
@@ -205,6 +209,7 @@ set.seed(2005)
 d2 <- d[sample(1:nrow(d), nrow(d)),]
 d2$GY[sample(1:nrow(d), nrow(d) * 0.25)] <- NA
 
+system.time(
 fit.asr <- asreml(fixed = GY ~ -1 + Env,
                   random = ~ fa(Env, 3):vm(Gen, Ki.asr),
                   residual = ~ units,
@@ -212,6 +217,7 @@ fit.asr <- asreml(fixed = GY ~ -1 + Env,
                   maxit = 50,
                   family = asr_gaussian(dispersion = 1.0),
                   weights = weight)
+)
 
 # First we get starting values:
 init <- kmmr(fixed = GY ~ -1 + Env,
@@ -226,6 +232,7 @@ init$Init[init$Parameter == "residual(vars{1})"] <- 1.0
 init$Fixed[init$Parameter == "residual(vars{1})"] <- TRUE
 
 # Then we fit the model and supply weights:
+system.time(
 fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  random = ~ re(~ exfa(Env, 3):lk(Gen, Ki), vars = ~ Env),
                  residual = ~ units,
@@ -235,6 +242,7 @@ fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  isFixed = init$Fixed,
                  weights = "weight.kmmr",
                  maxit = 50)
+)
 
 plot(fit.kmmr$u@x[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d),])
 cor(fit.kmmr$u@x[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d),])
