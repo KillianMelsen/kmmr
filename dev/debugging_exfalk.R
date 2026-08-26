@@ -61,7 +61,7 @@ Ki.kmr <- solve(K)
 #                     data = d,
 #                     maxit = 25)
 # ) # 181.533 seconds, 14 iterations, 12.97 seconds/iter
-# 
+#
 # system.time(
 #   fit.kmr <- kmmr(fixed = GY ~ -1 + Man,
 #                   random = ~ re(~ exfa(Man, 2):lk(Gen, Ki.kmr), vars = ~ Man),

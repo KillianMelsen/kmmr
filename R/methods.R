@@ -1,3 +1,39 @@
+#' predict.kmmrFit
+#'
+#' @description
+#' \code{predict.kmmrFit} returns predictions and associated standard errors for
+#' any linear combination of the BLUEs and BLUPs estimated from a linear mixed model
+#' fitted using \code{kmmr}. It is based on the idea that any predicted value can
+#' be computed given a prediction column vector \eqn{\mathbf{k}} of coefficients associated with each BLUE
+#' or BLUP as \eqn{\mathbf{k}^\top \boldsymbol{\tau}} where \eqn{\boldsymbol{\tau} = [\boldsymbol{\beta}^\top \mathbf{u}^\top]^\top}.
+#' The standard error of that predicted value is then \eqn{\mathbf{k}^\top \mathbf{C}^{-1} \mathbf{k}}
+#' which can be efficiently computed using the (sparse) Cholesky factor of \eqn{\mathbf{C}}
+#' by solving the system \eqn{\mathbf{C}\mathbf{x} = \mathbf{k}} and subsequently computing
+#' \eqn{\mathbf{k}^\top \mathbf{x}}. The actual inverse \eqn{\mathbf{C}^{-1}} is never formed.
+#' 
+#' For making many predictions at the same time, individual prediction vectors can be
+#' combined into a sparse prediction matrix so that all predictions are obtained using
+#' \eqn{\mathbf{K}^\top \boldsymbol{\tau}} and standard errors are obtained as the diagonal
+#' elements of \eqn{\mathbf{K}^\top \mathbf{C}^{-1} \mathbf{K}}.
+#'
+#' @param object kmmrFit object.
+#' @param predictionMatrix A sparse vector or matrix of prediction coefficients.
+#' @param ... Extra arguments.
+#'
+#' @keywords internal
+#' @exportS3Method predict kmmrFit
+predict.kmmrFit <- function(object, predictionMatrix, ...) {
+  if (is(predictionMatrix, "sparseVector")) {
+    predictionMatrix <- as(predictionMatrix, "sparseMatrix")
+  }
+  tau <- rbind(object$b, object$u)
+  pvals <- crossprod(predictionMatrix, tau)
+  x <- solve(object$Cchol, predictionMatrix)
+  ppevs <- colSums(predictionMatrix * x)
+  return(data.frame(Prediction = pvals@x,
+                    SE = sqrt(ppevs)))
+}
+
 #' summary.kmmrFit
 #'
 #' @param object kmmrFit object.

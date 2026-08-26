@@ -92,10 +92,27 @@ fit.asr <- asreml(fixed = GY ~ -1 + Env,
                   random = ~ fa(Env, 3):vm(Gen, Ki.asr),
                   residual = ~ units,
                   data = d,
-                  maxit = 20)
+                  maxit = 20,
+                  predict = predict.asreml(classify = "Env:Gen"))
 
 plot(fit.kmmr$u@x[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d),])
 cor(fit.kmmr$u@x[1:nrow(d)], fit.asr$coefficients$random[1:nrow(d),])
+
+# Checking prediction and PEV for the first GxE combination:
+tau <- rbind(fit.kmmr$b, fit.kmmr$u)
+k <- sparseVector(1, c(1, 15), nrow(tau))
+pval.kmmr <- as.numeric(t(k) %*% tau)
+ppev.kmmr <- as.numeric(t(k) %*% solve(fit.kmmr$Cchol, k))
+as.data.frame(fit.asr$predictions$pvals)[1,]
+data.frame(Env = "Gai12", Gen = "11430", predicted.value = pval.kmmr, std.error = sqrt(ppev.kmmr))
+Ci <- solve(fit.kmmr$Cchol) # Full inverse
+all.equal(sqrt(diag(Ci)[1] + diag(Ci)[15] + 2 * Ci[1, 15]), sqrt(ppev.kmmr)) # TRUE
+
+# Same with the package's predict() method:
+preds.kmmr <- predict(fit.kmmr, predictionMatrix = sparseVector(1, c(1, 15), nrow(fit.kmmr$Cchol)))
+as.data.frame(fit.asr$predictions$pvals)[1,]
+data.frame(Env = "Gai12", Gen = "11430", predicted.value = pval.kmmr, std.error = sqrt(ppev.kmmr))
+head(preds.kmmr)
 
 # Checking scrambled GxE data ====
 set.seed(1997)

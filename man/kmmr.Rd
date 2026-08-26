@@ -37,7 +37,7 @@ kmmr(
 \item{stepSize}{Numeric vector indicating the step sizes for parameter updates in each iteration.}
 
 \item{avInfReg}{Numeric vector indicating the penalty to be applied to the average information matrix in each iteration. Using \code{1.1} inflates the diagonal
-elements of the AI matrix by 10% before inverting.}
+elements of the AI matrix by 10\% before inverting.}
 
 \item{weights}{Optional weights, i.e., standard errors or numbers of samples.}
 

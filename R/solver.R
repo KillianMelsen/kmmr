@@ -475,7 +475,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   while (!(converged) & iter <= maxit) {
     start <- proc.time()[3]
     ### Computing Ri ====
-    #tic("Computing Ri")
+    tic("Computing Ri")
     # if (useWeights & iter == 1) { # Apply weights in the first iteration if they need to be used.
     #   S <- t(weights) %*% S %*% weights
     # }
@@ -542,10 +542,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       R <- sigmai[[re]]
       stop("Something went wrong, the residual effect should always have a nonvariable part corresponding to id(units)...")
     }
-    #toc()
+    toc()
     
     ### Forming W = [X Z] ====
-    #tic("Forming W and C = t(W) %*% Ri %*% W")
+    tic("Forming W and C = t(W) %*% Ri %*% W")
     if (iter == 1) {
       W <- X
       for (re in 1:nU) {
@@ -564,10 +564,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     } else {
       C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "unpackedMatrix") # Store as a dense matrix since C will be dense anyway after adding Gi.
     }
-    #toc()
+    toc()
     
     ### Adding Gi to C ====
-    #tic("Computing Gi")
+    tic("Computing Gi")
     # cormats <- vector("list", nU)
     # sigmai <- vector("list", nU)
     # logDetvarGtotal <- numeric(nU)
@@ -825,17 +825,19 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     #                     symmetric = TRUE,
     #                     repr = "C")
     # }
-    #toc()
+    toc()
     
     ### Cholesky decomposition of C ====
     # Overwrite C with its simplicial/supernodal Cholesky factor.
     # We don't need C anymore.
-    #tic("Cholesky decomp of C")
+    # Store an extra copy of the of the CF that is not overwritten by the SIS later.
+    # We need this for the predict() method to compute predictions and associated prediction error variances.
+    tic("Cholesky decomp of C")
     if (sparse) {
       if (super) {
-        C <- Cholesky(C, LDL = FALSE, perm = TRUE, super = TRUE)
+        Cchol <- C <- Cholesky(C, LDL = FALSE, perm = TRUE, super = TRUE)
       } else {
-        C <- Cholesky(C, LDL = TRUE, perm = TRUE, super = FALSE)
+        Cchol <- C <- Cholesky(C, LDL = TRUE, perm = TRUE, super = FALSE)
       }
       # if (iter == 1) {
       #   Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = FALSE)
@@ -845,10 +847,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     } else {
       C <- Cholesky(C, perm = FALSE) # Good for the GPU?
     }
-    #toc()
+    toc()
     
     ### BLUEs/BLUPs ====
-    #tic("Solving for BLUEs and BLUPs")
+    tic("Solving for BLUEs and BLUPs")
     if (sparse) {
       # Apply permutation to the right-hand side of the MME: P %*% t(W) %*% Ri %*% y:
       permRHS <- solve(C, crossprod(W, Ri %*% y), system = "P")
@@ -867,10 +869,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     # Splitting BLUEs and BLUPs:
     b <- bu[1:nX, 1, drop = FALSE]
     u <- bu[(nX + 1):nrow(bu), 1, drop = FALSE]
-    #toc()
+    toc()
     
     ### Computing the log-likelihood ====
-    #tic("Computing log-likelihood")
+    tic("Computing log-likelihood")
     # yPy:
     yPy <- as.numeric(crossprod(y, Ri %*% y) - crossprod(z))
     
@@ -901,11 +903,11 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     # Full LL:
     LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
-    #toc()
+    toc()
     
     ### Working variates ====
     #### Genetic working variates ====
-    #tic("Genetic working variates")
+    tic("Genetic working variates")
     Wu <- Matrix(0, n, nrow(k), sparse = FALSE, doDiag = FALSE) # Matrix for the working variates.
     umat_sigmai <- vector("list", nU) # We will store these matrices for computing the scores later.
     derivs <- vector("list", nUR) # Same thing for all derivatives, except the last entry is reserved for the residual effect.
@@ -1045,10 +1047,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         }
       }
     } # End of loop over random effects
-    #toc()
+    toc()
     
     #### Residual working variates ====
-    #tic("Residual working variates")
+    tic("Residual working variates")
     e <- y - W %*% bu
     re <- nUR
     derivs[[re]] <- vector("list", u.nparams[[re]])
@@ -1094,10 +1096,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         param <- param + 1
       }
     }
-    #toc()
+    toc()
     
     ### Computing the AI matrix ====
-    #tic("Computing the AI matrix and its inverse")
+    tic("Computing the AI matrix and its inverse")
     WiWj <- forceSymmetric(crossprod(Wu, Ri %*% Wu)) # Similar to t(y) %*% Ri %*% y
     if (sparse) {
       XWjxZWj <- solve(C, crossprod(W, Ri %*% Wu), system = "P") # Similar to permRHS
@@ -1122,20 +1124,20 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     } else {
       AIi <- solve(AI)
     }
-    #toc()
+    toc()
     
     ### Computing the inverse of the coefficient matrix ====
     # We can again overwrite C as we no longer need the CF after this.
-    #tic("Inversion of C from cholesky factor")
+    tic("Inversion of C from cholesky factor")
     if (sparse) {
       C <- SIS(C) # The cholmod_extra code already returns the SIS in original model order.
     } else {
       C <- chol2inv(as(C, "dtrMatrix"))
     }
-    #toc()
+    toc()
     
     ### Computing scores ====
-    #tic("Computing genetic scores")
+    tic("Computing genetic scores")
     # See equations (18) and (15) from Jensen, Mantysaari, Madsen, & Thompson 1997:
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
     # mixed linear models using average information"
@@ -1207,10 +1209,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         param <- param + 1
       }
     } # End of loop over random effects.
-    #toc()
+    toc()
     
     #### Residual scores ====
-    #tic("Computing residual scores")
+    tic("Computing residual scores")
     re <- nUR
     for (i in 1:length(derivs[[re]])) {
       if (!isFixed[param]) {
@@ -1219,10 +1221,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       }
       param <- param + 1
     }
-    #toc()
+    toc()
     
     ### Updating parameters ====
-    #tic("Updating parameters and checking constraints")
+    tic("Updating parameters and checking constraints")
     delta <- AIi %*% scores * stepSize[iter]
     
     #### Checking constraints ====
@@ -1519,10 +1521,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     if (any(boundary == timesToBoundary)) {
       isFixed[which(boundary == timesToBoundary)] <- TRUE
     }
-    #toc()
+    toc()
     
     # Printing:
-    ##tic("Printing info")
+    #tic("Printing info")
     stop <- proc.time()[3]
     duration <- as.numeric(stop - start)
     duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
@@ -1536,7 +1538,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
       }
     }
-    ##toc(log = T)
+    #toc(log = T)
     
     # Checking for convergence:
     if (iter > 1) {
@@ -1556,6 +1558,14 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       iter <- iter + 1
     }
   }
-  return(list(LL = LL, k = k, AI = AI, scores = scores, b = b, u = u, isFixed = isFixed, converged = converged))
+  return(list(LL = LL,
+              k = k,
+              AI = AI,
+              scores = scores,
+              b = b,
+              u = u,
+              Cchol = Cchol,
+              isFixed = isFixed,
+              converged = converged))
 }
 
