@@ -1,3 +1,24 @@
-
+CXX_STD = CXX14
 PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
-PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
+
+### CUDA
+CUDA_HOME = /usr/local/cuda-13.0
+CUDA_INC = $(CUDA_HOME)/include
+
+### R and Package Includes
+R_INC = /usr/share/R/include
+RCPP_INC = $(shell Rscript -e "cat(system.file('include', package='Rcpp'))")
+ARMA_INC = $(shell Rscript -e "cat(system.file('include', package='RcppArmadillo'))")
+MATRIX_INC = $(shell Rscript -e "cat(system.file('include', package='Matrix'))")
+
+### NVCC Setup
+NVCC = $(CUDA_HOME)/bin/nvcc
+NVCC_FLAGS = -x cu -Xcompiler "-fPIC" -gencode arch=compute_86,code=sm_86
+NVCC_INC = -I$(CUDA_INC) -I$(R_INC) -I$(RCPP_INC) -I$(ARMA_INC) -I$(MATRIX_INC)
+
+### Libraries
+PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -L$(CUDA_HOME)/lib64 -Wl,-rpath,$(CUDA_HOME)/lib64 -lcudart -lcublas -lcusolver
+
+### Compilation rule for all .cpp files in the folder via NVCC
+%.o: %.cpp
+	$(NVCC) $(NVCC_FLAGS) $(NVCC_INC) -o $@ -c $<

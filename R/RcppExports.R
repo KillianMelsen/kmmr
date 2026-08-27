@@ -17,3 +17,15 @@ getTracesSparse <- function(C_p, C_i, C_x, G_p, G_i, G_x, p, d) {
     .Call(`_kmmr_getTracesSparse`, C_p, C_i, C_x, G_p, G_i, G_x, p, d)
 }
 
+.getDeviceProps <- function(id) {
+    .Call(`_kmmr_getDeviceProps`, id)
+}
+
+gpuFreePointer <- function(ptr_in) {
+    invisible(.Call(`_kmmr_gpuFreePointer`, ptr_in))
+}
+
+cuSolverPhase1 <- function(C_in, RHS_in, returnCchol = FALSE) {
+    .Call(`_kmmr_cuSolverPhase1`, C_in, RHS_in, returnCchol)
+}
+

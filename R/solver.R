@@ -845,7 +845,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       #   # To Do: only update the cholesky factor instead
       # }
     } else {
-      C <- Cholesky(C, perm = FALSE) # Good for the GPU?
+      Cchol <- C <- Cholesky(C, perm = FALSE) # Good for the GPU?
     }
     toc()
     
