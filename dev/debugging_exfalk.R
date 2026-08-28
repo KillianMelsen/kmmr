@@ -240,19 +240,21 @@ d <- d[, c(1, 4)]
 # K <- statgenGWAS::kinship(gdata$markers, method = "IBS")
 # K <- Matrix(K)
 # saveRDS(K, "dev/K.AGT.rds")
-K <- readRDS("dev/K.AGT.rds")
+# K <- readRDS("dev/K.AGT.rds")
 colnames(d) <- c("Gen", "GY")
 d$Gen <- factor(d$Gen, d$Gen, d$Gen)
-K <- K[levels(d$Gen), levels(d$Gen)]
-Ki <- solve(K)
-rm(K); gc()
+# K <- K[levels(d$Gen), levels(d$Gen)]
+# Ki <- solve(K)
+# rm(K); gc()
+Ki <- readRDS("dev/Ki.AGT.rds")
 
 # 30 seconds per iteration
 fit <- kmmr(fixed = GY ~ 1,
             random = ~ re(~ lk(Gen, Ki), vars = ~ 1),
             residual = ~ units,
             data = d,
-            sparse = FALSE)
+            sparse = FALSE,
+            useGPU = TRUE)
 
 # scaling <- diag(K)
 # Kcor <- cov2cor(as.matrix(K))

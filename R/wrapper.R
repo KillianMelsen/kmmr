@@ -562,10 +562,15 @@ gk <- function(factor, base) {
 #' @returns List with all information on this correlation structure.
 #' @keywords internal
 lk <- function(factor, base) {
+  logDet <- attr(base, "logDet")
   levels <- levels(factor)
+  if (!identical(rownames(base), levels)) {
+    base <- base[levels, levels]
+    attr(base, "logDet") <- logDet
+  }
   p <- length(levels)
   nparams <- 0
-  return(list(base = base[levels, levels],
+  return(list(base = base,
               levels = levels,
               nlevels = p,
               nparams = nparams,
@@ -702,13 +707,15 @@ atEach <- function(factor, formula, levels = NULL, ...) {
 #' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
 #' @param getStartingValues Should the model be fitted, or should suggested starting values be returned?
 #' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
+#' @param useGPU Should the GPU be used for dense models?
 #'
 #' @returns A list with the results.
 #' @export
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
-                 sparse = FALSE, timesToBoundary = 5, getStartingValues = FALSE, super = TRUE) {
+                 sparse = FALSE, timesToBoundary = 5, getStartingValues = FALSE, super = TRUE,
+                 useGPU = FALSE) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -945,14 +952,26 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   } else {
     # Fitting:
     # browser()
-    result <- solveLMM(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
-                       maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
-                       tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
-                       ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
-                       u.forFactor = u.forFactor, u.indexCor = u.indexCor,
-                       bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
-                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                       timesToBoundary = timesToBoundary, super = super)
+    if (!sparse & useGPU) {
+      result <- solveLMM_GPU(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
+                             maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
+                             tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
+                             ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
+                             u.forFactor = u.forFactor, u.indexCor = u.indexCor,
+                             bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
+                             isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
+                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU)
+    } else {
+      result <- solveLMM(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
+                         maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
+                         tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
+                         ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
+                         u.forFactor = u.forFactor, u.indexCor = u.indexCor,
+                         bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
+                         isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
+                         timesToBoundary = timesToBoundary, super = super)
+    }
+  
     result$params <- unlist(params)
     result$trace <- rbind(result$LL[1:ncol(result$k)],
                           stepSize[1:ncol(result$k)],

@@ -20,7 +20,8 @@ kmmr(
   sparse = FALSE,
   timesToBoundary = 5,
   getStartingValues = FALSE,
-  super = TRUE
+  super = TRUE,
+  useGPU = FALSE
 )
 }
 \arguments{
@@ -56,6 +57,8 @@ elements of the AI matrix by 10\% before inverting.}
 \item{getStartingValues}{Should the model be fitted, or should suggested starting values be returned?}
 
 \item{super}{Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?}
+
+\item{useGPU}{Should the GPU be used for dense models?}
 }
 \value{
 A list with the results.

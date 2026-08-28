@@ -56,6 +56,28 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// cuSolverInit
+SEXP cuSolverInit(int N, int rhs_cols);
+RcppExport SEXP _kmmr_cuSolverInit(SEXP NSEXP, SEXP rhs_colsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< int >::type N(NSEXP);
+    Rcpp::traits::input_parameter< int >::type rhs_cols(rhs_colsSEXP);
+    rcpp_result_gen = Rcpp::wrap(cuSolverInit(N, rhs_cols));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cuSolverCleanup
+void cuSolverCleanup(SEXP ptr_in);
+RcppExport SEXP _kmmr_cuSolverCleanup(SEXP ptr_inSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ptr_in(ptr_inSEXP);
+    cuSolverCleanup(ptr_in);
+    return R_NilValue;
+END_RCPP
+}
 // getDeviceProps
 Rcpp::List getDeviceProps(const int& id);
 RcppExport SEXP _kmmr_getDeviceProps(SEXP idSEXP) {
@@ -67,26 +89,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// gpuFreePointer
-void gpuFreePointer(SEXP ptr_in);
-RcppExport SEXP _kmmr_gpuFreePointer(SEXP ptr_inSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type ptr_in(ptr_inSEXP);
-    gpuFreePointer(ptr_in);
-    return R_NilValue;
-END_RCPP
-}
 // cuSolverPhase1
-Rcpp::List cuSolverPhase1(SEXP C_in, SEXP RHS_in, bool returnCchol);
-RcppExport SEXP _kmmr_cuSolverPhase1(SEXP C_inSEXP, SEXP RHS_inSEXP, SEXP returnCcholSEXP) {
+Rcpp::List cuSolverPhase1(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol);
+RcppExport SEXP _kmmr_cuSolverPhase1(SEXP ctx_ptrSEXP, SEXP C_inSEXP, SEXP RHS_inSEXP, SEXP returnCcholSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ctx_ptr(ctx_ptrSEXP);
     Rcpp::traits::input_parameter< SEXP >::type C_in(C_inSEXP);
     Rcpp::traits::input_parameter< SEXP >::type RHS_in(RHS_inSEXP);
     Rcpp::traits::input_parameter< bool >::type returnCchol(returnCcholSEXP);
-    rcpp_result_gen = Rcpp::wrap(cuSolverPhase1(C_in, RHS_in, returnCchol));
+    rcpp_result_gen = Rcpp::wrap(cuSolverPhase1(ctx_ptr, C_in, RHS_in, returnCchol));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -95,9 +108,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_SIS", (DL_FUNC) &_kmmr_SIS, 1},
     {"_kmmr_getTraces", (DL_FUNC) &_kmmr_getTraces, 6},
     {"_kmmr_getTracesSparse", (DL_FUNC) &_kmmr_getTracesSparse, 8},
+    {"_kmmr_cuSolverInit", (DL_FUNC) &_kmmr_cuSolverInit, 2},
+    {"_kmmr_cuSolverCleanup", (DL_FUNC) &_kmmr_cuSolverCleanup, 1},
     {"_kmmr_getDeviceProps", (DL_FUNC) &_kmmr_getDeviceProps, 1},
-    {"_kmmr_gpuFreePointer", (DL_FUNC) &_kmmr_gpuFreePointer, 1},
-    {"_kmmr_cuSolverPhase1", (DL_FUNC) &_kmmr_cuSolverPhase1, 3},
+    {"_kmmr_cuSolverPhase1", (DL_FUNC) &_kmmr_cuSolverPhase1, 4},
     {NULL, NULL, 0}
 };
 

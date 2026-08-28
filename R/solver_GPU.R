@@ -343,7 +343,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
   return(ret)
 }
 
-#' solveLMM
+#' solveLMM_GPU
 #' 
 #' Implementation of the average information algorithm for fitting linear mixed
 #' models.
@@ -378,14 +378,15 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @param sparse Should the sparse version of the algorithm be used? Useful if C is reasonable sparse.
 #' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
 #' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
+#' @param useGPU Should the GPU be used for dense models?
 #'
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
 #' @keywords internal
-solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
-                       indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
-                       bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
-                       timesToBoundary, super) {
+solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
+                         indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
+                         bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
+                         timesToBoundary, super, useGPU) {
   ## Prelims ====
   start <- proc.time()[3]
   k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
@@ -428,7 +429,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
           if (is(bases[[re]][[i]], "sparseMatrix")) {
             logDetnvarG[i - n.var[re]] <- -1 * determinant(Cholesky(bases[[re]][[i]], LDL = FALSE, perm = TRUE, super = TRUE), sqrt = FALSE, logarithm = TRUE)$modulus
           } else {
-            logDetnvarG[i - n.var[re]] <- -1 * sum(log(eigen(bases[[re]][[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices? 
+            logDetnvarG[i - n.var[re]] <- -1 * sum(log(eigen(bases[[re]][[i]], only.values = TRUE)$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices? 
           }
         }
       }
@@ -455,6 +456,13 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     # Form the non-variable part of R using kronecker products before iterating if it exists:
     S <- Reduce(kronecker, bases[[re]][i.nvar[[re]]])
   }
+  
+  ## Forming W = [X Z] ====
+  W <- X
+  for (re in 1:nU) {
+    W <- cbind(W, Z[[re]])
+  }
+  
   stop <- proc.time()[3]
   duration <- as.numeric(stop - start)
   duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
@@ -467,6 +475,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     }
     cat(sprintf("%-11s %-15.3f %-20s\n", "Setup", NA, duration))
   }
+  
+  ## Setup the GPU CUDA context ====
+  gpu_ctx <- cuSolverInit(ncol(W), 1)
   
   ## Start iterating ====
   LL <- numeric(maxit + 1)
@@ -544,16 +555,8 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     }
     #toc()
     
-    ### Forming W = [X Z] ====
-    #tic("Forming W and C = t(W) %*% Ri %*% W")
-    if (iter == 1) {
-      W <- X
-      for (re in 1:nU) {
-        W <- cbind(W, Z[[re]])
-      }
-    }
-    
     ### Computing C = t(W) %*% Ri %*% W
+    #tic("Forming C = t(W) %*% Ri %*% W")
     if (sparse) {
       C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "TsparseMatrix") # Converting to triplet form for adding sparse Gi's later
       # C_i <- C@i
@@ -829,6 +832,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     ### Cholesky decomposition of C and computing BLUEs/BLUPs ====
     #tic("Cholesky decomp of C and BLUEs/BLUPs")
+    browser()
     if (sparse) {
       if (super) {
         Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = TRUE)
@@ -863,8 +867,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
         logDetC <- sum(log(diag(Cchol)))
       } else {
-        gpuResult <- cuSolverPhase1(C = C, RHS = RHS, returnCchol = FALSE)
+        gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C = C, RHS = RHS, returnCchol = FALSE)
         bu <- gpuResult$bu
+        rownames(bu) <- colnames(C)
         z <- gpuResult$z
         logDetC <- gpuResult$logDetC
       }
@@ -1567,8 +1572,8 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   # only ever existed on the GPU, and we don't want to copy it back in every
   # single iteration.
   if (useGPU) {
-    gpuResult <- cuSolverPhase1(C = C, RHS = RHS, returnCchol = FALSE)
-    gpuFreePointer(gpuResult$ptr)
+    gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C = C, RHS = RHS, returnCchol = FALSE)
+    cuSolverCleanup(gpu_ctx)
   }
   
   return(list(LL = LL,

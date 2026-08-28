@@ -13,7 +13,7 @@ MATRIX_INC = $(shell Rscript -e "cat(system.file('include', package='Matrix'))")
 
 ### NVCC Setup
 NVCC = $(CUDA_HOME)/bin/nvcc
-NVCC_FLAGS = -x cu -Xcompiler "-fPIC" -gencode arch=compute_86,code=sm_86
+NVCC_FLAGS = -x cu -Xcompiler "-fPIC" -gencode arch=compute_86,code=sm_86 -DARMA_ALLOW_FAKE_GCC
 NVCC_INC = -I$(CUDA_INC) -I$(R_INC) -I$(RCPP_INC) -I$(ARMA_INC) -I$(MATRIX_INC)
 
 ### Libraries
