@@ -9,6 +9,10 @@ SIS <- function(choleskyFactor) {
     .Call(`_kmmr_SIS`, choleskyFactor)
 }
 
+addBlockInplace <- function(C, Gi, offset) {
+    invisible(.Call(`_kmmr_addBlockInplace`, C, Gi, offset))
+}
+
 getTraces <- function(p_ptr, i_ptr, x_ptr, G, p, d) {
     .Call(`_kmmr_getTraces`, p_ptr, i_ptr, x_ptr, G, p, d)
 }

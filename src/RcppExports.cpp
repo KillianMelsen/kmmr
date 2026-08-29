@@ -22,6 +22,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// addBlockInplace
+void addBlockInplace(S4 C, S4 Gi, int offset);
+RcppExport SEXP _kmmr_addBlockInplace(SEXP CSEXP, SEXP GiSEXP, SEXP offsetSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< S4 >::type C(CSEXP);
+    Rcpp::traits::input_parameter< S4 >::type Gi(GiSEXP);
+    Rcpp::traits::input_parameter< int >::type offset(offsetSEXP);
+    addBlockInplace(C, Gi, offset);
+    return R_NilValue;
+END_RCPP
+}
 // getTraces
 NumericMatrix getTraces(IntegerVector p_ptr, IntegerVector i_ptr, NumericVector x_ptr, NumericMatrix G, int p, int d);
 RcppExport SEXP _kmmr_getTraces(SEXP p_ptrSEXP, SEXP i_ptrSEXP, SEXP x_ptrSEXP, SEXP GSEXP, SEXP pSEXP, SEXP dSEXP) {
@@ -106,6 +118,7 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_SIS", (DL_FUNC) &_kmmr_SIS, 1},
+    {"_kmmr_addBlockInplace", (DL_FUNC) &_kmmr_addBlockInplace, 3},
     {"_kmmr_getTraces", (DL_FUNC) &_kmmr_getTraces, 6},
     {"_kmmr_getTracesSparse", (DL_FUNC) &_kmmr_getTracesSparse, 8},
     {"_kmmr_cuSolverInit", (DL_FUNC) &_kmmr_cuSolverInit, 2},

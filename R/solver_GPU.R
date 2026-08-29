@@ -1,3 +1,26 @@
+formGi <- function(sigmai, nvarGi) {
+  # sigmai is a 1x1 matrix:
+  if (identical(dim(sigmai), c(1L, 1L))) {
+    return(sigmai@x * nvarGi)
+  }
+  
+  # nvarGi is a 1x1 matrix, don't think this should ever happen:
+  if (identical(dim(nvarGi), c(1L, 1L))) {
+    stop("One of the nvarGi matrices is a 1x1 matrix!")
+    # return(sigmai * nvarGi@x)
+  }
+  
+  # General case for p > 1 (dense or sparse)
+  res <- kronecker(sigmai, nvarGi)
+  
+  # Making sure the result is a ds.Matrix:
+  if (!is(res, "symmetricMatrix")) {
+    res <- forceSymmetric(res)
+  }
+  
+  return(res)
+}
+
 # A function for checking and constraining updates to the loadings of fa and exfa structures:
 checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
   kUpdate <- currentParams + delta
@@ -417,6 +440,7 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
   } # End loop over random effects
   
   # Forming non-variable structures for random effects:
+  #tic("Forming nvarGi for each random effect")
   nvarGi <- vector("list", nU)
   logDetnvarGtotal <- numeric(nU)
   for (re in 1:nU) { # Start loop over random effects
@@ -449,6 +473,7 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
       nvarGi[[re]] <- Reduce(kronecker, bases[[re]][i.nvar[[re]]])
     }
   } # End loop over random effects
+  #toc()
   
   # Forming non-variable structure for the residual effect:
   re <- nUR
@@ -458,10 +483,12 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
   }
   
   ## Forming W = [X Z] ====
+  #tic("Forming W")
   W <- X
   for (re in 1:nU) {
     W <- cbind(W, Z[[re]])
   }
+  #toc()
   
   stop <- proc.time()[3]
   duration <- as.numeric(stop - start)
@@ -477,7 +504,11 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
   }
   
   ## Setup the GPU CUDA context ====
-  gpu_ctx <- cuSolverInit(ncol(W), 1)
+  if (useGPU) {
+    #tic("Initializing CUDA")
+    gpu_ctx <- cuSolverInit(ncol(W), 1)
+    #toc()
+  }
   
   ## Start iterating ====
   LL <- numeric(maxit + 1)
@@ -577,7 +608,7 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
     # vars <- vector("list", nU)
     offset <- nX + 1
     for (re in 1:nU) { # Start loop over random effects
-      # Computing Gi every iteration:
+      #### Computing Gi ====
       if (any(u.isStack[[re]])) { # If there is a stack in the random effect
         # Determining which factor is a stack and the size of the stack:
         i.stack <- which(u.isStack[[re]])
@@ -641,56 +672,6 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
         } else { # End of if (n.var[re] > 0), which should always be TRUE for random effects with a stack
           stop("Something is wrong, n.var[re] > 0 is FALSE for a random effect with a stack...")
         }
-        if (n.nvar[re] > 0) {
-          Gi <- as(kronecker(sigmai[[re]], nvarGi[[re]]), "TsparseMatrix") # This is a bit slow as well.
-        } else {
-          Gi <- as(sigmai[[re]], "TsparseMatrix")
-        }
-
-        # Now add to C:
-        dimGi <- nrow(Gi)
-        if (sparse) {
-          # If we want the full C to be sparse but still have a dense random effect, we need to store the Gi for that
-          # dense random effect in sparse format.
-          if (!is(Gi, "sparseMatrix")) {
-            Gi <- as(Gi, "TsparseMatrix")
-          }
-          # Collecting the values of the previous C and current Gi.
-          # Padding Gi with zeros to make it conformable with the sparse base C.
-          C_i_combined <- c(C@i, Gi@i + offset - 1)
-          C_j_combined <- c(C@j, Gi@j + offset - 1)
-          C_x_combined <- c(C@x, Gi@x)
-          rm(Gi, C) # We have all we need in the three vectors above, so get rid of Gi and the old C to free up memory.
-          
-          # Constructing the new C:
-          if (re == nU) {
-            repr <- "C" # Finally convert C to dsCMatrix to prepare for CF if there are no more random effects.
-          } else {
-            repr <- "T" # Keep C in triplet form if we have more random effects.
-          }
-          C <- sparseMatrix(i = C_i_combined + 1,
-                            j = C_j_combined + 1,
-                            x = C_x_combined,
-                            dims = C_dim,
-                            symmetric = TRUE,
-                            repr = repr)
-          
-          # Alternative approach, collecting all i's, j's, x's and building C after looping
-          # over all random effects.
-          # C_i <- c(C_i, Gi@i + offset - 1)
-          # C_j <- c(C_j, Gi@j + offset - 1)
-          # C_x <- c(C_x, Gi@x)
-          
-          # Gi <- sparseMatrix(i = Gi@i + 1 + offset - 1,
-          #                    j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + offset - 1,
-          #                    x = Gi@x,
-          #                    dims = dim(C),
-          #                    symmetric = TRUE)
-          # C <- C + Gi
-        } else {
-          C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] <- C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] + Gi
-        }
-        offset <- offset + dimGi # Moving offset to the next random effect.
       } else { # If there is no stack in the random effect
         # Always the outer product of standard deviations first:
         # For now, exfa is guaranteed/assumed to be the first factor in a random
@@ -763,58 +744,67 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
           sigmai[[re]] <- 1 / vars[[re]]
           logDetvarGtotal[re] <- -1 * log(sigmai[[re]])@x
         }
-        if (n.nvar[re] > 0) {
-          Gi <- as(kronecker(sigmai[[re]], nvarGi[[re]]), "TsparseMatrix") # This is a bit slow as well.
-        } else {
-          Gi <- as(sigmai[[re]], "TsparseMatrix")
-        }
-        
-        # Now add to C:
-        dimGi <- nrow(Gi)
-        if (sparse) {
-          # If we want C to be sparse but still have a dense random effect, we need to store the Gi for that
-          # dense random effect in sparse format.
-          if (!is(Gi, "sparseMatrix")) {
-            Gi <- as(Gi, "TsparseMatrix")
-          }
-          # Collecting the values of the previous C and current Gi.
-          # Padding Gi with zeros to make it conformable with the sparse base C.
-          C_i_combined <- c(C@i, Gi@i + offset - 1)
-          C_j_combined <- c(C@j, Gi@j + offset - 1)
-          C_x_combined <- c(C@x, Gi@x)
-          rm(Gi, C) # We have all we need in the three vectors above, so get rid of Gi and the old C to free up memory.
-          
-          # Constructing the new C:
-          if (re == nU) {
-            repr <- "C" # Finally convert C to dsCMatrix to prepare for CF if there are no more random effects.
-          } else {
-            repr <- "T" # Keep C in triplet form if we have more random effects.
-          }
-          C <- sparseMatrix(i = C_i_combined + 1,
-                            j = C_j_combined + 1,
-                            x = C_x_combined,
-                            dims = C_dim,
-                            symmetric = TRUE,
-                            repr = repr)
-          
-          # Alternative approach, collecting all i's, j's, x's and building C after looping
-          # over all random effects.
-          # C_i <- c(C_i, Gi@i + offset - 1)
-          # C_j <- c(C_j, Gi@j + offset - 1)
-          # C_x <- c(C_x, Gi@x)
-          
-          # Padding Gi with zeros to make it conformable with the sparse base C.
-          # Gi <- sparseMatrix(i = Gi@i + 1 + offset - 1,
-          #                    j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + offset - 1,
-          #                    x = Gi@x,
-          #                    dims = dim(C),
-          #                    symmetric = TRUE)
-          # C <- C + Gi
-        } else {
-          C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] <- C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] + Gi # This one is also slow
-        }
-        offset <- offset + dimGi # Moving offset to next random effect.
       }
+      ### Adding it to C ====
+      if (n.nvar[re] > 0) {
+        #tic("Kronecker product to form Gi")
+        # Gi <- as(kronecker(sigmai[[re]], nvarGi[[re]]), "TsparseMatrix") # This is a bit slow as well.
+        # Gi <- kronecker(sigmai[[re]], nvarGi[[re]])
+        Gi <- formGi(sigmai[[re]], nvarGi[[re]])
+        #toc()
+      } else {
+        # Gi <- as(sigmai[[re]], "TsparseMatrix")
+        Gi <- sigmai[[re]]
+      }
+      
+      # Now add to C:
+      dimGi <- nrow(Gi)
+      if (sparse) {
+        # If we want C to be sparse but still have a dense random effect, we need to store the Gi for that
+        # dense random effect in sparse format.
+        if (!is(Gi, "sparseMatrix")) {
+          Gi <- as(Gi, "TsparseMatrix")
+        }
+        # Collecting the values of the previous C and current Gi.
+        # Padding Gi with zeros to make it conformable with the sparse base C.
+        C_i_combined <- c(C@i, Gi@i + offset - 1)
+        C_j_combined <- c(C@j, Gi@j + offset - 1)
+        C_x_combined <- c(C@x, Gi@x)
+        rm(Gi, C) # We have all we need in the three vectors above, so get rid of Gi and the old C to free up memory.
+        
+        # Constructing the new C:
+        if (re == nU) {
+          repr <- "C" # Finally convert C to dsCMatrix to prepare for CF if there are no more random effects.
+        } else {
+          repr <- "T" # Keep C in triplet form if we have more random effects.
+        }
+        C <- sparseMatrix(i = C_i_combined + 1,
+                          j = C_j_combined + 1,
+                          x = C_x_combined,
+                          dims = C_dim,
+                          symmetric = TRUE,
+                          repr = repr)
+        
+        # Alternative approach, collecting all i's, j's, x's and building C after looping
+        # over all random effects.
+        # C_i <- c(C_i, Gi@i + offset - 1)
+        # C_j <- c(C_j, Gi@j + offset - 1)
+        # C_x <- c(C_x, Gi@x)
+        
+        # Padding Gi with zeros to make it conformable with the sparse base C.
+        # Gi <- sparseMatrix(i = Gi@i + 1 + offset - 1,
+        #                    j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + offset - 1,
+        #                    x = Gi@x,
+        #                    dims = dim(C),
+        #                    symmetric = TRUE)
+        # C <- C + Gi
+      } else {
+        #tic("Adding Gi to C")
+        # C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] <- C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] + Gi # This one is also slow
+        addBlockInplace(C, Gi, offset = offset)
+        #toc()
+      }
+      offset <- offset + dimGi # Moving offset to next random effect.
     } # End loop over random effects.
     # rm(Gi) # No more need for Gi, so get rid of it.
     
@@ -1532,7 +1522,7 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
     #toc()
     
     # Printing:
-    ##tic("Printing info")
+    #tic("Printing info")
     stop <- proc.time()[3]
     duration <- as.numeric(stop - start)
     duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
@@ -1546,7 +1536,7 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
         cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
       }
     }
-    ##toc(log = T)
+    #toc()
     
     # Checking for convergence:
     if (iter > 1) {
