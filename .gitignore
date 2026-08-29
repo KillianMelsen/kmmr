@@ -2,3 +2,6 @@
 .Rapp*
 .Rproj.user
 .Rhistory
+*.o
+*.so
+
