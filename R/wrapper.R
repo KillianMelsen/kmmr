@@ -969,7 +969,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                          u.forFactor = u.forFactor, u.indexCor = u.indexCor,
                          bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
                          isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                         timesToBoundary = timesToBoundary, super = super)
+                         timesToBoundary = timesToBoundary, super = super, useGPU = useGPU)
     }
   
     result$params <- unlist(params)
