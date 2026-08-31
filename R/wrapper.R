@@ -962,7 +962,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                              isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
                              timesToBoundary = timesToBoundary, super = super, useGPU = useGPU)
     } else {
-      result <- solveLMM(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
+      result <- solveLMM_GPU(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
                          maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
                          tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
                          ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,

@@ -18,7 +18,8 @@ struct cuSolverContext {
   cudaStream_t stream;
   
   int N;
-  int rhs_cols;
+  int rhs_cols_1; // Number of columns of the phase 1 right-hand side, always 1
+  int rhs_cols_2; // Number of columns of the phase 2 right-hand side, equal to the number of parameters
   int lwork; // Stores the max workspace size needed
   
   // Persistent memory blocks
@@ -53,10 +54,11 @@ void context_finalizer_hook(SEXP ptr_in) {
 
 // The initializer (called from R once before iterating):
 // [[Rcpp::export(cuSolverInit)]]
-SEXP cuSolverInit(int N, int rhs_cols) {
+SEXP cuSolverInit(int N, int rhs_cols_1, int rhs_cols_2) {
   cuSolverContext* ctx = new cuSolverContext();
   ctx->N = N;
-  ctx->rhs_cols = rhs_cols;
+  ctx->rhs_cols_1 = rhs_cols_1; // always 1
+  ctx->rhs_cols_2 = rhs_cols_2; // number of parameters (variance components)
   
   cublasCreate(&(ctx->cublasH));
   cusolverDnCreate(&(ctx->cusolverH));
@@ -66,8 +68,8 @@ SEXP cuSolverInit(int N, int rhs_cols) {
   
   // Allocate all memory upfront:
   CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_C)), N * N * sizeof(double)) );
-  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_RHS)), N * rhs_cols * sizeof(double)) );
-  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_buWu)), N * rhs_cols * sizeof(double)) );
+  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_RHS)), N * rhs_cols_1 * sizeof(double)) );
+  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_buWu)), N * rhs_cols_2 * sizeof(double)) );
   CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_diag)), N * sizeof(double)) );
   CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_info)), sizeof(int)) );
   
@@ -169,7 +171,10 @@ Rcpp::List cuSolverPhase1(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol
   
   // Left and ride side dimensions:
   int N = ctx->N;
-  int rhs_cols = ctx->rhs_cols;
+  int rhs_cols = ctx->rhs_cols_1;
+  if (RHS.n_cols != rhs_cols) {
+    Rcpp::stop("RHS dimension mismatch! Expected %i columns, got %i.", rhs_cols, RHS.n_cols);
+  }
   
   // Assume upper storage ("U") from R's dsyMatrix/dtrMatrix conventions:
   cublasFillMode_t uplo = CUBLAS_FILL_MODE_UPPER;
@@ -246,7 +251,67 @@ Rcpp::List cuSolverPhase1(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol
   );
 }
 
-
+// [[Rcpp::export(cuSolverPhase2)]]
+Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in) {
+  
+  // Unwrap the persistent context
+  Rcpp::XPtr<cuSolverContext> ctx(ctx_ptr);
+  if (ctx.get() == nullptr) Rcpp::stop("GPU pointer is null or has already been freed!");
+  
+  // Converting to an armadillo matrix:
+  arma::dmat XWjxZWj = convert_to_dmat(XWjxZWj_in);
+  
+  // Left and right side dimensions:
+  int N = ctx->N;
+  int rhs_cols = ctx->rhs_cols_2;
+  if (XWjxZWj.n_cols != rhs_cols) {
+    Rcpp::stop("XWjxZWj dimension mismatch! Expected %i columns, got %i.", rhs_cols, XWjxZWj.n_cols);
+  }
+  
+  // Assume upper storage ("U") from R's dsyMatrix/dtrMatrix conventions:
+  cublasFillMode_t uplo = CUBLAS_FILL_MODE_UPPER;
+  
+  // Push the multiple right-hand side matrix (XWjxZWj) into the d_buWu buffer.
+  // Note that XWjxZWj will be replaced by buWu:
+  CHECK_CUDA( cudaMemcpyAsync(ctx->d_buWu, XWjxZWj.memptr(), N * rhs_cols * sizeof(double), cudaMemcpyHostToDevice, ctx->stream) );
+  
+  // Solve for buWu in-place using the existing Cholesky factor in d_C:
+  cusolverDnDpotrs(ctx->cusolverH, uplo, N, rhs_cols, ctx->d_C, N, ctx->d_buWu, N, ctx->d_info);
+  
+  // Return buWu to R directly into a dgeMatrix
+  Rcpp::NumericVector buWu_vec(N * rhs_cols);
+  CHECK_CUDA( cudaMemcpyAsync(REAL(buWu_vec), ctx->d_buWu, N * rhs_cols * sizeof(double), cudaMemcpyDeviceToHost, ctx->stream) );
+  
+  Rcpp::S4 buWu_dge("dgeMatrix");
+  buWu_dge.slot("x") = buWu_vec;
+  buWu_dge.slot("Dim") = Rcpp::IntegerVector::create(N, rhs_cols);
+  buWu_dge.slot("Dimnames") = Rcpp::List::create(R_NilValue, R_NilValue);
+  
+  // Invert C from its Cholesky factor:
+  cusolverDnDpotri(ctx->cusolverH, uplo, N, ctx->d_C, N, ctx->d_work, ctx->lwork, ctx->d_info);
+  
+  // Allocate the raw R vector for the S4 dsyMatrix:
+  Rcpp::NumericVector Ci_vec(N * N);
+  
+  // Beam C^-1 directly into the R vector
+  CHECK_CUDA( cudaMemcpyAsync(REAL(Ci_vec), ctx->d_C, N * N * sizeof(double), cudaMemcpyDeviceToHost, ctx->stream) );
+  
+  // Sync here because the CPU cannot return the Ci_vec to R until the GPU finishes writing to it!
+  CHECK_CUDA( cudaStreamSynchronize(ctx->stream) );
+  
+  // Construct the S4 dsyMatrix:
+  Rcpp::S4 Ci_host("dpoMatrix");
+  Ci_host.slot("x") = Ci_vec;
+  Ci_host.slot("Dim") = Rcpp::IntegerVector::create(N, N);
+  Ci_host.slot("Dimnames") = Rcpp::List::create(R_NilValue, R_NilValue);
+  Ci_host.slot("uplo") = "U";
+  Ci_host.slot("factors") = Rcpp::List::create(); // dpoMatrix strictly expects an empty list here by default
+  
+  return Rcpp::List::create(
+    Rcpp::Named("buWu") = buWu_dge,
+    Rcpp::Named("Ci") = Ci_host
+  );
+}
 
 
 

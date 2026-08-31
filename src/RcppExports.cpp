@@ -69,14 +69,15 @@ BEGIN_RCPP
 END_RCPP
 }
 // cuSolverInit
-SEXP cuSolverInit(int N, int rhs_cols);
-RcppExport SEXP _kmmr_cuSolverInit(SEXP NSEXP, SEXP rhs_colsSEXP) {
+SEXP cuSolverInit(int N, int rhs_cols_1, int rhs_cols_2);
+RcppExport SEXP _kmmr_cuSolverInit(SEXP NSEXP, SEXP rhs_cols_1SEXP, SEXP rhs_cols_2SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< int >::type N(NSEXP);
-    Rcpp::traits::input_parameter< int >::type rhs_cols(rhs_colsSEXP);
-    rcpp_result_gen = Rcpp::wrap(cuSolverInit(N, rhs_cols));
+    Rcpp::traits::input_parameter< int >::type rhs_cols_1(rhs_cols_1SEXP);
+    Rcpp::traits::input_parameter< int >::type rhs_cols_2(rhs_cols_2SEXP);
+    rcpp_result_gen = Rcpp::wrap(cuSolverInit(N, rhs_cols_1, rhs_cols_2));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -115,16 +116,29 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// cuSolverPhase2
+Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in);
+RcppExport SEXP _kmmr_cuSolverPhase2(SEXP ctx_ptrSEXP, SEXP XWjxZWj_inSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ctx_ptr(ctx_ptrSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type XWjxZWj_in(XWjxZWj_inSEXP);
+    rcpp_result_gen = Rcpp::wrap(cuSolverPhase2(ctx_ptr, XWjxZWj_in));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_SIS", (DL_FUNC) &_kmmr_SIS, 1},
     {"_kmmr_addBlockInplace", (DL_FUNC) &_kmmr_addBlockInplace, 3},
     {"_kmmr_getTraces", (DL_FUNC) &_kmmr_getTraces, 6},
     {"_kmmr_getTracesSparse", (DL_FUNC) &_kmmr_getTracesSparse, 8},
-    {"_kmmr_cuSolverInit", (DL_FUNC) &_kmmr_cuSolverInit, 2},
+    {"_kmmr_cuSolverInit", (DL_FUNC) &_kmmr_cuSolverInit, 3},
     {"_kmmr_cuSolverCleanup", (DL_FUNC) &_kmmr_cuSolverCleanup, 1},
     {"_kmmr_getDeviceProps", (DL_FUNC) &_kmmr_getDeviceProps, 1},
     {"_kmmr_cuSolverPhase1", (DL_FUNC) &_kmmr_cuSolverPhase1, 4},
+    {"_kmmr_cuSolverPhase2", (DL_FUNC) &_kmmr_cuSolverPhase2, 2},
     {NULL, NULL, 0}
 };
 
