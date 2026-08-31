@@ -249,7 +249,7 @@ d$Gen <- factor(d$Gen, d$Gen, d$Gen)
 Ki <- readRDS("dev/Ki.AGT.rds")
 
 # 30 seconds per iteration
-fit <- kmmr(fixed = GY ~ 1,
+fit2 <- kmmr(fixed = GY ~ 1,
             random = ~ re(~ lk(Gen, Ki), vars = ~ 1),
             residual = ~ units,
             data = d,
