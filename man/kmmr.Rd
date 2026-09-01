@@ -21,7 +21,8 @@ kmmr(
   timesToBoundary = 5,
   getStartingValues = FALSE,
   super = TRUE,
-  useGPU = FALSE
+  useGPU = FALSE,
+  denseThreshold = 0.1
 )
 }
 \arguments{

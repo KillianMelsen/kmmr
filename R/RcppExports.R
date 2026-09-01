@@ -41,3 +41,7 @@ cuSolverPhase2 <- function(ctx_ptr, XWjxZWj_in) {
     .Call(`_kmmr_cuSolverPhase2`, ctx_ptr, XWjxZWj_in)
 }
 
+inplaceUpdateSIS <- function(x_ptr, p_ptr, i_ptr, W_mat, Q) {
+    invisible(.Call(`_kmmr_inplaceUpdateSIS`, x_ptr, p_ptr, i_ptr, W_mat, Q))
+}
+

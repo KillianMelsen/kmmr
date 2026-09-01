@@ -715,7 +715,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
                  sparse = FALSE, timesToBoundary = 5, getStartingValues = FALSE, super = TRUE,
-                 useGPU = FALSE) {
+                 useGPU = FALSE, denseThreshold = 0.1) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -960,16 +960,16 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                              u.forFactor = u.forFactor, u.indexCor = u.indexCor,
                              bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
                              isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU)
+                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold)
     } else {
       result <- solveLMM_GPU(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
-                         maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
-                         tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
-                         ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
-                         u.forFactor = u.forFactor, u.indexCor = u.indexCor,
-                         bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
-                         isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                         timesToBoundary = timesToBoundary, super = super, useGPU = useGPU)
+                             maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
+                             tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
+                             ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
+                             u.forFactor = u.forFactor, u.indexCor = u.indexCor,
+                             bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
+                             isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
+                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold)
     }
   
     result$params <- unlist(params)

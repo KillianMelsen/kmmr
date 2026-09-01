@@ -47,4 +47,43 @@ fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  sparse = TRUE,
                  useGPU = FALSE)
 
+# Trying to fix the fill-in issue ====
+Ki <- solve(Matrix(readRDS("~/repos/kmmr/dev/exampledata_K.rds")))
+d <- readRDS("~/repos/kmmr/dev/exampledata.rds")
+set.seed(1997)
+d$covariate <- rnorm(nrow(d), 5, 0.5)
+fit.asr <- asreml(fixed = GY ~ 1 + ManEnv + covariate,
+                  random = ~ fa(ManEnv, 3):vm(Gen, Ki.asr),
+                  residual = ~ units,
+                  data = d,
+                  maxit = 20)
+
+fit.sparse <- kmmr(fixed = GY ~ 1 + ManEnv + covariate,
+                   random = ~ re(~ exfa(ManEnv, 3):lk(Gen, Ki), vars = ~ ManEnv),
+                   residual = ~ units,
+                   data = d,
+                   sparse = TRUE,
+                   useGPU = FALSE)
+
+# Arguments:
+fixed = GY ~ 1 + ManEnv + covariate
+random = ~ re(~ exfa(ManEnv, 3):lk(Gen, Ki), vars = ~ ManEnv)
+residual = ~ units
+data = d
+sparse = TRUE
+useGPU = FALSE
+maxit = 20
+stepSize = NULL
+avInfReg = NULL
+weights = NULL
+init = NULL
+tolConvLL = 0.001
+isFixed = NULL
+verbose = TRUE
+timesToBoundary = 5
+getStartingValues = FALSE
+super = TRUE
+
+
+
 

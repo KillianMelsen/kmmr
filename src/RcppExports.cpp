@@ -128,6 +128,20 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// inplaceUpdateSIS
+void inplaceUpdateSIS(NumericVector x_ptr, IntegerVector p_ptr, IntegerVector i_ptr, NumericMatrix W_mat, NumericMatrix Q);
+RcppExport SEXP _kmmr_inplaceUpdateSIS(SEXP x_ptrSEXP, SEXP p_ptrSEXP, SEXP i_ptrSEXP, SEXP W_matSEXP, SEXP QSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x_ptr(x_ptrSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type p_ptr(p_ptrSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type i_ptr(i_ptrSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type W_mat(W_matSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type Q(QSEXP);
+    inplaceUpdateSIS(x_ptr, p_ptr, i_ptr, W_mat, Q);
+    return R_NilValue;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_SIS", (DL_FUNC) &_kmmr_SIS, 1},
@@ -139,6 +153,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_getDeviceProps", (DL_FUNC) &_kmmr_getDeviceProps, 1},
     {"_kmmr_cuSolverPhase1", (DL_FUNC) &_kmmr_cuSolverPhase1, 4},
     {"_kmmr_cuSolverPhase2", (DL_FUNC) &_kmmr_cuSolverPhase2, 2},
+    {"_kmmr_inplaceUpdateSIS", (DL_FUNC) &_kmmr_inplaceUpdateSIS, 5},
     {NULL, NULL, 0}
 };
 
