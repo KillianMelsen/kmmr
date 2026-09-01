@@ -40,10 +40,10 @@ getInit_fa <- function(factor, m, data, response) {
     dataWide[naCoords] <- means[naCoords[, "col"]]
     covmat <- cov(dataWide, use = "pairwise.complete.obs")
     if (min(eigen(covmat, only.values = TRUE)$values) <= 0) { # Still check for PDness
-      covmat <- as.matrix(nearPD(covmat, tol)$mat)
+      covmat <- as.matrix(nearPD(covmat)$mat)
     }
   } else if (min(eigen(covmat, only.values = TRUE)$values) <= 0) { # If we don't have any NAs, we still need to check whether covmat is PD.
-    covmat <- as.matrix(nearPD(covmat, tol)$mat)
+    covmat <- as.matrix(nearPD(covmat)$mat)
   }
   fit.factanal <- factanal(covmat = covmat, factors = m)
   L <- fit.factanal$loadings[,, drop = FALSE]

@@ -2,6 +2,9 @@ Ki <- solve(Matrix(readRDS("~/repos/kmmr/dev/exampledata_K.rds")))
 Ki.asr <- as.matrix(Ki)
 attr(Ki.asr, "INVERSE") <- TRUE
 d <- readRDS("~/repos/kmmr/dev/exampledata.rds")
+set.seed(1997)
+setNA <- sample(1:nrow(d), 3444) # Set half the data to NA.
+d$GY[setNA] <- NA
 # d <- droplevels(d[d$Man == "R" & d$Env %in% c("Cam12", "Kar12"),])
 
 fit.CPU <- kmmr(fixed = GY ~ -1 + ManEnv,
@@ -9,30 +12,33 @@ fit.CPU <- kmmr(fixed = GY ~ -1 + ManEnv,
                 residual = ~ units,
                 data = d,
                 sparse = FALSE,
-                useGPU = FALSE)
+                useGPU = FALSE,
+                maxit = 5)
 
 fit.GPU <- kmmr(fixed = GY ~ -1 + ManEnv,
                 random = ~ re(~ fa(ManEnv, 3):lk(Gen, Ki), vars = ~ ManEnv),
                 residual = ~ units,
                 data = d,
                 sparse = FALSE,
-                useGPU = TRUE)
+                useGPU = TRUE,
+                maxit = 5)
 
 fit.sparse <- kmmr(fixed = GY ~ -1 + ManEnv,
                    random = ~ re(~ exfa(ManEnv, 3):lk(Gen, Ki), vars = ~ ManEnv),
                    residual = ~ units,
                    data = d,
                    sparse = TRUE,
-                   useGPU = FALSE)
+                   useGPU = FALSE,
+                   maxit = 5)
 
 library(asreml)
-asreml.options(workspace = "5000mb")
-d <- droplevels(d[d$Man == "R",])
+asreml.options(workspace = "10000mb")
+# d <- droplevels(d[d$Man == "R",])
 fit.asr <- asreml(fixed = GY ~ -1 + ManEnv,
                   random = ~ fa(ManEnv, 3):vm(Gen, Ki.asr),
                   residual = ~ units,
                   data = d,
-                  maxit = 20)
+                  maxit = 5)
 
 # This is really interesting, kmmr becomes much slower when I include an overall intercept.
 # Seems like the Cholesky() reordering is screwed up because of the single dense column in X.
