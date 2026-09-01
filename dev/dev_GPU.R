@@ -28,8 +28,8 @@ fit.sparse <- kmmr(fixed = GY ~ -1 + ManEnv,
 library(asreml)
 asreml.options(workspace = "5000mb")
 d <- droplevels(d[d$Man == "R",])
-fit.asr <- asreml(fixed = GY ~ -1 + Env,
-                  random = ~ fa(Env, 3):vm(Gen, Ki.asr),
+fit.asr <- asreml(fixed = GY ~ -1 + ManEnv,
+                  random = ~ fa(ManEnv, 3):vm(Gen, Ki.asr),
                   residual = ~ units,
                   data = d,
                   maxit = 20)
