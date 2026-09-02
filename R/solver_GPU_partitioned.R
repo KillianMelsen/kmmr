@@ -403,6 +403,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
 #' @param useGPU Should the GPU be used for dense models?
 #' @param denseThreshold Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.
+#' @param precision Sets the precision to be used for the GPU operations, either \code{"FP64"} for double precision or \code{"FP32"} for single precision.
 #'
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
@@ -410,7 +411,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
                          indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                          bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
-                         timesToBoundary, super, useGPU, denseThreshold) {
+                         timesToBoundary, super, useGPU, denseThreshold, precision) {
   ## Prelims ====
   # browser()
   start <- proc.time()[3]
@@ -525,8 +526,15 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
   
   ## Setup the GPU CUDA context ====
   if (useGPU) {
+    if (!(precision %in% c("FP64", "FP32"))) {
+      stop("The 'precision' argument must be either 'FP64' or 'FP32'...")
+    }
     #tic("Initializing CUDA")
-    gpu_ctx <- cuSolverInit(N = ncol(W), rhs_cols_1 = 1, rhs_cols_2 = nrow(k)) # N = dim of the C matrix, rhs_cols_2 is the number of parameters.
+    if (precision == "FP64") {
+      gpu_ctx <- cuSolverInit(N = ncol(W), rhs_cols_1 = 1, rhs_cols_2 = nrow(k)) # N = dim of the C matrix, rhs_cols_2 is the number of parameters.
+    } else {
+      gpu_ctx <- cuSolverInitFloat(N = ncol(W), rhs_cols_1 = 1, rhs_cols_2 = nrow(k))
+    }
     #toc()
   }
   
@@ -814,7 +822,7 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
     
     ### Cholesky decomposition of C and computing BLUEs/BLUPs ====
     #tic("Cholesky decomp of C and BLUEs/BLUPs")
-    # browser()
+    browser()
     Riy <- Ri %*% y
     if (sparse) { # Remember that Cchol is the CF of the full matrix (no dense effects), or the sparse block only!
       if (super) {
@@ -855,66 +863,17 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
         # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
         logDetC <- sum(log(diag(Cchol)))
       } else {
-        gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = FALSE)
+        if (precision == "FP64") {
+          gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = FALSE)
+        } else {
+          gpuResult <- cuSolverPhase1Float(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = FALSE)
+        }
         bu <- gpuResult$bu
         rownames(bu) <- colnames(C)
-        # z <- gpuResult$z # !!! Need to change the GPU code because I don't need z at all!!!
         logDetC <- gpuResult$logDetC
       }
       yPy <- as.numeric(crossprod(y, Riy) - crossprod(RHS, bu))
     }
-    # if (sparse && hasDense) {
-    #   if (super) {
-    #     Ccholss <- Cholesky(Css, LDL = FALSE, perm = TRUE, super = TRUE)
-    #   } else {
-    #     Ccholss <- Cholesky(Css, LDL = TRUE, perm = TRUE, super = FALSE)
-    #   }
-    #   #tic("Solving for BLUEs and BLUPs")
-    #   denseRHS <- crossprod(denseW, Riy)
-    #   sparseRHS <- crossprod(sparseW, Riy)
-    #   Q <- solve(Ccholss, t(Cds))
-    #   SC <- forceSymmetric(Cdd - (Cds %*% Q))
-    #   sparseTemp <- solve(Ccholss, sparseRHS)
-    #   adjDenseRHS <- denseRHS - (Cds %*% sparseTemp)
-    #   bDense <- solve(SC, adjDenseRHS)
-    #   buSparse <- sparseTemp - (Q %*% bDense)
-    #   bu <- rbind(bDense, buSparse)
-    #   #toc()
-    #   logDetC <- as.numeric(determinant(Ccholss, sqrt = FALSE, logarithm = TRUE)$modulus +
-    #                         determinant(SC, logarithm = TRUE)$modulus)
-    #   yPy <- as.numeric(crossprod(y, Riy) -
-    #                     (crossprod(sparseRHS, buSparse) + crossprod(denseRHS, bDense)))
-    # } else if (sparse && !hasDense) { # Non-partitioned approach.
-    #   RHS <- crossprod(W, Riy)
-    #   if (super) {
-    #     Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = TRUE)
-    #   } else {
-    #     Cchol <- Cholesky(C, LDL = TRUE, perm = TRUE, super = FALSE)
-    #   }
-    #   #tic("Solving for BLUEs and BLUPs")
-    #   bu <- solve(Cchol, RHS)
-    #   #toc()
-    #   logDetC <- determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus
-    #   yPy <- as.numeric(crossprod(y, Riy) - crossprod(RHS, bu))
-    # } else { # If using the dense solver.
-    #   RHS <- crossprod(W, Riy)
-    #   if (!useGPU) {
-    #     Cchol <- Cholesky(C, perm = FALSE)
-    #     #tic("Solving for BLUEs and BLUPs")
-    #     bu <- solve(Cchol, RHS)
-    #     #toc()
-    #     # Looks strange because the 2 * is missing, but is correct as diag(Cholesky(C, perm = FAlSE))
-    #     # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
-    #     logDetC <- sum(log(diag(Cchol)))
-    #   } else {
-    #     gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = FALSE)
-    #     bu <- gpuResult$bu
-    #     rownames(bu) <- colnames(C)
-    #     # z <- gpuResult$z # !!! Need to change the GPU code because I don't need z at all!!!
-    #     logDetC <- gpuResult$logDetC
-    #   }
-    #   yPy <- as.numeric(crossprod(y, Riy) - crossprod(RHS, bu))
-    # }
     # Splitting BLUEs and BLUPs:
     b <- bu[1:nX, 1, drop = FALSE]
     u <- bu[(nX + 1):nrow(bu), 1, drop = FALSE]
@@ -1162,7 +1121,11 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
       if (!useGPU) {
         buWu <- solve(Cchol, XWjxZWj)
       } else {
-        gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = XWjxZWj)
+        if (precision == "FP64") {
+          gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = XWjxZWj)
+        } else {
+          gpuResult2 <- cuSolverPhase2Float(ctx_ptr = gpu_ctx, XWjxZWj_in = XWjxZWj)
+        }
         buWu <- gpuResult2$buWu
       }
       buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
@@ -1642,9 +1605,14 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
   # single iteration.
   # browser()
   if (useGPU) {
-    gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = TRUE)
+    if (precision == "FP64") {
+      gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = TRUE)
+      cuSolverCleanup(gpu_ctx)
+    } else {
+      gpuResult <- cuSolverPhase1Float(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = TRUE)
+      cuSolverCleanupFloat(gpu_ctx)
+    }
     Cchol <- gpuResult$Cchol
-    cuSolverCleanup(gpu_ctx)
   }
   
   return(list(LL = LL,

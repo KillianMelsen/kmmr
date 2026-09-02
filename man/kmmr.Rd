@@ -22,7 +22,8 @@ kmmr(
   getStartingValues = FALSE,
   super = TRUE,
   useGPU = FALSE,
-  denseThreshold = 0.1
+  denseThreshold = 0.1,
+  precision = NULL
 )
 }
 \arguments{
@@ -60,6 +61,10 @@ elements of the AI matrix by 10\% before inverting.}
 \item{super}{Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?}
 
 \item{useGPU}{Should the GPU be used for dense models?}
+
+\item{denseThreshold}{Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.}
+
+\item{precision}{Sets the precision to be used for the GPU operations, either \code{"FP64"} for double precision or \code{"FP32"} for single precision. Only relevant when \code{useGPU == TRUE}.}
 }
 \value{
 A list with the results.

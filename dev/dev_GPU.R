@@ -15,13 +15,23 @@ fit.CPU <- kmmr(fixed = GY ~ -1 + ManEnv,
                 useGPU = FALSE,
                 maxit = 5)
 
-fit.GPU <- kmmr(fixed = GY ~ -1 + ManEnv,
-                random = ~ re(~ fa(ManEnv, 3):lk(Gen, Ki), vars = ~ ManEnv),
-                residual = ~ units,
-                data = d,
-                sparse = FALSE,
-                useGPU = TRUE,
-                maxit = 5)
+fit.GPU64 <- kmmr(fixed = GY ~ -1 + ManEnv,
+                  random = ~ re(~ fa(ManEnv, 3):lk(Gen, Ki), vars = ~ ManEnv),
+                  residual = ~ units,
+                  data = d,
+                  sparse = FALSE,
+                  useGPU = TRUE,
+                  maxit = 5,
+                  precision = "FP64")
+
+fit.GPU32 <- kmmr(fixed = GY ~ -1 + ManEnv,
+                  random = ~ re(~ fa(ManEnv, 3):lk(Gen, Ki), vars = ~ ManEnv),
+                  residual = ~ units,
+                  data = d,
+                  sparse = FALSE,
+                  useGPU = TRUE,
+                  maxit = 5,
+                  precision = "FP32")
 
 fit.sparse <- kmmr(fixed = GY ~ -1 + ManEnv,
                    random = ~ re(~ exfa(ManEnv, 3):lk(Gen, Ki), vars = ~ ManEnv),

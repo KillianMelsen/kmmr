@@ -25,8 +25,16 @@ cuSolverInit <- function(N, rhs_cols_1, rhs_cols_2) {
     .Call(`_kmmr_cuSolverInit`, N, rhs_cols_1, rhs_cols_2)
 }
 
+cuSolverInitFloat <- function(N, rhs_cols_1, rhs_cols_2) {
+    .Call(`_kmmr_cuSolverInitFloat`, N, rhs_cols_1, rhs_cols_2)
+}
+
 cuSolverCleanup <- function(ptr_in) {
     invisible(.Call(`_kmmr_cuSolverCleanup`, ptr_in))
+}
+
+cuSolverCleanupFloat <- function(ptr_in) {
+    invisible(.Call(`_kmmr_cuSolverCleanupFloat`, ptr_in))
 }
 
 .getDeviceProps <- function(id) {
@@ -37,8 +45,16 @@ cuSolverPhase1 <- function(ctx_ptr, C_in, RHS_in, returnCchol = FALSE) {
     .Call(`_kmmr_cuSolverPhase1`, ctx_ptr, C_in, RHS_in, returnCchol)
 }
 
+cuSolverPhase1Float <- function(ctx_ptr, C_in, RHS_in, returnCchol = FALSE) {
+    .Call(`_kmmr_cuSolverPhase1Float`, ctx_ptr, C_in, RHS_in, returnCchol)
+}
+
 cuSolverPhase2 <- function(ctx_ptr, XWjxZWj_in) {
     .Call(`_kmmr_cuSolverPhase2`, ctx_ptr, XWjxZWj_in)
+}
+
+cuSolverPhase2Float <- function(ctx_ptr, XWjxZWj_in) {
+    .Call(`_kmmr_cuSolverPhase2Float`, ctx_ptr, XWjxZWj_in)
 }
 
 inplaceUpdateSIS <- function(x_ptr, p_ptr, i_ptr, W_mat, Q) {

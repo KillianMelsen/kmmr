@@ -81,6 +81,19 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// cuSolverInitFloat
+SEXP cuSolverInitFloat(int N, int rhs_cols_1, int rhs_cols_2);
+RcppExport SEXP _kmmr_cuSolverInitFloat(SEXP NSEXP, SEXP rhs_cols_1SEXP, SEXP rhs_cols_2SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< int >::type N(NSEXP);
+    Rcpp::traits::input_parameter< int >::type rhs_cols_1(rhs_cols_1SEXP);
+    Rcpp::traits::input_parameter< int >::type rhs_cols_2(rhs_cols_2SEXP);
+    rcpp_result_gen = Rcpp::wrap(cuSolverInitFloat(N, rhs_cols_1, rhs_cols_2));
+    return rcpp_result_gen;
+END_RCPP
+}
 // cuSolverCleanup
 void cuSolverCleanup(SEXP ptr_in);
 RcppExport SEXP _kmmr_cuSolverCleanup(SEXP ptr_inSEXP) {
@@ -88,6 +101,16 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< SEXP >::type ptr_in(ptr_inSEXP);
     cuSolverCleanup(ptr_in);
+    return R_NilValue;
+END_RCPP
+}
+// cuSolverCleanupFloat
+void cuSolverCleanupFloat(SEXP ptr_in);
+RcppExport SEXP _kmmr_cuSolverCleanupFloat(SEXP ptr_inSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ptr_in(ptr_inSEXP);
+    cuSolverCleanupFloat(ptr_in);
     return R_NilValue;
 END_RCPP
 }
@@ -116,6 +139,20 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// cuSolverPhase1Float
+Rcpp::List cuSolverPhase1Float(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol);
+RcppExport SEXP _kmmr_cuSolverPhase1Float(SEXP ctx_ptrSEXP, SEXP C_inSEXP, SEXP RHS_inSEXP, SEXP returnCcholSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ctx_ptr(ctx_ptrSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type C_in(C_inSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type RHS_in(RHS_inSEXP);
+    Rcpp::traits::input_parameter< bool >::type returnCchol(returnCcholSEXP);
+    rcpp_result_gen = Rcpp::wrap(cuSolverPhase1Float(ctx_ptr, C_in, RHS_in, returnCchol));
+    return rcpp_result_gen;
+END_RCPP
+}
 // cuSolverPhase2
 Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in);
 RcppExport SEXP _kmmr_cuSolverPhase2(SEXP ctx_ptrSEXP, SEXP XWjxZWj_inSEXP) {
@@ -125,6 +162,18 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< SEXP >::type ctx_ptr(ctx_ptrSEXP);
     Rcpp::traits::input_parameter< SEXP >::type XWjxZWj_in(XWjxZWj_inSEXP);
     rcpp_result_gen = Rcpp::wrap(cuSolverPhase2(ctx_ptr, XWjxZWj_in));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cuSolverPhase2Float
+Rcpp::List cuSolverPhase2Float(SEXP ctx_ptr, SEXP XWjxZWj_in);
+RcppExport SEXP _kmmr_cuSolverPhase2Float(SEXP ctx_ptrSEXP, SEXP XWjxZWj_inSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type ctx_ptr(ctx_ptrSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type XWjxZWj_in(XWjxZWj_inSEXP);
+    rcpp_result_gen = Rcpp::wrap(cuSolverPhase2Float(ctx_ptr, XWjxZWj_in));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -149,10 +198,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_getTraces", (DL_FUNC) &_kmmr_getTraces, 6},
     {"_kmmr_getTracesSparse", (DL_FUNC) &_kmmr_getTracesSparse, 8},
     {"_kmmr_cuSolverInit", (DL_FUNC) &_kmmr_cuSolverInit, 3},
+    {"_kmmr_cuSolverInitFloat", (DL_FUNC) &_kmmr_cuSolverInitFloat, 3},
     {"_kmmr_cuSolverCleanup", (DL_FUNC) &_kmmr_cuSolverCleanup, 1},
+    {"_kmmr_cuSolverCleanupFloat", (DL_FUNC) &_kmmr_cuSolverCleanupFloat, 1},
     {"_kmmr_getDeviceProps", (DL_FUNC) &_kmmr_getDeviceProps, 1},
     {"_kmmr_cuSolverPhase1", (DL_FUNC) &_kmmr_cuSolverPhase1, 4},
+    {"_kmmr_cuSolverPhase1Float", (DL_FUNC) &_kmmr_cuSolverPhase1Float, 4},
     {"_kmmr_cuSolverPhase2", (DL_FUNC) &_kmmr_cuSolverPhase2, 2},
+    {"_kmmr_cuSolverPhase2Float", (DL_FUNC) &_kmmr_cuSolverPhase2Float, 2},
     {"_kmmr_inplaceUpdateSIS", (DL_FUNC) &_kmmr_inplaceUpdateSIS, 5},
     {NULL, NULL, 0}
 };
