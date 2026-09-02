@@ -148,7 +148,7 @@ cholmod_sparse *cholmod_SIS_super(cholmod_factor *L,	cholmod_common *Common) {
   // Both X and L are lower triangular
   // Count non-zeros on columns:
   nz = 0;
-  for (s = 0; s < nsuper; s++) {
+  for (size_t s = 0; s < nsuper; s++) {
     j0 = Super[s];   // first column of the supernode
     j1 = Super[s+1]; // last column (+1)
     ns = j1 - j0;    // number of columns
@@ -189,7 +189,7 @@ cholmod_sparse *cholmod_SIS_super(cholmod_factor *L,	cholmod_common *Common) {
     goto cleanup;
   }
     
-  for (s = 0; s < nsuper; s++) {
+  for (size_t s = 0; s < nsuper; s++) {
     j0 = Super[s];   // first column of the supernode
     j1 = Super[s+1]; // last column (+1)
     ns = j1 - j0;    // number of columns
@@ -221,9 +221,9 @@ cholmod_sparse *cholmod_SIS_super(cholmod_factor *L,	cholmod_common *Common) {
   X->sorted = FALSE;
   
   // Allocate workspace using the size of the largest supernode:
-  for (s = 0; s < L->nsuper; s++) {
-    if (Lpx[s+1] - Lpx[s] > maxsize) {
-      maxsize = Lpx[s+1] - Lpx[s];
+  for (size_t s = 0; s < L->nsuper; s++) {
+    if (static_cast<size_t>(Lpx[s+1] - Lpx[s]) > maxsize) {
+      maxsize = Lpx[s + 1] - Lpx[s];
     }
   }
   // V = CHOLMOD(malloc)(L->maxesize*L->maxesize, sizeof(double), Common);

@@ -248,13 +248,26 @@ d$Gen <- factor(d$Gen, d$Gen, d$Gen)
 # rm(K); gc()
 Ki <- readRDS("dev/Ki.AGT.rds")
 
+library(asreml)
+asreml.options(workspace = "10000mb")
+system.time(
+fit.asr <- asreml(fixed = GY ~ 1,
+                  random = ~ vm(Gen, Ki.asr),
+                  residual = ~ units,
+                  data = d)
+)
+# 976.242 / 8 = 122.03 seconds per iteration
+
 # 30 seconds per iteration
-fit2 <- kmmr(fixed = GY ~ 1,
-            random = ~ re(~ lk(Gen, Ki), vars = ~ 1),
-            residual = ~ units,
-            data = d,
-            sparse = FALSE,
-            useGPU = TRUE)
+system.time(
+fit.kmmr <- kmmr(fixed = GY ~ 1,
+                 random = ~ re(~ lk(Gen, Ki), vars = ~ 1),
+                 residual = ~ units,
+                 data = d,
+                 sparse = FALSE,
+                 useGPU = TRUE)
+)
+# 57.373 / 11 = 5.22 seconds per iteration
 
 # scaling <- diag(K)
 # Kcor <- cov2cor(as.matrix(K))

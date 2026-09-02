@@ -145,7 +145,7 @@ Rcpp::List cuSolverPhase1(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol
   // Left and ride side dimensions:
   int N = ctx->N;
   int rhs_cols = ctx->rhs_cols_1;
-  if (RHS.n_cols != rhs_cols) {
+  if (static_cast<int>(RHS.n_cols) != rhs_cols) {
     Rcpp::stop("RHS dimension mismatch! Expected %i columns, got %i.", rhs_cols, RHS.n_cols);
   }
   
@@ -237,7 +237,7 @@ Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in) {
   // Left and right side dimensions:
   int N = ctx->N;
   int rhs_cols = ctx->rhs_cols_2;
-  if (XWjxZWj.n_cols != rhs_cols) {
+  if (static_cast<int>(XWjxZWj.n_cols) != rhs_cols) {
     Rcpp::stop("XWjxZWj dimension mismatch! Expected %i columns, got %i.", rhs_cols, XWjxZWj.n_cols);
   }
   
