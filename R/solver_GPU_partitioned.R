@@ -403,7 +403,6 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
 #' @param useGPU Should the GPU be used for dense models?
 #' @param denseThreshold Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.
-#' @param precision Sets the precision to be used for the GPU operations, either \code{"FP64"} for double precision or \code{"FP32"} for single precision.
 #'
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
@@ -411,7 +410,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
                          indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                          bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
-                         timesToBoundary, super, useGPU, denseThreshold, precision) {
+                         timesToBoundary, super, useGPU, denseThreshold) {
   ## Prelims ====
   # browser()
   start <- proc.time()[3]
@@ -526,15 +525,8 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
   
   ## Setup the GPU CUDA context ====
   if (useGPU) {
-    if (!(precision %in% c("FP64", "FP32"))) {
-      stop("The 'precision' argument must be either 'FP64' or 'FP32'...")
-    }
     #tic("Initializing CUDA")
-    if (precision == "FP64") {
-      gpu_ctx <- cuSolverInit(N = ncol(W), rhs_cols_1 = 1, rhs_cols_2 = nrow(k)) # N = dim of the C matrix, rhs_cols_2 is the number of parameters.
-    } else {
-      gpu_ctx <- cuSolverInitFloat(N = ncol(W), rhs_cols_1 = 1, rhs_cols_2 = nrow(k))
-    }
+    gpu_ctx <- cuSolverInit(N = ncol(W), rhs_cols_1 = 1, rhs_cols_2 = nrow(k)) # N = dim of the C matrix, rhs_cols_2 is the number of parameters.
     #toc()
   }
   
@@ -863,11 +855,7 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
         # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
         logDetC <- sum(log(diag(Cchol)))
       } else {
-        if (precision == "FP64") {
-          gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = FALSE)
-        } else {
-          gpuResult <- cuSolverPhase1Float(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = FALSE)
-        }
+        gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = FALSE)
         bu <- gpuResult$bu
         rownames(bu) <- colnames(C)
         logDetC <- gpuResult$logDetC
@@ -1121,11 +1109,7 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
       if (!useGPU) {
         buWu <- solve(Cchol, XWjxZWj)
       } else {
-        if (precision == "FP64") {
-          gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = XWjxZWj)
-        } else {
-          gpuResult2 <- cuSolverPhase2Float(ctx_ptr = gpu_ctx, XWjxZWj_in = XWjxZWj)
-        }
+        gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = XWjxZWj)
         buWu <- gpuResult2$buWu
       }
       buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
@@ -1605,13 +1589,8 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
   # single iteration.
   # browser()
   if (useGPU) {
-    if (precision == "FP64") {
-      gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = TRUE)
-      cuSolverCleanup(gpu_ctx)
-    } else {
-      gpuResult <- cuSolverPhase1Float(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = TRUE)
-      cuSolverCleanupFloat(gpu_ctx)
-    }
+    gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = TRUE)
+    cuSolverCleanup(gpu_ctx)
     Cchol <- gpuResult$Cchol
   }
   

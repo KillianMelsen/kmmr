@@ -34,8 +34,7 @@ solveLMM_GPU(
   timesToBoundary,
   super,
   useGPU,
-  denseThreshold,
-  precision
+  denseThreshold
 )
 }
 \arguments{
@@ -99,8 +98,6 @@ elements of the AI matrix by 10\%.}
 \item{useGPU}{Should the GPU be used for dense models?}
 
 \item{denseThreshold}{Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.}
-
-\item{precision}{Sets the precision to be used for the GPU operations, either \code{"FP64"} for double precision or \code{"FP32"} for single precision.}
 }
 \value{
 A list containing the log-likelihood, parameter estimates, average information matrix,

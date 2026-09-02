@@ -31,25 +31,6 @@ struct cuSolverContext {
   int *d_info;
 };
 
-struct cuSolverContextFloat {
-  cublasHandle_t cublasH;
-  cusolverDnHandle_t cusolverH;
-  cudaStream_t stream;
-  
-  int N;
-  int rhs_cols_1; // Number of columns of the phase 1 right-hand side, always 1
-  int rhs_cols_2; // Number of columns of the phase 2 right-hand side, equal to the number of parameters
-  int lwork; // Stores the max workspace size needed
-  
-  // Persistent memory blocks
-  float *d_C;
-  float *d_RHS;
-  float *d_buWu;
-  float *d_work;
-  float *d_diag;
-  int *d_info;
-};
-
 // The finalizer (safely tears down the struct and VRAM):
 void context_finalizer_hook(SEXP ptr_in) {
   if (TYPEOF(ptr_in) == EXTPTRSXP) {
@@ -67,25 +48,6 @@ void context_finalizer_hook(SEXP ptr_in) {
       
       delete ctx; // Free the struct itself
       R_ClearExternalPtr(ptr_in); // Prevent double-free
-    }
-  }
-}
-
-void context_finalizer_hook_float(SEXP ptr_in) {
-  if (TYPEOF(ptr_in) == EXTPTRSXP) {
-    cuSolverContextFloat* ctx = static_cast<cuSolverContextFloat*>(R_ExternalPtrAddr(ptr_in));
-    if (ctx != nullptr) {
-      if (ctx->d_C) cudaFree(ctx->d_C);
-      if (ctx->d_RHS) cudaFree(ctx->d_RHS);
-      if (ctx->d_buWu) cudaFree(ctx->d_buWu);
-      if (ctx->d_work) cudaFree(ctx->d_work);
-      if (ctx->d_diag) cudaFree(ctx->d_diag);
-      if (ctx->d_info) cudaFree(ctx->d_info);
-      if (ctx->cublasH) cublasDestroy(ctx->cublasH);
-      if (ctx->cusolverH) cusolverDnDestroy(ctx->cusolverH);
-      if (ctx->stream) cudaStreamDestroy(ctx->stream);
-      delete ctx; 
-      R_ClearExternalPtr(ptr_in); 
     }
   }
 }
@@ -128,52 +90,10 @@ SEXP cuSolverInit(int N, int rhs_cols_1, int rhs_cols_2) {
   return ptr_out;
 }
 
-// [[Rcpp::export(cuSolverInitFloat)]]
-SEXP cuSolverInitFloat(int N, int rhs_cols_1, int rhs_cols_2) {
-  cuSolverContextFloat* ctx = new cuSolverContextFloat();
-  ctx->N = N;
-  ctx->rhs_cols_1 = rhs_cols_1; // always 1
-  ctx->rhs_cols_2 = rhs_cols_2; // number of parameters (variance components)
-  
-  cublasCreate(&(ctx->cublasH));
-  cusolverDnCreate(&(ctx->cusolverH));
-  CHECK_CUDA( cudaStreamCreateWithFlags(&(ctx->stream), cudaStreamNonBlocking) );
-  cublasSetStream(ctx->cublasH, ctx->stream);
-  cusolverDnSetStream(ctx->cusolverH, ctx->stream);
-  
-  // Allocate all memory upfront:
-  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_C)), N * N * sizeof(float)) );
-  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_RHS)), N * rhs_cols_1 * sizeof(float)) );
-  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_buWu)), N * rhs_cols_2 * sizeof(float)) );
-  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_diag)), N * sizeof(float)) );
-  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_info)), sizeof(int)) );
-  
-  // Calculate max lwork needed for both Phase 1 (potrf) and Phase 2 (potri)
-  cublasFillMode_t uplo = CUBLAS_FILL_MODE_UPPER;
-  int lwork_potrf = 0;
-  int lwork_potri = 0;
-  cusolverDnSpotrf_bufferSize(ctx->cusolverH, uplo, N, ctx->d_C, N, &lwork_potrf);
-  cusolverDnSpotri_bufferSize(ctx->cusolverH, uplo, N, ctx->d_C, N, &lwork_potri);
-  
-  ctx->lwork = std::max(lwork_potrf, lwork_potri);
-  CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_work)), ctx->lwork * sizeof(float)) );
-  
-  // Wrap and return to R
-  Rcpp::XPtr<cuSolverContextFloat> ptr_out(ctx, false);
-  R_RegisterCFinalizerEx(ptr_out, context_finalizer_hook_float, TRUE);
-  
-  return ptr_out;
-}
-
 // Manual cleanup hook for R
 // [[Rcpp::export(cuSolverCleanup)]]
 void cuSolverCleanup(SEXP ptr_in) {
   context_finalizer_hook(ptr_in);
-}
-
-// [[Rcpp::export(cuSolverCleanupFloat)]]
-void cuSolverCleanupFloat(SEXP ptr_in) {
-  context_finalizer_hook_float(ptr_in);
 }
 
 // Device properties function
@@ -206,33 +126,6 @@ arma::dmat convert_to_dmat(SEXP x) {
       
       // Initialize dmat instantly using the memory pointer:
       return arma::dmat(data.begin(), dims[0], dims[1], false, true);
-    }
-  }
-  Rcpp::stop("Input must be a dense Matrix object (dgeMatrix or dsyMatrix)...");
-}
-
-// Helper function to extract and cast to fmat:
-arma::fmat convert_to_fmat(SEXP x) {
-  if (Rf_isS4(x)) {
-    Rcpp::S4 obj(x);
-    if (obj.hasSlot("x") && obj.hasSlot("Dim")) {
-      Rcpp::NumericVector data = obj.slot("x");
-      Rcpp::IntegerVector dims = obj.slot("Dim");
-      
-      // 1. Allocate the float matrix
-      arma::fmat out(dims[0], dims[1]);
-      
-      // 2. Grab raw pointers for maximum compiler vectorization speed
-      const double* src = data.begin();
-      float* dest = out.memptr();
-      arma::uword total_elements = out.n_elem;
-      
-      // 3. Blazing fast cast loop
-      for(arma::uword i = 0; i < total_elements; ++i) {
-        dest[i] = static_cast<float>(src[i]);
-      }
-      
-      return out;
     }
   }
   Rcpp::stop("Input must be a dense Matrix object (dgeMatrix or dsyMatrix)...");
@@ -331,93 +224,6 @@ Rcpp::List cuSolverPhase1(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol
   );
 }
 
-// [[Rcpp::export(cuSolverPhase1Float)]]
-Rcpp::List cuSolverPhase1Float(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol = false) {
-  
-  // Unwrap the persistent context:
-  Rcpp::XPtr<cuSolverContextFloat> ctx(ctx_ptr);
-  if (ctx.get() == nullptr) Rcpp::stop("GPU pointer is null or has already been freed!");
-  
-  // Convert to armadillo matrices:
-  arma::fmat C = convert_to_fmat(C_in);
-  arma::fmat RHS = convert_to_fmat(RHS_in);
-  
-  // Left and ride side dimensions:
-  int N = ctx->N;
-  int rhs_cols = ctx->rhs_cols_1;
-  if (RHS.n_cols != rhs_cols) {
-    Rcpp::stop("RHS dimension mismatch! Expected %i columns, got %i.", rhs_cols, RHS.n_cols);
-  }
-  
-  // Assume upper storage ("U") from R's dsyMatrix/dtrMatrix conventions:
-  cublasFillMode_t uplo = CUBLAS_FILL_MODE_UPPER;
-  
-  // Push fresh data into the persistent buffers:
-  CHECK_CUDA( cudaMemcpyAsync(ctx->d_C, C.memptr(), N * N * sizeof(float), cudaMemcpyHostToDevice, ctx->stream) );
-  CHECK_CUDA( cudaMemcpyAsync(ctx->d_RHS, RHS.memptr(), N * rhs_cols * sizeof(float), cudaMemcpyHostToDevice, ctx->stream) );
-  
-  // In-place Cholesky decomposition (C becomes U or L):
-  cusolverDnSpotrf(ctx->cusolverH, uplo, N, ctx->d_C, N, ctx->d_work, ctx->lwork, ctx->d_info);
-  
-  // Check if Cholesky factorization succeeded (info == 0):
-  int info = 0;
-  CHECK_CUDA( cudaMemcpyAsync(&info, ctx->d_info, sizeof(int), cudaMemcpyDeviceToHost, ctx->stream) );
-  CHECK_CUDA( cudaStreamSynchronize(ctx->stream) ); // We must sync to ensure a potential error code is actually present in info!
-  if (info != 0) {
-    Rcpp::stop("The coefficient matrix C is not positive-definite (cuSOLVER info = %i).", info);
-  }
-  
-  // Solve for bu in-place (cusolverDnDpotrs)
-  // Overwrites d_RHS with the solution (bu):
-  cusolverDnSpotrs(ctx->cusolverH, uplo, N, rhs_cols, ctx->d_C, N, ctx->d_RHS, N, ctx->d_info);
-  
-  // Copy bu back to the host:
-  std::vector<float> tmp_bu(N * rhs_cols);
-  CHECK_CUDA( cudaMemcpyAsync(tmp_bu.data(), ctx->d_RHS, N * rhs_cols * sizeof(float), cudaMemcpyDeviceToHost, ctx->stream) );
-  CHECK_CUDA( cudaStreamSynchronize(ctx->stream) ); // Must sync before CPU casting loop
-  
-  Rcpp::NumericVector bu_vec(N * rhs_cols);
-  for(int i = 0; i < N * rhs_cols; ++i) {
-    bu_vec[i] = static_cast<double>(tmp_bu[i]);
-  }
-  
-  Rcpp::S4 bu_dge("dgeMatrix");
-  bu_dge.slot("x") = bu_vec;
-  bu_dge.slot("Dim") = Rcpp::IntegerVector::create(N, rhs_cols);
-  bu_dge.slot("Dimnames") = Rcpp::List::create(R_NilValue, R_NilValue);
-  
-  // Compute log determinant: logDetC = 2 * sum(log(diag(C_factor)))
-  cublasScopy(ctx->cublasH, N, ctx->d_C, N + 1, ctx->d_diag, 1);
-  
-  // Copy only the N diagonal elements to the host:
-  std::vector<float> tmp_diag(N);
-  CHECK_CUDA( cudaMemcpyAsync(tmp_diag.data(), ctx->d_diag, N * sizeof(float), cudaMemcpyDeviceToHost, ctx->stream) );
-  CHECK_CUDA( cudaStreamSynchronize(ctx->stream) ); // We must sync to ensure tmp_diag actually holds the diagonal elements of the CF!
-  double logDetC = 0.0;
-  for (int i = 0; i < N; ++i) {
-    logDetC += std::log(static_cast<double>(tmp_diag[i]));
-  }
-  logDetC *= 2.0;
-  
-  // Copy the full Cholesky factor back to R only after convergence so we can make predictions and PEVs:
-  SEXP chol_host = R_NilValue;
-  if (returnCchol) {
-    arma::fmat C_factor_host_float(N, N);
-    CHECK_CUDA( cudaMemcpyAsync(C_factor_host_float.memptr(), ctx->d_C, N * N * sizeof(float), cudaMemcpyDeviceToHost, ctx->stream) );
-    CHECK_CUDA( cudaStreamSynchronize(ctx->stream) ); // We must sync to ensure C_factor_host actually holds the elements from the CF on the device!
-    C_factor_host_float = arma::trimatu(C_factor_host_float);
-    arma::dmat C_factor_host = arma::conv_to<arma::dmat>::from(C_factor_host_float);
-    chol_host = Rcpp::wrap(C_factor_host);
-  }
-  
-  return Rcpp::List::create(
-    Rcpp::Named("bu") = bu_dge,
-    // Rcpp::Named("z") = z_dge,
-    Rcpp::Named("logDetC") = logDetC,
-    Rcpp::Named("Cchol") = chol_host
-  );
-}
-
 // [[Rcpp::export(cuSolverPhase2)]]
 Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in) {
   
@@ -479,80 +285,5 @@ Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in) {
     Rcpp::Named("Ci") = Ci_host
   );
 }
-
-// [[Rcpp::export(cuSolverPhase2Float)]]
-Rcpp::List cuSolverPhase2Float(SEXP ctx_ptr, SEXP XWjxZWj_in) {
-  
-  // Unwrap the persistent context
-  Rcpp::XPtr<cuSolverContextFloat> ctx(ctx_ptr);
-  if (ctx.get() == nullptr) Rcpp::stop("GPU pointer is null or has already been freed!");
-  
-  // Converting to an armadillo matrix:
-  arma::fmat XWjxZWj = convert_to_fmat(XWjxZWj_in);
-  
-  // Left and right side dimensions:
-  int N = ctx->N;
-  int rhs_cols = ctx->rhs_cols_2;
-  if (XWjxZWj.n_cols != rhs_cols) {
-    Rcpp::stop("XWjxZWj dimension mismatch! Expected %i columns, got %i.", rhs_cols, XWjxZWj.n_cols);
-  }
-  
-  // Assume upper storage ("U") from R's dsyMatrix/dtrMatrix conventions:
-  cublasFillMode_t uplo = CUBLAS_FILL_MODE_UPPER;
-  
-  // Push the multiple right-hand side matrix (XWjxZWj) into the d_buWu buffer.
-  // Note that XWjxZWj will be replaced by buWu:
-  CHECK_CUDA( cudaMemcpyAsync(ctx->d_buWu, XWjxZWj.memptr(), N * rhs_cols * sizeof(float), cudaMemcpyHostToDevice, ctx->stream) );
-  
-  // Solve for buWu in-place using the existing Cholesky factor in d_C:
-  cusolverDnSpotrs(ctx->cusolverH, uplo, N, rhs_cols, ctx->d_C, N, ctx->d_buWu, N, ctx->d_info);
-  
-  // Return buWu to R directly into a dgeMatrix
-  std::vector<float> tmp_buWu(N * rhs_cols);
-  CHECK_CUDA( cudaMemcpyAsync(tmp_buWu.data(), ctx->d_buWu, N * rhs_cols * sizeof(float), cudaMemcpyDeviceToHost, ctx->stream) );
-  CHECK_CUDA( cudaStreamSynchronize(ctx->stream) );
-  
-  Rcpp::NumericVector buWu_vec(N * rhs_cols);
-  for(int i = 0; i < N * rhs_cols; ++i) {
-    buWu_vec[i] = static_cast<double>(tmp_buWu[i]);
-  }
-  
-  Rcpp::S4 buWu_dge("dgeMatrix");
-  buWu_dge.slot("x") = buWu_vec;
-  buWu_dge.slot("Dim") = Rcpp::IntegerVector::create(N, rhs_cols);
-  buWu_dge.slot("Dimnames") = Rcpp::List::create(R_NilValue, R_NilValue);
-  
-  // Invert C from its Cholesky factor:
-  cusolverDnSpotri(ctx->cusolverH, uplo, N, ctx->d_C, N, ctx->d_work, ctx->lwork, ctx->d_info);
-  
-  // Allocate the raw R vector for the S4 dsyMatrix:
-  std::vector<float> tmp_Ci(N * N);
-  CHECK_CUDA( cudaMemcpyAsync(tmp_Ci.data(), ctx->d_C, N * N * sizeof(float), cudaMemcpyDeviceToHost, ctx->stream) );
-  CHECK_CUDA( cudaStreamSynchronize(ctx->stream) );
-  
-  Rcpp::NumericVector Ci_vec(N * N);
-  for(int i = 0; i < N * N; ++i) {
-    Ci_vec[i] = static_cast<double>(tmp_Ci[i]);
-  }
-  
-  // Construct the S4 dsyMatrix:
-  Rcpp::S4 Ci_host("dpoMatrix");
-  Ci_host.slot("x") = Ci_vec;
-  Ci_host.slot("Dim") = Rcpp::IntegerVector::create(N, N);
-  Ci_host.slot("Dimnames") = Rcpp::List::create(R_NilValue, R_NilValue);
-  Ci_host.slot("uplo") = "U";
-  Ci_host.slot("factors") = Rcpp::List::create(); // dpoMatrix strictly expects an empty list here by default
-  
-  return Rcpp::List::create(
-    Rcpp::Named("buWu") = buWu_dge,
-    Rcpp::Named("Ci") = Ci_host
-  );
-}
-
-
-
-
-
-
 
 

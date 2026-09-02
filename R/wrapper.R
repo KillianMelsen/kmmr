@@ -709,7 +709,6 @@ atEach <- function(factor, formula, levels = NULL, ...) {
 #' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
 #' @param useGPU Should the GPU be used for dense models?
 #' @param denseThreshold Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.
-#' @param precision Sets the precision to be used for the GPU operations, either \code{"FP64"} for double precision or \code{"FP32"} for single precision. Only relevant when \code{useGPU == TRUE}.
 #'
 #' @returns A list with the results.
 #' @export
@@ -717,7 +716,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
                  sparse = FALSE, timesToBoundary = 5, getStartingValues = FALSE, super = TRUE,
-                 useGPU = FALSE, denseThreshold = 0.1, precision = NULL) {
+                 useGPU = FALSE, denseThreshold = 0.1) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -962,8 +961,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                              u.forFactor = u.forFactor, u.indexCor = u.indexCor,
                              bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
                              isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold,
-                             precision = precision)
+                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold)
     } else {
       result <- solveLMM_GPU(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
                              maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
@@ -972,8 +970,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                              u.forFactor = u.forFactor, u.indexCor = u.indexCor,
                              bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
                              isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold,
-                             precision = precision)
+                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold)
     }
   
     result$params <- unlist(params)
