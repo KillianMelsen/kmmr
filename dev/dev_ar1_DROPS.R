@@ -46,14 +46,14 @@ d$Env <- as.factor(d$Env)
 # cor(fit.kmmr$u@x, fit.asr$coefficients$random[,])
 
 # Now work on trial/environment specific random effects for single-stage analyses:
-dss <- droplevels(d[d$Man == "R" & d$Env %in% c("Gai12", "Cra12"),])
+dss <- droplevels(d[d$Man == "R" & d$Env %in% c("Gai12", "Cra12", "Gai13", "Gra13"),]) # , "Cam12"
 ggplot2::ggplot(dss, ggplot2::aes(x = as.numeric(as.character(Col)), y = as.numeric(as.character(Row)), shape = Rep, color = GY)) +
   ggplot2::facet_wrap(ggplot2::vars(Env)) +
   ggplot2::geom_point(size = 5) +
   ggplot2::scale_color_continuous(palette = "viridis")
 
 # Rep is not really an appropriate name here as it doesn't identify a unique row for B73:
-dss[dss$Env == "Gai12" & dss$Gen == "B73" & dss$Rep == 1,]
+# dss[dss$Env == "Gai12" & dss$Gen == "B73" & dss$Rep == 1,]
 
 # Instead, call it a complete block and call the other blocks incomplete:
 colnames(dss)[colnames(dss) == "Rep"] <- "compBlock"
@@ -62,36 +62,48 @@ colnames(dss)[colnames(dss) == "Block"] <- "incompBlock"
 dss$Rep <- ave(numeric(nrow(dss)), dss$Env, dss$Gen, FUN = seq_along)
 dss$Rep <- factor(dss$Rep, 1:max(dss$Rep))
 
+# Complete blocks are named inconveniently:
+dss$compBlock <- as.numeric(dss$compBlock)
+dss$compBlock[dss$compBlock == 4] <- 2
+dss$compBlock[dss$compBlock == 5] <- 1
+dss$compBlock <- as.factor(dss$compBlock)
+
 system.time(
-fit.asr <- asreml(GY ~ -1 + Env,
-                  random = ~ at(Env):ar1v(Row):ar1(Col) +
-                             corgh(Env):vm(Gen, Ki.asr),
+fit.asr <- asreml(GY ~ 1 + Env,
+                  random = ~ at(Env):idv(compBlock) +
+                             at(Env):idv(compBlock):id(incompBlock) +
+                             at(Env):ar1v(Row):ar1(Col) +
+                             fa(Env, 1):vm(Gen, Ki.asr),
                   residual = ~ dsum(~ units | Env),
                   data = dss,
                   maxit = 30)
 )
 
 system.time(
-fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
-                 random = ~ atEach("Env", ~ re(~ ar1(Row):ar1(Col), vars = ~ 1)) +
-                            re(~ corg(Env):lk(Gen, Ki.kmmr), vars = ~ Env),
+fit.kmmr <- kmmr(fixed = GY ~ 1 + Env,
+                 random = ~ atEach("Env", ~ re(~ id(compBlock), vars = ~ 1)) +
+                            atEach("Env", ~ re(~ id(compBlock):id(incompBlock), vars = ~ 1)) +
+                            atEach("Env", ~ re(~ ar1(Row):ar1(Col), vars = ~ 1)) +
+                            re(~ exfa(Env, 1):lk(Gen, Ki.kmmr), vars = ~ Env),
                  residual = ~ re(~ id(Env):id(Gen):id(Rep), vars = ~ Env),
                  data = dss,
-                 stepSize = c(0.1, 0.3, 0.5),
-                 init = c(0.11, 0.1, 0.1, 0.11, 0.1, 0.1, 0.11, 0.11, 0.5, 0.11, 0.11),
-                 isFixed = c(F, F, F, F, F, F, F, F, F, F, F),
+                 stepSize = c(0.1, 0.1, 0.1, 0.1, 0.1),
                  sparse = TRUE,
                  maxit = 30)
 )
 
-# The last 492 BLUPs should be for the GxE part:
-u.asr <- as.numeric(fit.asr$coefficients$random[(nrow(fit.asr$coefficients$random) - 492 + 1):nrow(fit.asr$coefficients$random),])
-u.kmmr <- as.numeric(fit.kmmr$u@x[(length(fit.kmmr$u@x) - 492 + 1):length(fit.kmmr$u@x)])
+# The last (nEnv + m) x 246 BLUPs should be for the GxE part:
+u.asr <- fit.asr$coefficients$random[(nrow(fit.asr$coefficients$random) - (length(levels(dss$Env)) * 246) + 1):(nrow(fit.asr$coefficients$random)), , drop = FALSE]
+u.kmmr <- fit.kmmr$u[(nrow(fit.kmmr$u) - (length(levels(dss$Env)) * 246) + 1):nrow(fit.kmmr$u), , drop = FALSE]
+rownames(u.asr) <- gsub("Env_(.*):vm\\(Gen, Ki.asr\\)_(.*)", "\\1:\\2", rownames(u.asr))
 plot(u.asr, u.kmmr)
-cor(u.asr, u.kmmr)
+cor(u.asr[,], u.kmmr@x)
 
-
-
+u.asr <- u.asr[order(u.asr[,], decreasing = TRUE), , drop = FALSE]
+u.kmmr <- u.kmmr[order(u.kmmr@x, decreasing = TRUE), , drop = FALSE]
+top.asr <- u.asr[1:floor(0.1 * nrow(u.asr)), , drop = FALSE]
+top.kmmr <- u.kmmr[1:floor(0.1 * nrow(u.kmmr)), , drop = FALSE]
+plot(top.asr[,], top.kmmr@x)
 
 
 

@@ -412,7 +412,6 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
                          bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
                          timesToBoundary, super, useGPU, denseThreshold) {
   ## Prelims ====
-  # browser()
   start <- proc.time()[3]
   k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
@@ -814,7 +813,6 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
     
     ### Cholesky decomposition of C and computing BLUEs/BLUPs ====
     #tic("Cholesky decomp of C and BLUEs/BLUPs")
-    browser()
     Riy <- Ri %*% y
     if (sparse) { # Remember that Cchol is the CF of the full matrix (no dense effects), or the sparse block only!
       if (super) {
@@ -1088,7 +1086,6 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
     
     ### Computing the AI matrix ====
     #tic("Computing the AI matrix and its inverse")
-    # browser()
     RiWu <- Ri %*% Wu
     WiWj <- forceSymmetric(crossprod(Wu, RiWu)) # Similar to t(y) %*% Ri %*% y
     if (sparse && hasDense) {
@@ -1130,7 +1127,6 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
     
     ### Computing the inverse of the coefficient matrix ====
     # We can again overwrite C as we no longer need the CF after this.
-    # browser()
     #tic("Inversion of C from cholesky factor")
     if (sparse && hasDense) {
       # Compute the base sparse inverse subset of the sparse block of C.
@@ -1370,7 +1366,7 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
       if (any(kUpdate[autoCors, 1] > 0.99)) {
         bound.autoCors <- autoCors[kUpdate[autoCors, 1] > 0.99]
         boundary[bound.autoCors] <- boundary[bound.autoCors] + 1
-        delta[bound.autoCors, 1] <- 0.9333333 - k[bound.autoCors, iter]
+        delta[bound.autoCors, 1] <- 0.98 - k[bound.autoCors, iter]
         hitBoundary <- TRUE
         checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
         constraintsUsed <- TRUE
@@ -1587,7 +1583,6 @@ solveLMM_GPU <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, av
   # last time if we are using the GPU. This is because the Cholesky factor of C
   # only ever existed on the GPU, and we don't want to copy it back in every
   # single iteration.
-  # browser()
   if (useGPU) {
     gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = TRUE)
     cuSolverCleanup(gpu_ctx)

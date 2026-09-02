@@ -9,12 +9,12 @@ re(formula, vars = ~1, ...)
 \arguments{
 \item{formula}{Random effect formula.}
 
-\item{vars}{To which factors should the variances be applied?}
+\item{vars}{To which factors in the formula should the variances be applied?}
 
-\item{...}{}
+\item{...}{Additional arguments used internally.}
 }
 \value{
-A list with all information on the structure of the random effect, to be used with the solver.
+A list with all information on the structure of the random effect, to be used internally with the solver.
 }
 \description{
 re

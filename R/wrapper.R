@@ -29,7 +29,8 @@ rotateInitL <- function(L) {
 
 getInit_fa <- function(factor, m, data, response) {
   idCols <- setdiff(colnames(data), c(factor, response, "units"))
-  dataWide <- reshape(data[, setdiff(colnames(data), "units")], direction = "wide", idvar = idCols, timevar = factor, v.names = response)
+  dataAggr1 <- aggregate(data, as.formula(sprintf("%s ~ %s", response, paste(c(factor, idCols), collapse = "+"))), FUN = function(x) mean(x, na.rm = TRUE))
+  dataWide <- reshape(dataAggr1[, setdiff(colnames(dataAggr1), "units")], direction = "wide", idvar = idCols, timevar = factor, v.names = response)
   dataWide <- dataWide[, setdiff(colnames(dataWide), idCols)]
   colnames(dataWide) <- gsub(paste0("^", response, "\\."), "", colnames(dataWide))
   dataWide <- as.matrix(dataWide)[, levels(data[[factor]])]
@@ -101,7 +102,7 @@ getInit_stack <- function(formula, data, response) {
 #' @returns Modified init and isFixed vectors.
 #' @keywords internal
 getInit <- function(response, call, data, init, isFixed, indices) {
-  calls <- strsplit(gsub("re\\(\\s*~\\s*(.*)\\s*,.*", "\\1", call), ":")[[1]]
+  calls <- strsplit(gsub("^re\\(\\s*~\\s*(.*?)\\s*(?:,\\s*(?:vars\\s*=\\s*)?~.*)?\\)$", "\\1", call), ":")[[1]]
   for (j in 1:length(calls)) {
     currentCall <- calls[j]
     if (grepl("stack\\(.*", currentCall)) { # If it's a stacked structure.
@@ -150,10 +151,10 @@ revInteractions <- function(form) {
 #' re
 #'
 #' @param formula Random effect formula.
-#' @param vars To which factors should the variances be applied?
-#' @param ... 
+#' @param vars To which factors in the formula should the variances be applied?
+#' @param ... Additional arguments used internally.
 #'
-#' @returns A list with all information on the structure of the random effect, to be used with the solver.
+#' @returns A list with all information on the structure of the random effect, to be used internally with the solver.
 #' @keywords internal
 re <- function(formula, vars = ~ 1, ...) {
   data <- list(...)$data
@@ -338,58 +339,6 @@ re <- function(formula, vars = ~ 1, ...) {
       }
     }
   }
-  # This should probably be wrapped in a function...
-  # for (i in 1:length(factorNames)) {
-  #   if (nparams[i + 1] > 0) { # + 1 because we can skip the variances
-  #     if (isStack[i]) {
-  #       for (s in 1:sos) {
-  #         p <- nparams.list[[i + 1]][s]
-  #         structure <- struc[[i]][s]
-  #         if (structure == "corg") {
-  #           labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
-  #           params[h:(h - 1 + p)] <- sprintf("corg{%s-%s|stack-%d}", factorNames[i], labels, s)
-  #           h <- h + p
-  #         } else if (structure == "cors") {
-  #           params[h] <- sprintf("cors{%s|stack-%d}", factorNames[i], s)
-  #           h <- h + 1
-  #         } else if (structure == "gk") {
-  #           params[h] <- sprintf("bw{%s|stack-%d}", factorNames[i], s)
-  #           h <- h + 1
-  #         } else if (structure %in% c("fa", "exfa")) {
-  #           m <- p / nlevels[i]
-  #           labels <- paste(rep(levels[[i]], m), rep(sprintf("F%d", 1:m), each = nlevels[i]), sep = ":")
-  #           params[h:(h - 1 + p)] <- sprintf("loading{%s-%s|stack-%d}", factorNames[i], labels, s)
-  #           h <- h + p
-  #         } else if (structure == "ar1") {
-  #           params[h] <- sprintf("ar1{%s}", factorNames[i])
-  #           h <- h + 1
-  #         }
-  #       }
-  #     } else {
-  #       p <- nparams[i + 1]
-  #       structure <- struc[i]
-  #       if (structure == "corg") {
-  #         labels <- t(outer(levels[[i]], levels[[i]], function(x, y) paste(x, y, sep = ":")))[lower.tri(matrix(1, nlevels[i], nlevels[i]))]
-  #         params[h:(h - 1 + p)] <- sprintf("corg{%s-%s}", factorNames[i], labels)
-  #         h <- h + p
-  #       } else if (structure == "cors") {
-  #         params[h] <- sprintf("cors{%s}", factorNames[i])
-  #         h <- h + 1
-  #       } else if (structure == "gk") {
-  #         params[h] <- sprintf("bw{%s}", factorNames[i])
-  #         h <- h + 1
-  #       } else if (structure %in% c("fa", "exfa")) {
-  #         m <- p / nlevels[i]
-  #         labels <- paste(rep(levels[[i]], m), rep(sprintf("F%d", 1:m), each = nlevels[i]), sep = ":")
-  #         params[h:(h - 1 + p)] <- sprintf("loading{%s-%s}", factorNames[i], labels)
-  #         h <- h + p
-  #       } else if (structure == "ar1") {
-  #         params[h] <- sprintf("ar1{%s}", factorNames[i])
-  #         h <- h + 1
-  #       }
-  #     }
-  #   }
-  # }
   
   return(list(Z = Z,
               indices = indices,
@@ -522,7 +471,7 @@ id <- function(factor) {
   levels <- levels(factor)
   p <- length(levels)
   nparams <- 0
-  return(list(base = Diagonal(p),
+  return(list(base = .symDiagonal(p),
               levels = levels,
               nlevels = p,
               nparams = nparams,
@@ -675,13 +624,15 @@ atEach <- function(factor, formula, levels = NULL, ...) {
   for (lvl in levels) {
     rowIndices <- which(data[[factor]] == lvl)
     dataSubset <- droplevels(data[rowIndices,])
-    expr <- parse(text = as.character(formula[2]))[[1]]
+    exprText <- as.character(formula[2])
+    expr <- parse(text = exprText)[[1]]
     expr$data <- dataSubset
     specs[[l]] <- eval(expr)
     expandedZ <- Matrix(0, nrow(data), ncol(specs[[l]]$Z), sparse = TRUE, doDiag = FALSE)
     expandedZ[rowIndices,] <- specs[[l]]$Z
     colnames(expandedZ) <- colnames(specs[[l]]$Z)
     specs[[l]]$Z <- expandedZ
+    specs[[l]]$exprText <- exprText
     names(specs)[l] <- sprintf("%s-%s", factor, lvl)
     l <- l + 1
   }
@@ -793,7 +744,9 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   }
   
   # S <- Diagonal(n.units)
-  res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\()", perl = TRUE)[[1]] # split the full random argument into separate re() calls.
+  # split the full random argument into separate re() and atEach() calls.
+  res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\()", perl = TRUE)[[1]] 
+  res <- strsplit(as.character(random[2]), "\\s*\\+\\s*(?=re\\(|atEach\\()", perl = TRUE)[[1]]
   nU <- length(res) # Number of random effects.
   res <- c(res, as.character(residual[2])) # Residual effect
   n.atEach <- sum(grepl("^atEach.*", res))
@@ -823,7 +776,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   # The length of these lists already takes additional random effects due to atEach() calls into account.
   Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <-
     u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar  <-
-    u.isStack <- u.nparams.list <- params <- factorNames <- vector("list", nU + 1)
+    u.isStack <- u.nparams.list <- params <- factorNames <- callsRe <- vector("list", nU + 1)
   j <- 1 # Index to keep track of the actual random effect spec we are working on.
   k <- 1 # Index to keep track of which atEach() spec we are at.
   # for (i in 1:(nU + 1)) {
@@ -831,6 +784,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     if (grepl("^atEach.*", res[i])) { # If we are dealing with an atEach() call that expands into several random effects.
       for (l in 1:length(specs.atEach[[k]])) {
         Z[[j]] <- specs.atEach[[k]][[l]]$Z
+        callsRe[[j]] <- specs.atEach[[k]][[l]]$exprText
         indices[[j]] <- specs.atEach[[k]][[l]]$indices
         u.applyvars[[j]] <- specs.atEach[[k]][[l]]$applyvars
         u.types[[j]] <- specs.atEach[[k]][[l]]$types
@@ -850,7 +804,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
       }
       k <- k + 1
     } else { # If we are dealing with an re() call that results in a specification for a single random effect.
-      expr <- parse(text = res[i])[[1]]
+      callsRe[[j]] <- res[i]
+      expr <- parse(text = callsRe[[j]])[[1]]
       expr$data <- data
       spec <- eval(expr)
       Z[[j]] <- spec$Z
@@ -901,8 +856,6 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   }
   
   # Initial values:
-  factorNames <- unique(unlist(factorNames))
-  data <- data[, c(factorNames, response)] # Dropping any irrelevant columns to avoid issues with getting initial values.
   if (is.null(init) | any(is.na(init))) {
     if (is.null(init)) {
       init <- rep(NA, length(ur.types))
@@ -912,7 +865,11 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     }
     for (i in 1:(nU + 1)) {
       # Get initial variances:
-      formula <- as.formula(paste0(response, gsub(".*vars\\s*=\\s*(~.*)\\)", "\\1", res[i])))
+      repl <- gsub(".*,\\s*(?:vars\\s*=\\s*)?(~.*)\\)", "\\1", callsRe[[i]])
+      if (repl == callsRe[[i]]) {
+        repl <- " ~ 1"
+      }
+      formula <- as.formula(paste0(response, repl))
       if (formula == as.formula(paste0(response, "~ 1"))) {
         vars <- var(data[[response]])
       } else {
@@ -923,7 +880,9 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
       isFixed[indices[[i]][[1]]] <- FALSE
       
       # Now do the initial values for the remaining structures in this random effect (or residual effect if 1 == nU + 1):
-      ret <- getInit(response = response, call = res[i], data = data, init = init, isFixed = isFixed, indices = indices[[i]])
+      keep <- factorNames[[i]]
+      datass <- data[, c(keep, response)] # Dropping any irrelevant columns to avoid issues with getting initial values.
+      ret <- getInit(response = response, call = callsRe[[i]], data = datass, init = init, isFixed = isFixed, indices = indices[[i]])
       init <- ret$init
       isFixed <- ret$isFixed
     }
@@ -952,7 +911,6 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                          Fixed = isFixed)
   } else {
     # Fitting:
-    # browser()
     if (!sparse & useGPU) {
       result <- solveLMM_GPU(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
                              maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
