@@ -3,7 +3,6 @@
 S3method(predict,kmmrFit)
 S3method(print,summary.kmmrFit)
 S3method(summary,kmmrFit)
-export(SIS)
 export(exfalkSetup)
 export(getDeviceProps)
 export(kmmr)

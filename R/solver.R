@@ -1,3 +1,26 @@
+formGi <- function(sigmai, nvarGi) {
+  # sigmai is a 1x1 matrix:
+  if (identical(dim(sigmai), c(1L, 1L))) {
+    return(sigmai@x * nvarGi)
+  }
+  
+  # nvarGi is a 1x1 matrix, don't think this should ever happen:
+  if (identical(dim(nvarGi), c(1L, 1L))) {
+    stop("One of the nvarGi matrices is a 1x1 matrix!")
+    # return(sigmai * nvarGi@x)
+  }
+  
+  # General case for p > 1 (dense or sparse)
+  res <- kronecker(sigmai, nvarGi)
+  
+  # Making sure the result is a ds.Matrix:
+  if (!is(res, "symmetricMatrix")) {
+    res <- forceSymmetric(res)
+  }
+  
+  return(res)
+}
+
 # A function for checking and constraining updates to the loadings of fa and exfa structures:
 checkLoadings <- function(currentParams, delta, loadingIndices, isFixed, p) {
   kUpdate <- currentParams + delta
@@ -345,8 +368,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 
 #' solveLMM
 #' 
-#' Implementation of the average information algorithm for fitting linear mixed
-#' models.
+#' Implementation of the C-based average information REML algorithm for fitting linear mixed models.
 #'
 #' @param y Numeric vector containing the response data.
 #' @param X Numeric fixed effect design matrix.
@@ -378,14 +400,16 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @param sparse Should the sparse version of the algorithm be used? Useful if C is reasonable sparse.
 #' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
 #' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
+#' @param useGPU Should the GPU be used for dense models?
+#' @param denseThreshold Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.
 #'
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
 #' @keywords internal
 solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
-                       indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
-                       bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
-                       timesToBoundary, super) {
+                     indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
+                     bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
+                     timesToBoundary, super, useGPU, denseThreshold) {
   ## Prelims ====
   start <- proc.time()[3]
   k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
@@ -397,7 +421,15 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   nR <- 1 # Number of residual effects
   nUR <- nU + nR # Number of random effects + residual
   nX <- ncol(X) # Number of fixed effects
-  intercept <- sum(X[, 1]) == nrow(X) # Is there an intercept?
+  hasDense <- FALSE
+  # intercept <- sum(X[, 1]) == nrow(X) # Is there an intercept?
+  if (sparse) { # If we use the sparse solver, we need to check if we have dense effects and thus need to use the partitioned approach.
+    XcolDensities <- diff(X@p) / nrow(X) # Proportion of nonzeros for each column of X
+    nXdense <- sum(XcolDensities > denseThreshold) # Number of dense fixed effects
+    nXsparse <- nX - nXdense # Number of sparse fixed effects
+    denseEqs <- which(XcolDensities > denseThreshold)
+    hasDense <- nXdense > 0
+  }
   
   ## Computing determinants of matrices associated with non-variable terms before iterating ====
   n.var <- numeric(nUR)
@@ -416,6 +448,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   } # End loop over random effects
   
   # Forming non-variable structures for random effects:
+  tic("Forming nvarGi for each random effect")
   nvarGi <- vector("list", nU)
   logDetnvarGtotal <- numeric(nU)
   for (re in 1:nU) { # Start loop over random effects
@@ -428,7 +461,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
           if (is(bases[[re]][[i]], "sparseMatrix")) {
             logDetnvarG[i - n.var[re]] <- -1 * determinant(Cholesky(bases[[re]][[i]], LDL = FALSE, perm = TRUE, super = TRUE), sqrt = FALSE, logarithm = TRUE)$modulus
           } else {
-            logDetnvarG[i - n.var[re]] <- -1 * sum(log(eigen(bases[[re]][[i]])$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices? 
+            logDetnvarG[i - n.var[re]] <- -1 * sum(log(eigen(bases[[re]][[i]], only.values = TRUE)$values)) # Times -1 because the non-variable base matrices (linear kernels) are in inverse form. # Maybe on the GPU for large matrices? 
           }
         }
       }
@@ -448,6 +481,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       nvarGi[[re]] <- Reduce(kronecker, bases[[re]][i.nvar[[re]]])
     }
   } # End loop over random effects
+  toc()
   
   # Forming non-variable structure for the residual effect:
   re <- nUR
@@ -455,11 +489,30 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     # Form the non-variable part of R using kronecker products before iterating if it exists:
     S <- Reduce(kronecker, bases[[re]][i.nvar[[re]]])
   }
+  
+  ## Forming W = [X Z] ====
+  tic("Forming W")
+  W <- X
+  for (re in 1:nU) {
+    W <- cbind(W, Z[[re]])
+  }
+  if (sparse && hasDense) { # using the partitioned approach.
+    sparseEqs <- setdiff(1:ncol(W), denseEqs) # Sparse fixed effects and random effects
+    denseW <- as(W[, denseEqs], "unpackedMatrix")
+    sparseW <- W[, sparseEqs]
+  }
+  toc()
+  
   stop <- proc.time()[3]
   duration <- as.numeric(stop - start)
   duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
   if (verbose) {
     ansi <- interactive() && !is.null(Sys.getenv("TERM"))
+    if (sparse) {
+      cat(sprintf("Using the sparse solver %s partitioning of the MMEs.\n", ifelse(hasDense, "with", "without")))
+    } else {
+      cat(sprintf("Using the dense solver %s GPU acceleration.\n", ifelse(useGPU, "with", "without")))
+    }
     if (ansi) {
       cat("\033[1m", sprintf("%-11s %-15s %-20s", "Iteration", "LogLik", "Duration (hh:mm:ss)"), "\033[0m", "\n", sep = "")
     } else {
@@ -468,18 +521,21 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     cat(sprintf("%-11s %-15.3f %-20s\n", "Setup", NA, duration))
   }
   
+  ## Setup the GPU CUDA context ====
+  if (useGPU) {
+    tic("Initializing CUDA")
+    gpu_ctx <- cuSolverInit(N = ncol(W), rhs_cols_1 = 1, rhs_cols_2 = nrow(k)) # N = dim of the C matrix, rhs_cols_2 is the number of parameters.
+    toc()
+  }
+  
   ## Start iterating ====
   LL <- numeric(maxit + 1)
   converged <- FALSE
   iter <- 1
-  while (!(converged) & iter <= maxit) {
+  while (!(converged) && iter <= maxit) {
     start <- proc.time()[3]
     ### Computing Ri ====
     tic("Computing Ri")
-    # if (useWeights & iter == 1) { # Apply weights in the first iteration if they need to be used.
-    #   S <- t(weights) %*% S %*% weights
-    # }
-    # Ri <- 1 / k[nrow(k), iter] * S # The residual variance is always last in kappa for now
     # These lists will also be used later for the random effects:
     cormats <- vector("list", nUR)
     sigmai <- vector("list", nUR)
@@ -544,37 +600,40 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     }
     toc()
     
-    ### Forming W = [X Z] ====
-    tic("Forming W and C = t(W) %*% Ri %*% W")
-    if (iter == 1) {
-      W <- X
-      for (re in 1:nU) {
-        W <- cbind(W, Z[[re]])
-      }
-    }
-    
     ### Computing C = t(W) %*% Ri %*% W
-    if (sparse) {
-      C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "TsparseMatrix") # Converting to triplet form for adding sparse Gi's later
-      # C_i <- C@i
-      # C_j <- C@j
-      # C_x <- C@x
+    tic("Forming C = t(W) %*% Ri %*% W")
+    if (sparse && hasDense) { # If we need a partitioned approach, C is actually only the sparse block of C
+      Ri_sparseW <- Ri %*% sparseW
+      Ri_denseW  <- Ri %*% denseW
+      Cdd <- crossprod(denseW, Ri_denseW) # Top-left dense block of C
+      C <- as(forceSymmetric(crossprod(sparseW, Ri_sparseW)), "TsparseMatrix") # Bottom-right sparse block of C
+      Cds <- crossprod(denseW, Ri_sparseW) # Upper-right off-diagonal block of C
       C_dim <- dim(C)
-      # rm(C)
-    } else {
+    } else if (sparse && !hasDense) { # If we have fully sparse MMEs, C is the full matrix
+      C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "TsparseMatrix") # Full sparse C
+      C_dim <- dim(C)
+    } else { # If we have fully dense MMEs, C is the full matrix as well
       C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "unpackedMatrix") # Store as a dense matrix since C will be dense anyway after adding Gi.
     }
     toc()
     
     ### Adding Gi to C ====
-    tic("Computing Gi")
-    # cormats <- vector("list", nU)
-    # sigmai <- vector("list", nU)
-    # logDetvarGtotal <- numeric(nU)
-    # vars <- vector("list", nU)
-    offset <- nX + 1
+    tic("Computing Gi and adding it to C")
+    if (sparse && hasDense) { # If we need to use a partitioned approach.
+      offset <- nXsparse + 1
+    } else { # If we don't need a partitioned approach (there are no dense effects, or the MMEs are fully dense).
+      offset <- nX + 1
+    }
+    if (sparse) {
+      iList <- vector("list", nU + 1)
+      jList <- vector("list", nU + 1)
+      xList <- vector("list", nU + 1)
+      iList[[1]] <- C@i
+      jList[[1]] <- C@j
+      xList[[1]] <- C@x
+    }
     for (re in 1:nU) { # Start loop over random effects
-      # Computing Gi every iteration:
+      #### Computing Gi ====
       if (any(u.isStack[[re]])) { # If there is a stack in the random effect
         # Determining which factor is a stack and the size of the stack:
         i.stack <- which(u.isStack[[re]])
@@ -638,56 +697,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         } else { # End of if (n.var[re] > 0), which should always be TRUE for random effects with a stack
           stop("Something is wrong, n.var[re] > 0 is FALSE for a random effect with a stack...")
         }
-        if (n.nvar[re] > 0) {
-          Gi <- as(kronecker(sigmai[[re]], nvarGi[[re]]), "TsparseMatrix") # This is a bit slow as well.
-        } else {
-          Gi <- as(sigmai[[re]], "TsparseMatrix")
-        }
-
-        # Now add to C:
-        dimGi <- nrow(Gi)
-        if (sparse) {
-          # If we want the full C to be sparse but still have a dense random effect, we need to store the Gi for that
-          # dense random effect in sparse format.
-          if (!is(Gi, "sparseMatrix")) {
-            Gi <- as(Gi, "TsparseMatrix")
-          }
-          # Collecting the values of the previous C and current Gi.
-          # Padding Gi with zeros to make it conformable with the sparse base C.
-          C_i_combined <- c(C@i, Gi@i + offset - 1)
-          C_j_combined <- c(C@j, Gi@j + offset - 1)
-          C_x_combined <- c(C@x, Gi@x)
-          rm(Gi, C) # We have all we need in the three vectors above, so get rid of Gi and the old C to free up memory.
-          
-          # Constructing the new C:
-          if (re == nU) {
-            repr <- "C" # Finally convert C to dsCMatrix to prepare for CF if there are no more random effects.
-          } else {
-            repr <- "T" # Keep C in triplet form if we have more random effects.
-          }
-          C <- sparseMatrix(i = C_i_combined + 1,
-                            j = C_j_combined + 1,
-                            x = C_x_combined,
-                            dims = C_dim,
-                            symmetric = TRUE,
-                            repr = repr)
-          
-          # Alternative approach, collecting all i's, j's, x's and building C after looping
-          # over all random effects.
-          # C_i <- c(C_i, Gi@i + offset - 1)
-          # C_j <- c(C_j, Gi@j + offset - 1)
-          # C_x <- c(C_x, Gi@x)
-          
-          # Gi <- sparseMatrix(i = Gi@i + 1 + offset - 1,
-          #                    j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + offset - 1,
-          #                    x = Gi@x,
-          #                    dims = dim(C),
-          #                    symmetric = TRUE)
-          # C <- C + Gi
-        } else {
-          C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] <- C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] + Gi
-        }
-        offset <- offset + dimGi # Moving offset to the next random effect.
       } else { # If there is no stack in the random effect
         # Always the outer product of standard deviations first:
         # For now, exfa is guaranteed/assumed to be the first factor in a random
@@ -760,112 +769,96 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
           sigmai[[re]] <- 1 / vars[[re]]
           logDetvarGtotal[re] <- -1 * log(sigmai[[re]])@x
         }
-        if (n.nvar[re] > 0) {
-          Gi <- as(kronecker(sigmai[[re]], nvarGi[[re]]), "TsparseMatrix") # This is a bit slow as well.
-        } else {
-          Gi <- as(sigmai[[re]], "TsparseMatrix")
-        }
-        
-        # Now add to C:
-        dimGi <- nrow(Gi)
-        if (sparse) {
-          # If we want C to be sparse but still have a dense random effect, we need to store the Gi for that
-          # dense random effect in sparse format.
-          if (!is(Gi, "sparseMatrix")) {
-            Gi <- as(Gi, "TsparseMatrix")
-          }
-          # Collecting the values of the previous C and current Gi.
-          # Padding Gi with zeros to make it conformable with the sparse base C.
-          C_i_combined <- c(C@i, Gi@i + offset - 1)
-          C_j_combined <- c(C@j, Gi@j + offset - 1)
-          C_x_combined <- c(C@x, Gi@x)
-          rm(Gi, C) # We have all we need in the three vectors above, so get rid of Gi and the old C to free up memory.
-          
-          # Constructing the new C:
-          if (re == nU) {
-            repr <- "C" # Finally convert C to dsCMatrix to prepare for CF if there are no more random effects.
-          } else {
-            repr <- "T" # Keep C in triplet form if we have more random effects.
-          }
-          C <- sparseMatrix(i = C_i_combined + 1,
-                            j = C_j_combined + 1,
-                            x = C_x_combined,
-                            dims = C_dim,
-                            symmetric = TRUE,
-                            repr = repr)
-          
-          # Alternative approach, collecting all i's, j's, x's and building C after looping
-          # over all random effects.
-          # C_i <- c(C_i, Gi@i + offset - 1)
-          # C_j <- c(C_j, Gi@j + offset - 1)
-          # C_x <- c(C_x, Gi@x)
-          
-          # Padding Gi with zeros to make it conformable with the sparse base C.
-          # Gi <- sparseMatrix(i = Gi@i + 1 + offset - 1,
-          #                    j = rep(seq_len(ncol(Gi)), diff(Gi@p)) + offset - 1,
-          #                    x = Gi@x,
-          #                    dims = dim(C),
-          #                    symmetric = TRUE)
-          # C <- C + Gi
-        } else {
-          C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] <- C[offset:(offset - 1 + dimGi), offset:(offset - 1 + dimGi)] + Gi # This one is also slow
-        }
-        offset <- offset + dimGi # Moving offset to next random effect.
       }
-    } # End loop over random effects.
-    # rm(Gi) # No more need for Gi, so get rid of it.
-    
-    # If C is sparse, we need to actually construct it once we have collected all
-    # i's, j's, and x's for all random effects:
-    # if (sparse) {
-    #   C <- sparseMatrix(i = C_i + 1,
-    #                     j = C_j + 1,
-    #                     x = C_x,
-    #                     dims = C_dim,
-    #                     symmetric = TRUE,
-    #                     repr = "C")
-    # }
-    toc()
-    
-    ### Cholesky decomposition of C ====
-    # Overwrite C with its simplicial/supernodal Cholesky factor.
-    # We don't need C anymore.
-    # Store an extra copy of the of the CF that is not overwritten by the SIS later.
-    # We need this for the predict() method to compute predictions and associated prediction error variances.
-    tic("Cholesky decomp of C")
-    if (sparse) {
-      if (super) {
-        Cchol <- C <- Cholesky(C, LDL = FALSE, perm = TRUE, super = TRUE)
+      ### Adding it to C ====
+      if (n.nvar[re] > 0) {
+        tic("Kronecker product to form Gi")
+        Gi <- formGi(sigmai[[re]], nvarGi[[re]])
+        toc()
       } else {
-        Cchol <- C <- Cholesky(C, LDL = TRUE, perm = TRUE, super = FALSE)
+        Gi <- sigmai[[re]]
       }
-      # if (iter == 1) {
-      #   Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = FALSE)
-      # } else {
-      #   # To Do: only update the cholesky factor instead
-      # }
-    } else {
-      Cchol <- C <- Cholesky(C, perm = FALSE) # Good for the GPU?
+      
+      # Now add to C:
+      dimGi <- nrow(Gi)
+      if (sparse) {
+        # If we want C to be sparse but still have a dense random effect, we need to store the Gi for that
+        # dense random effect in sparse format.
+        if (!is(Gi, "TsparseMatrix")) {
+          Gi <- as(Gi, "TsparseMatrix")
+        }
+        # Collecting the values of the previous C and current Gi.
+        # Padding Gi with zeros to make it conformable with the sparse base C.
+        iList[[re + 1]] <- Gi@i + offset - 1
+        jList[[re + 1]] <- Gi@j + offset - 1
+        xList[[re + 1]] <- Gi@x
+      } else {
+        tic("Adding Gi to dense C")
+        addBlockInplace(C, Gi, offset = offset)
+        toc()
+      }
+      offset <- offset + dimGi # Moving offset to next random effect.
+    } # End loop over random effects.
+    
+    # If C is sparse, we can actually re-construct C only once we have collected all
+    # i's, j's, and x's for all random effects. We only need a single piece of code
+    # here because if there are dense effects and C thus represents the sparse corner
+    # that is handled by offset = nXsparse + 1 in the previous code.
+    if (sparse) {
+      C <- sparseMatrix(i = unlist(iList) + 1, j = unlist(jList) + 1, x = unlist(xList),
+                        dims = C_dim, symmetric = TRUE, repr = "C")
     }
     toc()
     
-    ### BLUEs/BLUPs ====
-    tic("Solving for BLUEs and BLUPs")
-    if (sparse) {
-      # Apply permutation to the right-hand side of the MME: P %*% t(W) %*% Ri %*% y:
-      permRHS <- solve(C, crossprod(W, Ri %*% y), system = "P")
-      # Sparse triangular forward solve: L %*% z = permRHS where L = C (remember that C is now actually the CF of C):
-      z <- solve(C, permRHS, system = "L")
-      # Sparse triangular backward solve: t(L) %*% bu = z where l = C to obtain BLUEs and BLUPs:
-      bu <- solve(C, z, system = "Lt")
-      # Final reverse permutation t(P) %*% bu to get the BLUEs and BLUPs into model order:
-      bu <- solve(C, bu, system = "Pt")
-    } else {
-      RHS <- crossprod(W, Ri %*% y)
-      bu <- solve(C, RHS)
-      z <- as(C, "dtrMatrix") %*% bu # t(U) %*% U %*% bu = RHS and t(U) %*% z = RHS, therefore, t(U) %*% U %*% bu = t(U) %*% z, thus U %*% bu = z
+    ### Cholesky decomposition of C and computing BLUEs/BLUPs ====
+    tic("Cholesky decomp of C and BLUEs/BLUPs")
+    Riy <- Ri %*% y
+    if (sparse) { # Remember that Cchol is the CF of the full matrix (no dense effects), or the sparse block only!
+      if (super) {
+        Cchol <- Cholesky(C, LDL = FALSE, perm = TRUE, super = TRUE)
+      } else {
+        Cchol <- Cholesky(C, LDL = TRUE, perm = TRUE, super = FALSE)
+      }
+      if (hasDense) { # If there are dense effects we need the partitioned approach.
+        denseRHS <- crossprod(denseW, Riy)
+        sparseRHS <- crossprod(sparseW, Riy)
+        tic("Solving for BLUEs and BLUPs")
+        Q <- solve(Cchol, t(Cds))
+        SC <- forceSymmetric(Cdd - (Cds %*% Q))
+        sparseTemp <- solve(Cchol, sparseRHS)
+        adjDenseRHS <- denseRHS - (Cds %*% sparseTemp)
+        bDense <- solve(SC, adjDenseRHS)
+        buSparse <- sparseTemp - (Q %*% bDense)
+        bu <- rbind(bDense, buSparse)
+        toc()
+        logDetC <- as.numeric(determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus + determinant(SC, logarithm = TRUE)$modulus)
+        yPy <- as.numeric(crossprod(y, Riy) - (crossprod(sparseRHS, buSparse) + crossprod(denseRHS, bDense)))
+      } else { # If there are no dense effects we can keep it simple.
+        RHS <- crossprod(W, Riy)
+        tic("Solving for BLUEs and BLUPs")
+        bu <- solve(Cchol, RHS)
+        toc()
+        logDetC <- determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus
+        yPy <- as.numeric(crossprod(y, Riy) - crossprod(RHS, bu))
+      }
+    } else { # If we have fully dense MMEs.
+      RHS <- crossprod(W, Riy)
+      if (!useGPU) {
+        Cchol <- Cholesky(C, perm = FALSE)
+        tic("Solving for BLUEs and BLUPs")
+        bu <- solve(Cchol, RHS)
+        toc()
+        # Looks strange because the 2 * is missing, but is correct as diag(Cholesky(C, perm = FAlSE))
+        # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
+        logDetC <- sum(log(diag(Cchol)))
+      } else {
+        gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = FALSE)
+        bu <- gpuResult$bu
+        rownames(bu) <- colnames(C)
+        logDetC <- gpuResult$logDetC
+      }
+      yPy <- as.numeric(crossprod(y, Riy) - crossprod(RHS, bu))
     }
-    
     # Splitting BLUEs and BLUPs:
     b <- bu[1:nX, 1, drop = FALSE]
     u <- bu[(nX + 1):nrow(bu), 1, drop = FALSE]
@@ -873,18 +866,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     ### Computing the log-likelihood ====
     tic("Computing log-likelihood")
-    # yPy:
-    yPy <- as.numeric(crossprod(y, Ri %*% y) - crossprod(z))
-    
-    # logdetC:
-    if (sparse) {
-      logDetC <- determinant(C, sqrt = FALSE, logarithm = TRUE)$modulus
-    } else {
-      # Looks strange because the 2 * is missing, but is correct as diag(Cholesky(C, perm = FAlSE))
-      # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
-      logDetC <- sum(log(diag(C)))
-    }
-    
     # logDetG:
     logDetG <- 0
     for (re in 1:nU) { # Start loop over random effects
@@ -1051,7 +1032,11 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     #### Residual working variates ====
     tic("Residual working variates")
-    e <- y - W %*% bu
+    if (sparse && hasDense) {
+      e <- y - denseW %*% bDense - sparseW %*% buSparse
+    } else {
+      e <- y - W %*% bu
+    }
     re <- nUR
     derivs[[re]] <- vector("list", u.nparams[[re]])
     for (i in 1:u.nparams[[re]]) {
@@ -1061,14 +1046,14 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         if (ur.types[param] == "V") { # If the parameter is a variance.
           if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
             # Don't forget to multiply with the non-variable structure and selection matrices:
-            derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% Reduce(kronecker, c(cormats[[re]], S)), Z[[re]])
+            derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% Reduce(kronecker, c(cormats[[re]], S)), Z[[re]]))
           } else { # If variances are applied to 1 or more factors.
             A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
             A[i,] <- 0.5
             if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
-              derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter], S), Z[[re]])
+              derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter], S), Z[[re]]))
             } else { # If variances are applied to 1 or more factors, but not all factors.
-              derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% kronecker(kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]])), S), Z[[re]])
+              derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]])), S), Z[[re]]))
             }
           }
         } else { # If the parameter is not a variance.
@@ -1082,11 +1067,11 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
                                     base = bases[[re]][[j]],
                                     inverse = FALSE)
           if (u.applyvars[[re]][1] == 0) {
-            derivs[[re]][[i]] <- vars[[re]]@x * Reduce(kronecker, c(cormats1, S))
+            derivs[[re]][[i]] <- vars[[re]]@x * Reduce(kronecker, c(cormats1, S)) # I think this might go wrong for unbalanced data! We need Z[[re]] I think!
           } else if (all(u.applyvars[[re]] == i.var[[re]])) {
-            derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% kronecker(vars[[re]] * Reduce(kronecker, cormats1), S), Z[[re]])
+            derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(vars[[re]] * Reduce(kronecker, cormats1), S), Z[[re]]))
           } else {
-            derivs[[re]][[i]] <- tcrossprod(Z[[re]] %*% kronecker(kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]])), S), Z[[re]])
+            derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]])), S), Z[[re]]))
           }
         }
         if (useWeights) {
@@ -1100,18 +1085,31 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     ### Computing the AI matrix ====
     tic("Computing the AI matrix and its inverse")
-    WiWj <- forceSymmetric(crossprod(Wu, Ri %*% Wu)) # Similar to t(y) %*% Ri %*% y
-    if (sparse) {
-      XWjxZWj <- solve(C, crossprod(W, Ri %*% Wu), system = "P") # Similar to permRHS
-      zWu <- solve(C, XWjxZWj, system = "L") # Similar to z
-      buWu <- solve(C, zWu, system = "Lt") # Similar to obtaining bu using a backsolve
+    RiWu <- Ri %*% Wu
+    WiWj <- forceSymmetric(crossprod(Wu, RiWu)) # Similar to t(y) %*% Ri %*% y
+    if (sparse && hasDense) {
+      denseWuRHS <- crossprod(denseW, RiWu)
+      sparseWuRHS <- crossprod(sparseW, RiWu)
+      sparseWuTemp <- solve(Cchol, sparseWuRHS) # Remember, Cchol is only the CF of the sparse block of C!
+      adjDenseWuRHS <- denseWuRHS - (Cds %*% sparseWuTemp)
+      bWuDense <- solve(SC, adjDenseWuRHS)
+      buWuSparse <- sparseWuTemp - (Q %*% bWuDense)
+      buWuXWjxZWj <- forceSymmetric(crossprod(sparseWuRHS, buWuSparse) + crossprod(denseWuRHS, bWuDense))
+    } else if (sparse && !hasDense) {
+      XWjxZWj <- solve(Cchol, crossprod(W, RiWu), system = "P") # Similar to permRHS
+      zWu <- solve(Cchol, XWjxZWj, system = "L") # Similar to z
+      buWu <- solve(Cchol, zWu, system = "Lt") # Similar to obtaining bu using a backsolve
+      buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
     } else {
-      XWjxZWj <- crossprod(W, Ri %*% Wu) # t(W) %*% Ri %*% Wu
-      buWu <- solve(C, XWjxZWj)
-      # zWu <- backsolve(C, XWjxZWj, transpose = TRUE) # Forward solve of lower triangular matrix t(C)
-      # buWu <- Matrix(backsolve(C, zWu))
+      XWjxZWj <- crossprod(W, RiWu) # t(W) %*% Ri %*% Wu
+      if (!useGPU) {
+        buWu <- solve(Cchol, XWjxZWj)
+      } else {
+        gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = XWjxZWj)
+        buWu <- gpuResult2$buWu
+      }
+      buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
     }
-    buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
     AI <- (WiWj - buWuXWjxZWj) / 2
     if (avInfReg[iter] > 1) { # Potential inflation of diagonal elements of the AI matrix
       # diag(AI) <- diag(AI) * avInfReg[iter]
@@ -1129,79 +1127,79 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     ### Computing the inverse of the coefficient matrix ====
     # We can again overwrite C as we no longer need the CF after this.
     tic("Inversion of C from cholesky factor")
-    if (sparse) {
-      C <- SIS(C) # The cholmod_extra code already returns the SIS in original model order.
+    if (sparse && hasDense) {
+      # Compute the base sparse inverse subset of the sparse block of C.
+      Ci <- SIS(Cchol) # The cholmod_extra code already returns the SIS in original model order. Remember, Cchol is only for the sparse block of C!
+      # Then update the base SIS in-place using the inverse of the Schur complement SC^-1 and Q = C_ss^-1 %*% C_sd:
+      inplaceUpdateSIS(x_ptr = Ci@x, p_ptr = Ci@p, i_ptr = Ci@i, W_mat = as.matrix(Q %*% solve(SC)), Q = as.matrix(Q))
+    } else if (sparse && !hasDense) {
+      Ci <- SIS(Cchol)
+    } else if (!sparse && !useGPU) {
+      Ci <- chol2inv(as(Cchol, "dtrMatrix"))
+    } else if (!sparse && useGPU) {
+      Ci <- gpuResult2$Ci
     } else {
-      C <- chol2inv(as(C, "dtrMatrix"))
+      stop("Invalid combination of 'sparse', 'hasDense', and 'useGPU'...")
     }
     toc()
     
     ### Computing scores ====
+    browser()
     tic("Computing genetic scores")
     # See equations (18) and (15) from Jensen, Mantysaari, Madsen, & Thompson 1997:
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
     # mixed linear models using average information"
     #### Genetic scores ====
     scores <- Matrix(0, nrow(k), 1, sparse = FALSE)
-    corner <- nX + 1
+    if (sparse && hasDense) {
+      corner <- nXsparse + 1
+    } else {
+      corner <- nX + 1
+    }
     param <- 1
+    
     for (re in 1:nU) { # Start of loop over random effects
       if (any(struc[[re]] == "exfa")) {
         m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
-        dim.var.corrected <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
+        dimVar <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
       } else {
-        dim.var.corrected <- dim.var[re]
+        dimVar <- dim.var[re]
       }
+      dimNvar <- dim.nvar[re]
+      
       if (n.nvar[re] > 0) {
         if (sparse) {
           C_start <- corner
-          C_end <- corner + dim.var.corrected * dim.nvar[re] - 1
-          C_sub <- C[C_start:C_end, C_start:C_end, drop = FALSE]
+          C_end <- corner + dimVar * dimNvar - 1
+          Ci_sub <- Ci[C_start:C_end, C_start:C_end, drop = FALSE]
+          
           if (is(nvarGi[[re]], "sparseMatrix")) {
-            traces <- forceSymmetric(getTracesSparse(C_sub@p,
-                                                     C_sub@i,
-                                                     C_sub@x,
-                                                     nvarGi[[re]]@p,
-                                                     nvarGi[[re]]@i,
-                                                     nvarGi[[re]]@x,
-                                                     dim.var.corrected,
-                                                     dim.nvar[re]))
+            traces <- getBlockTracesSparseSparse(Ci_sub@p, Ci_sub@i, Ci_sub@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar)
           } else {
-            traces <- forceSymmetric(getTraces(C_sub@p,
-                                               C_sub@i,
-                                               C_sub@x,
-                                               as.matrix(nvarGi[[re]]),
-                                               dim.var.corrected,
-                                               dim.nvar[re]))
+            traces <- getBlockTracesSparseDense(Ci_sub@p, Ci_sub@i, Ci_sub@x, nvarGi[[re]]@x, dimVar, dimNvar)
           }
         } else {
-          traces <- Matrix(0, nrow(sigmai[[re]]), ncol(sigmai[[re]]), sparse = FALSE, doDiag = FALSE)
-          for (i in 1:nrow(sigmai[[re]])) {
-            for (j in 1:ncol(sigmai[[re]])) {
-              if (j >= i) { # Only do the upper triangle
-                rstart <- (corner + (i - 1) * dim.nvar[re])
-                rend <- rstart - 1 + dim.nvar[re]
-                cstart <- (corner + (j - 1) * dim.nvar[re])
-                cend <- cstart - 1 + dim.nvar[re]
-                traces[i, j] <- sum(nvarGi[[re]] * C[rstart:rend, cstart:cend])
-              }
-            }
-          }
-          if (nrow(traces) > 1) {
-            traces <- forceSymmetric(traces)
+          if (is(nvarGi[[re]], "sparseMatrix")) {
+            traces <- getBlockTracesDenseSparse(Ci@x, nrow(Ci), nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
+          } else {
+            traces <- getBlockTracesDenseDense(Ci@x, nrow(Ci), nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
           }
         }
-        corner <- corner + dim.var.corrected * dim.nvar[re]
+        if (nrow(traces) > 1) {
+          traces <- forceSymmetric(traces)
+        }
+        corner <- corner + dimVar * dimNvar
       } else {
-        traces <- C[corner:(corner - 1 + dim.var.corrected), corner:(corner - 1 + dim.var.corrected)]
-        corner <- corner + dim.var.corrected
+        traces <- Ci[corner:(corner - 1 + dimVar), corner:(corner - 1 + dimVar)]
+        corner <- corner + dimVar
       }
       
       if (n.nvar[re] > 0) {
-        basisScores <- -0.5 * (dim.nvar[re] * sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - crossprod(umat_sigmai[[re]], nvarGi[[re]] %*% umat_sigmai[[re]])) # Last term maybe on the GPU?
+        basisScores <- -0.5 * (dimNvar * sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - crossprod(umat_sigmai[[re]], nvarGi[[re]] %*% umat_sigmai[[re]])) # Last term maybe on the GPU?
       } else {
         basisScores <- -0.5 * (sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - crossprod(umat_sigmai[[re]])) # Last term maybe on the GPU?
       }
+      
       for (i in 1:length(derivs[[re]])) {
         if (!isFixed[param]) {
           scores[param, 1] <- sum(derivs[[re]][[i]] * basisScores)
@@ -1210,18 +1208,48 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       }
     } # End of loop over random effects.
     toc()
+    browser()
     
     #### Residual scores ====
     tic("Computing residual scores")
     re <- nUR
+    if (sparse && hasDense) {
+      Cidd <- solve(SC) # Inverse of the Schur complement = inverse of C corresponding to the dense block in the top-left.
+      Cisd <- -Q %*% Cidd # Inverse of C corresponding to the bottom-right block.
+    } else {
+      RiW <- Ri %*% W
+    }
+    Rie <- Ri %*% e
     for (i in 1:length(derivs[[re]])) {
       if (!isFixed[param]) {
-        RidRRi <- Ri %*% derivs[[re]][[i]] %*% Ri
-        scores[param, 1] <- -0.5 * (sum(diag(derivs[[re]][[i]] %*% Ri)) - sum(diag(crossprod(W, RidRRi %*% W) %*% C)) - crossprod(e, RidRRi %*% e))
+        Di <- derivs[[re]][[i]]
+        tr1 <- sum(diag(Di %*% Ri))
+        quad <- as.numeric(crossprod(Rie, Di %*% Rie))
+        if (sparse && hasDense) {
+          RidRRi <- Ri %*% Di %*% Ri
+          RidRRi_denseW  <- RidRRi %*% denseW
+          RidRRi_sparseW <- RidRRi %*% sparseW
+          Mdd <- forceSymmetric(crossprod(denseW, RidRRi_denseW))
+          Msd <- crossprod(sparseW, RidRRi_denseW)
+          Mss <- forceSymmetric(crossprod(sparseW, RidRRi_sparseW))
+          ddTrace <- sum(Mdd * Cidd)
+          ssTrace <- sum(diag(Mss %*% Ci)) # Ci is actually the SIS of the sparse block of C, updated with the inverse Schur complement and Q = C_ss^-1 %*% C_sd!
+          sdTrace <- 2 * sum(Msd * Cisd)
+          tr2 <- ssTrace + sdTrace + ddTrace
+        } else if (sparse && !hasDense) { # In this case the SIS (Ci) is for the full coefficient matrix.
+          WRidRRiW <- forceSymmetric(crossprod(RiW, Di %*% RiW))
+          tr2 <- sum(diag(WRidRRiW %*% Ci)) # As both WRidRRiW and Ci are sparse, this is probably the fastest.
+        } else { # If C and Ci are both dense, regardless of whether we used the GPU or CPU to obtain Ci.
+          WRidRRiW <- forceSymmetric(crossprod(RiW, Di %*% RiW))
+          tr2 <- getTraceSparseDense(p = WRidRRiW@p, i = WRidRRiW@i, x = WRidRRiW@x, dense_x = Ci@x, n_rows = nrow(Ci))
+          # scores[param, 1] <- -0.5 * (sum(diag(Di %*% Ri)) - sum(diag(crossprod(W, RidRRi %*% W) %*% Ci)) - crossprod(e, RidRRi %*% e))
+        }
+        scores[param, 1] <- -0.5 * (tr1 - tr2 - quad)
       }
       param <- param + 1
     }
     toc()
+    browser()
     
     ### Updating parameters ====
     tic("Updating parameters and checking constraints")
@@ -1346,7 +1374,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       if (any(kUpdate[autoCors, 1] > 0.99)) {
         bound.autoCors <- autoCors[kUpdate[autoCors, 1] > 0.99]
         boundary[bound.autoCors] <- boundary[bound.autoCors] + 1
-        delta[bound.autoCors, 1] <- 0.9333333 - k[bound.autoCors, iter]
+        delta[bound.autoCors, 1] <- 0.98 - k[bound.autoCors, iter]
         hitBoundary <- TRUE
         checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
         constraintsUsed <- TRUE
@@ -1391,10 +1419,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
             loadingIndices <- indices[[re]][[1 + i.stack]][indices.stack] # Getting the indices for the loadings for this particular structure.
             check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i.stack])
             delta <- check$delta
-            constrained <- (constrained | check$constrained)
-            checkConstraints <- (checkConstraints | check$checkConstraints)
-            constraintsUsed <- (constraintsUsed | check$constraintsUsed)
-            hitBoundary <- (hitBoundary | check$hitBoundary)
+            constrained <- (constrained || check$constrained)
+            checkConstraints <- (checkConstraints || check$checkConstraints)
+            constraintsUsed <- (constraintsUsed || check$constraintsUsed)
+            hitBoundary <- (hitBoundary || check$hitBoundary)
             con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
             bound.loadings <- sort(unique(c(bound.loadings, check$bound.loadings)))
           }
@@ -1405,10 +1433,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
           loadingIndices <- indices[[re]][[1 + i]] # Getting the indices for the loadings for this particular structure.
           check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i])
           delta <- check$delta
-          constrained <- (constrained | check$constrained)
-          checkConstraints <- (checkConstraints | check$checkConstraints)
-          constraintsUsed <- (constraintsUsed | check$constraintsUsed)
-          hitBoundary <- (hitBoundary | check$hitBoundary)
+          constrained <- (constrained || check$constrained)
+          checkConstraints <- (checkConstraints || check$checkConstraints)
+          constraintsUsed <- (constraintsUsed || check$constraintsUsed)
+          hitBoundary <- (hitBoundary || check$hitBoundary)
           con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
           bound.loadings <- sort(unique(c(bound.loadings, check$bound.loadings)))
         } # End of loop over fa/exfa structures for non-stack random effects.
@@ -1490,7 +1518,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       # Now that we have (1) constrained for excessive changes, (2) constrained for boundary
       # issues, and (3) constrained non-PD correlation matrices, we can recompute delta for any
       # unconstrained parameters:
-      if (constrained | hitBoundary | nonPD) {
+      if (constrained || hitBoundary || nonPD) {
         # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
         con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.autoCors, bound.autoCors, con.bws, bound.bws, con.loadings, bound.loadings)))
         noncon <- setdiff(1:nrow(delta), con)
@@ -1524,7 +1552,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     toc()
     
     # Printing:
-    #tic("Printing info")
+    tic("Printing info")
     stop <- proc.time()[3]
     duration <- as.numeric(stop - start)
     duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
@@ -1538,12 +1566,12 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
       }
     }
-    #toc(log = T)
+    toc()
     
     # Checking for convergence:
     if (iter > 1) {
       deltaLL <- LL[iter] - LL[iter - 1]
-      if (deltaLL > 0 & deltaLL <= tolConvLL & !(constrained | hitBoundary)) {
+      if (deltaLL > 0 && deltaLL <= tolConvLL && !(constrained || hitBoundary)) {
         LL <- LL[1:(iter + 1)]
         k <- k[, 1:(iter + 1)]
         LL[iter + 1] <- LL[iter]
@@ -1553,11 +1581,22 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     }
     
     # Final update to parameters if not converged and not reached maxit:
-    if (iter <= maxit & !(converged)) {
+    if (iter <= maxit && !(converged)) {
       k[, iter + 1] <- k[, iter, drop = FALSE] + delta
       iter <- iter + 1
     }
   }
+  
+  # Now that when we have reached maxit or convergence, we need to compute Cchol one
+  # last time if we are using the GPU. This is because the Cholesky factor of C
+  # only ever existed on the GPU, and we don't want to copy it back in every
+  # single iteration.
+  if (useGPU) {
+    gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = TRUE)
+    cuSolverCleanup(gpu_ctx)
+    Cchol <- gpuResult$Cchol
+  }
+  
   return(list(LL = LL,
               k = k,
               AI = AI,

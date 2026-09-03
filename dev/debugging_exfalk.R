@@ -6,6 +6,7 @@ d <- readRDS("~/repos/kmmr/dev/exampledata.rds")
 d <- droplevels(d[d$Man == "R",])
 K <- readRDS("~/repos/kmmr/dev/exampledata_K.rds")
 Ki <- Matrix(solve(K))
+attr(Ki, "logDet") <- -1 * sum(log(eigen(Ki)$values))
 m <- 100
 setup <- exfalkSetup(K, m = m)
 
@@ -265,7 +266,7 @@ fit.kmmr <- kmmr(fixed = GY ~ 1,
                  residual = ~ units,
                  data = d,
                  sparse = FALSE,
-                 useGPU = TRUE)
+                 useGPU = FALSE)
 )
 # 57.373 / 11 = 5.22 seconds per iteration
 

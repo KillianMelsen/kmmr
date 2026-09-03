@@ -32,7 +32,9 @@ solveLMM(
   u.nparams.list,
   sparse,
   timesToBoundary,
-  super
+  super,
+  useGPU,
+  denseThreshold
 )
 }
 \arguments{
@@ -92,13 +94,16 @@ elements of the AI matrix by 10\%.}
 \item{timesToBoundary}{How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?}
 
 \item{super}{Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?}
+
+\item{useGPU}{Should the GPU be used for dense models?}
+
+\item{denseThreshold}{Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.}
 }
 \value{
 A list containing the log-likelihood, parameter estimates, average information matrix,
 scores, BLUEs for fixed effects, and BLUPs for random effects.
 }
 \description{
-Implementation of the average information algorithm for fitting linear mixed
-models.
+Implementation of the C-based average information REML algorithm for fitting linear mixed models.
 }
 \keyword{internal}

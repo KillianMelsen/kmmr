@@ -11,7 +11,6 @@ using namespace Rcpp;
 //' Compute a Sparse Inverse Subset (SIS) from a sparse Cholesky factor (CF).
 //'
 //' @param choleskyFactor A sparse Cholesky factor (dCHMsimpl or dCHMsuper) from Matrix::Cholesky()
-//' @export
 // [[Rcpp::export]]
 SEXP SIS(SEXP choleskyFactor) {
  

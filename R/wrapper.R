@@ -751,7 +751,6 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   res <- c(res, as.character(residual[2])) # Residual effect
   n.atEach <- sum(grepl("^atEach.*", res))
   
-  ## Working on atEach() ====
   if (n.atEach > 0) {
     specs.atEach <- vector("list", n.atEach)
     for (i in 1:n.atEach) {
@@ -911,25 +910,14 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                          Fixed = isFixed)
   } else {
     # Fitting:
-    if (!sparse & useGPU) {
-      result <- solveLMM_GPU(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
-                             maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
-                             tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
-                             ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
-                             u.forFactor = u.forFactor, u.indexCor = u.indexCor,
-                             bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
-                             isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold)
-    } else {
-      result <- solveLMM_GPU(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
-                             maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
-                             tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
-                             ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
-                             u.forFactor = u.forFactor, u.indexCor = u.indexCor,
-                             bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
-                             isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                             timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold)
-    }
+    result <- solveLMM(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
+                       maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
+                       tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
+                       ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
+                       u.forFactor = u.forFactor, u.indexCor = u.indexCor,
+                       bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
+                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
+                       timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold)
   
     result$params <- unlist(params)
     result$trace <- rbind(result$LL[1:ncol(result$k)],

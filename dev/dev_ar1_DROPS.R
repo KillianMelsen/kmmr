@@ -87,7 +87,7 @@ fit.kmmr <- kmmr(fixed = GY ~ 1 + Env,
                             re(~ exfa(Env, 1):lk(Gen, Ki.kmmr), vars = ~ Env),
                  residual = ~ re(~ id(Env):id(Gen):id(Rep), vars = ~ Env),
                  data = dss,
-                 stepSize = c(0.1, 0.1, 0.1, 0.1, 0.1),
+                 stepSize = rep(0.1, 5),
                  sparse = TRUE,
                  maxit = 30)
 )

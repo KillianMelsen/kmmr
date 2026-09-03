@@ -4,7 +4,6 @@
 #' Compute a Sparse Inverse Subset (SIS) from a sparse Cholesky factor (CF).
 #'
 #' @param choleskyFactor A sparse Cholesky factor (dCHMsimpl or dCHMsuper) from Matrix::Cholesky()
-#' @export
 SIS <- function(choleskyFactor) {
     .Call(`_kmmr_SIS`, choleskyFactor)
 }
@@ -13,12 +12,24 @@ addBlockInplace <- function(C, Gi, offset) {
     invisible(.Call(`_kmmr_addBlockInplace`, C, Gi, offset))
 }
 
-getTraces <- function(p_ptr, i_ptr, x_ptr, G, p, d) {
-    .Call(`_kmmr_getTraces`, p_ptr, i_ptr, x_ptr, G, p, d)
+getBlockTracesSparseDense <- function(C_p, C_i, C_x, K_x, dimVar, dimNvar) {
+    .Call(`_kmmr_getBlockTracesSparseDense`, C_p, C_i, C_x, K_x, dimVar, dimNvar)
 }
 
-getTracesSparse <- function(C_p, C_i, C_x, G_p, G_i, G_x, p, d) {
-    .Call(`_kmmr_getTracesSparse`, C_p, C_i, C_x, G_p, G_i, G_x, p, d)
+getBlockTracesSparseSparse <- function(C_p, C_i, C_x, K_p, K_i, K_x, dimVar, dimNvar) {
+    .Call(`_kmmr_getBlockTracesSparseSparse`, C_p, C_i, C_x, K_p, K_i, K_x, dimVar, dimNvar)
+}
+
+getBlockTracesDenseDense <- function(C, C_rows, K, dimVar, dimNvar, offset) {
+    .Call(`_kmmr_getBlockTracesDenseDense`, C, C_rows, K, dimVar, dimNvar, offset)
+}
+
+getBlockTracesDenseSparse <- function(C, C_rows, K_p, K_i, K_x, dimVar, dimNvar, offset) {
+    .Call(`_kmmr_getBlockTracesDenseSparse`, C, C_rows, K_p, K_i, K_x, dimVar, dimNvar, offset)
+}
+
+getTraceSparseDense <- function(p, i, x, dense_x, n_rows) {
+    .Call(`_kmmr_getTraceSparseDense`, p, i, x, dense_x, n_rows)
 }
 
 cuSolverInit <- function(N, rhs_cols_1, rhs_cols_2) {
