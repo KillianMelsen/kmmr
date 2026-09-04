@@ -1133,7 +1133,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       # Then update the base SIS in-place using the inverse of the Schur complement SC^-1 and Q = C_ss^-1 %*% C_sd:
       inplaceUpdateSIS(x_ptr = Ci@x, p_ptr = Ci@p, i_ptr = Ci@i, W_mat = as.matrix(Q %*% solve(SC)), Q = as.matrix(Q))
     } else if (sparse && !hasDense) {
-      Ci <- SIS(Cchol)
+      Ci <- SIS(Cchol) # SIS() returns a lower triangular dsCMatrix!!!
     } else if (!sparse && !useGPU) {
       Ci <- chol2inv(as(Cchol, "dtrMatrix"))
     } else if (!sparse && useGPU) {
@@ -1144,7 +1144,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     toc()
     
     ### Computing scores ====
-    browser()
+    #browser()
     tic("Computing genetic scores")
     # See equations (18) and (15) from Jensen, Mantysaari, Madsen, & Thompson 1997:
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
@@ -1169,18 +1169,20 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       
       if (n.nvar[re] > 0) {
         if (sparse) {
-          C_start <- corner
-          C_end <- corner + dimVar * dimNvar - 1
-          Ci_sub <- Ci[C_start:C_end, C_start:C_end, drop = FALSE]
+          # C_start <- corner
+          # C_end <- corner + dimVar * dimNvar - 1
+          # Ci_sub <- Ci[C_start:C_end, C_start:C_end, drop = FALSE]
           
           if (is(nvarGi[[re]], "sparseMatrix")) {
-            traces <- getBlockTracesSparseSparse(Ci_sub@p, Ci_sub@i, Ci_sub@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar)
+            stop("SparseSparse still needs to be checked!")
+            # traces <- getBlockTracesSparseSparse(Ci_sub@p, Ci_sub@i, Ci_sub@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar)
           } else {
-            traces <- getBlockTracesSparseDense(Ci_sub@p, Ci_sub@i, Ci_sub@x, nvarGi[[re]]@x, dimVar, dimNvar)
+            traces <- getBlockTracesSparseDense(Ci@p, Ci@i, Ci@x, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
           }
         } else {
           if (is(nvarGi[[re]], "sparseMatrix")) {
-            traces <- getBlockTracesDenseSparse(Ci@x, nrow(Ci), nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
+            stop("DenseSparse still needs to be checked!")
+            # traces <- getBlockTracesDenseSparse(Ci@x, nrow(Ci), nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
           } else {
             traces <- getBlockTracesDenseDense(Ci@x, nrow(Ci), nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
           }
@@ -1208,7 +1210,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       }
     } # End of loop over random effects.
     toc()
-    browser()
+    #browser()
     
     #### Residual scores ====
     tic("Computing residual scores")
@@ -1249,7 +1251,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       param <- param + 1
     }
     toc()
-    browser()
+    #browser()
     
     ### Updating parameters ====
     tic("Updating parameters and checking constraints")
