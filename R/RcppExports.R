@@ -12,8 +12,8 @@ addBlockInplace <- function(C, Gi, offset) {
     invisible(.Call(`_kmmr_addBlockInplace`, C, Gi, offset))
 }
 
-getBlockTracesSparseDense <- function(C_p, C_i, C_x, K_x, dimVar, dimNvar) {
-    .Call(`_kmmr_getBlockTracesSparseDense`, C_p, C_i, C_x, K_x, dimVar, dimNvar)
+getBlockTracesSparseDense <- function(C_p, C_i, C_x, K_x, dimVar, dimNvar, offset) {
+    .Call(`_kmmr_getBlockTracesSparseDense`, C_p, C_i, C_x, K_x, dimVar, dimNvar, offset)
 }
 
 getBlockTracesSparseSparse <- function(C_p, C_i, C_x, K_p, K_i, K_x, dimVar, dimNvar) {

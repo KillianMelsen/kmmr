@@ -35,8 +35,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // getBlockTracesSparseDense
-NumericMatrix getBlockTracesSparseDense(IntegerVector C_p, IntegerVector C_i, NumericVector C_x, NumericVector K_x, int dimVar, int dimNvar);
-RcppExport SEXP _kmmr_getBlockTracesSparseDense(SEXP C_pSEXP, SEXP C_iSEXP, SEXP C_xSEXP, SEXP K_xSEXP, SEXP dimVarSEXP, SEXP dimNvarSEXP) {
+NumericMatrix getBlockTracesSparseDense(IntegerVector C_p, IntegerVector C_i, NumericVector C_x, NumericVector K_x, int dimVar, int dimNvar, int offset);
+RcppExport SEXP _kmmr_getBlockTracesSparseDense(SEXP C_pSEXP, SEXP C_iSEXP, SEXP C_xSEXP, SEXP K_xSEXP, SEXP dimVarSEXP, SEXP dimNvarSEXP, SEXP offsetSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -46,7 +46,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< NumericVector >::type K_x(K_xSEXP);
     Rcpp::traits::input_parameter< int >::type dimVar(dimVarSEXP);
     Rcpp::traits::input_parameter< int >::type dimNvar(dimNvarSEXP);
-    rcpp_result_gen = Rcpp::wrap(getBlockTracesSparseDense(C_p, C_i, C_x, K_x, dimVar, dimNvar));
+    Rcpp::traits::input_parameter< int >::type offset(offsetSEXP);
+    rcpp_result_gen = Rcpp::wrap(getBlockTracesSparseDense(C_p, C_i, C_x, K_x, dimVar, dimNvar, offset));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -195,7 +196,7 @@ END_RCPP
 static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_SIS", (DL_FUNC) &_kmmr_SIS, 1},
     {"_kmmr_addBlockInplace", (DL_FUNC) &_kmmr_addBlockInplace, 3},
-    {"_kmmr_getBlockTracesSparseDense", (DL_FUNC) &_kmmr_getBlockTracesSparseDense, 6},
+    {"_kmmr_getBlockTracesSparseDense", (DL_FUNC) &_kmmr_getBlockTracesSparseDense, 7},
     {"_kmmr_getBlockTracesSparseSparse", (DL_FUNC) &_kmmr_getBlockTracesSparseSparse, 8},
     {"_kmmr_getBlockTracesDenseDense", (DL_FUNC) &_kmmr_getBlockTracesDenseDense, 6},
     {"_kmmr_getBlockTracesDenseSparse", (DL_FUNC) &_kmmr_getBlockTracesDenseSparse, 8},

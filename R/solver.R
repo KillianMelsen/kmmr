@@ -1067,7 +1067,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
                                     base = bases[[re]][[j]],
                                     inverse = FALSE)
           if (u.applyvars[[re]][1] == 0) {
-            derivs[[re]][[i]] <- vars[[re]]@x * Reduce(kronecker, c(cormats1, S)) # I think this might go wrong for unbalanced data! We need Z[[re]] I think!
+            derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% (vars[[re]]@x * Reduce(kronecker, c(cormats1, S))), Z[[re]]))
           } else if (all(u.applyvars[[re]] == i.var[[re]])) {
             derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(vars[[re]] * Reduce(kronecker, cormats1), S), Z[[re]]))
           } else {

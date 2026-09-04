@@ -180,19 +180,6 @@ Rcpp::List cuSolverPhase1(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol
   bu_dge.slot("Dim") = Rcpp::IntegerVector::create(N, rhs_cols);
   bu_dge.slot("Dimnames") = Rcpp::List::create(R_NilValue, R_NilValue);
   
-  // Compute z = U * bu in-place using cuBLAS triangular matrix vector multiply (cublasDtrmv)
-  // Note: z needs to be computed using the Cholesky factor still sitting in d_C and the solved bu in d_RHS.
-  // cublasDtrmv(ctx->cublasH, uplo, CUBLAS_OP_N, CUBLAS_DIAG_NON_UNIT, N, ctx->d_C, N, ctx->d_RHS, 1);
-  
-  // Copy z back to the host:
-  // Rcpp::NumericVector z_vec(N * rhs_cols);
-  // CHECK_CUDA( cudaMemcpyAsync(REAL(z_vec), ctx->d_RHS, N * rhs_cols * sizeof(double), cudaMemcpyDeviceToHost, ctx->stream) );
-  
-  // Rcpp::S4 z_dge("dgeMatrix");
-  // z_dge.slot("x") = z_vec;
-  // z_dge.slot("Dim") = Rcpp::IntegerVector::create(N, rhs_cols);
-  // z_dge.slot("Dimnames") = Rcpp::List::create(R_NilValue, R_NilValue);
-  
   // Compute log determinant: logDetC = 2 * sum(log(diag(C_factor)))
   cublasDcopy(ctx->cublasH, N, ctx->d_C, N + 1, ctx->d_diag, 1);
   
