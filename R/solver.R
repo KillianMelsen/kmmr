@@ -448,7 +448,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   } # End loop over random effects
   
   # Forming non-variable structures for random effects:
-  tic("Forming nvarGi for each random effect")
+  #tic("Forming nvarGi for each random effect")
   nvarGi <- vector("list", nU)
   logDetnvarGtotal <- numeric(nU)
   for (re in 1:nU) { # Start loop over random effects
@@ -481,7 +481,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       nvarGi[[re]] <- Reduce(kronecker, bases[[re]][i.nvar[[re]]])
     }
   } # End loop over random effects
-  toc()
+  #toc()
   
   # Forming non-variable structure for the residual effect:
   re <- nUR
@@ -491,7 +491,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   }
   
   ## Forming W = [X Z] ====
-  tic("Forming W")
+  #tic("Forming W")
   W <- X
   for (re in 1:nU) {
     W <- cbind(W, Z[[re]])
@@ -501,7 +501,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     denseW <- as(W[, denseEqs], "unpackedMatrix")
     sparseW <- W[, sparseEqs]
   }
-  toc()
+  #toc()
   
   stop <- proc.time()[3]
   duration <- as.numeric(stop - start)
@@ -523,9 +523,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   
   ## Setup the GPU CUDA context ====
   if (useGPU) {
-    tic("Initializing CUDA")
+    #tic("Initializing CUDA")
     gpu_ctx <- cuSolverInit(N = ncol(W), rhs_cols_1 = 1, rhs_cols_2 = nrow(k)) # N = dim of the C matrix, rhs_cols_2 is the number of parameters.
-    toc()
+    #toc()
   }
   
   ## Start iterating ====
@@ -535,7 +535,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   while (!(converged) && iter <= maxit) {
     start <- proc.time()[3]
     ### Computing Ri ====
-    tic("Computing Ri")
+    #tic("Computing Ri")
     # These lists will also be used later for the random effects:
     cormats <- vector("list", nUR)
     sigmai <- vector("list", nUR)
@@ -598,10 +598,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       R <- sigmai[[re]]
       stop("Something went wrong, the residual effect should always have a nonvariable part corresponding to id(units)...")
     }
-    toc()
+    #toc()
     
     ### Computing C = t(W) %*% Ri %*% W
-    tic("Forming C = t(W) %*% Ri %*% W")
+    #tic("Forming C = t(W) %*% Ri %*% W")
     if (sparse && hasDense) { # If we need a partitioned approach, C is actually only the sparse block of C
       Ri_sparseW <- Ri %*% sparseW
       Ri_denseW  <- Ri %*% denseW
@@ -615,10 +615,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     } else { # If we have fully dense MMEs, C is the full matrix as well
       C <- as(forceSymmetric(crossprod(W, Ri %*% W)), "unpackedMatrix") # Store as a dense matrix since C will be dense anyway after adding Gi.
     }
-    toc()
+    #toc()
     
     ### Adding Gi to C ====
-    tic("Computing Gi and adding it to C")
+    #tic("Computing Gi and adding it to C")
     if (sparse && hasDense) { # If we need to use a partitioned approach.
       offset <- nXsparse + 1
     } else { # If we don't need a partitioned approach (there are no dense effects, or the MMEs are fully dense).
@@ -772,9 +772,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       }
       ### Adding it to C ====
       if (n.nvar[re] > 0) {
-        tic("Kronecker product to form Gi")
+        #tic("Kronecker product to form Gi")
         Gi <- formGi(sigmai[[re]], nvarGi[[re]])
-        toc()
+        #toc()
       } else {
         Gi <- sigmai[[re]]
       }
@@ -793,9 +793,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         jList[[re + 1]] <- Gi@j + offset - 1
         xList[[re + 1]] <- Gi@x
       } else {
-        tic("Adding Gi to dense C")
+        #tic("Adding Gi to dense C")
         addBlockInplace(C, Gi, offset = offset)
-        toc()
+        #toc()
       }
       offset <- offset + dimGi # Moving offset to next random effect.
     } # End loop over random effects.
@@ -808,10 +808,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       C <- sparseMatrix(i = unlist(iList) + 1, j = unlist(jList) + 1, x = unlist(xList),
                         dims = C_dim, symmetric = TRUE, repr = "C")
     }
-    toc()
+    #toc()
     
     ### Cholesky decomposition of C and computing BLUEs/BLUPs ====
-    tic("Cholesky decomp of C and BLUEs/BLUPs")
+    #tic("Cholesky decomp of C and BLUEs/BLUPs")
     Riy <- Ri %*% y
     if (sparse) { # Remember that Cchol is the CF of the full matrix (no dense effects), or the sparse block only!
       if (super) {
@@ -822,7 +822,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       if (hasDense) { # If there are dense effects we need the partitioned approach.
         denseRHS <- crossprod(denseW, Riy)
         sparseRHS <- crossprod(sparseW, Riy)
-        tic("Solving for BLUEs and BLUPs")
+        #tic("Solving for BLUEs and BLUPs")
         Q <- solve(Cchol, t(Cds))
         SC <- forceSymmetric(Cdd - (Cds %*% Q))
         sparseTemp <- solve(Cchol, sparseRHS)
@@ -830,14 +830,14 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         bDense <- solve(SC, adjDenseRHS)
         buSparse <- sparseTemp - (Q %*% bDense)
         bu <- rbind(bDense, buSparse)
-        toc()
+        #toc()
         logDetC <- as.numeric(determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus + determinant(SC, logarithm = TRUE)$modulus)
         yPy <- as.numeric(crossprod(y, Riy) - (crossprod(sparseRHS, buSparse) + crossprod(denseRHS, bDense)))
       } else { # If there are no dense effects we can keep it simple.
         RHS <- crossprod(W, Riy)
-        tic("Solving for BLUEs and BLUPs")
+        #tic("Solving for BLUEs and BLUPs")
         bu <- solve(Cchol, RHS)
-        toc()
+        #toc()
         logDetC <- determinant(Cchol, sqrt = FALSE, logarithm = TRUE)$modulus
         yPy <- as.numeric(crossprod(y, Riy) - crossprod(RHS, bu))
       }
@@ -845,9 +845,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       RHS <- crossprod(W, Riy)
       if (!useGPU) {
         Cchol <- Cholesky(C, perm = FALSE)
-        tic("Solving for BLUEs and BLUPs")
+        #tic("Solving for BLUEs and BLUPs")
         bu <- solve(Cchol, RHS)
-        toc()
+        #toc()
         # Looks strange because the 2 * is missing, but is correct as diag(Cholesky(C, perm = FAlSE))
         # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
         logDetC <- sum(log(diag(Cchol)))
@@ -862,10 +862,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     # Splitting BLUEs and BLUPs:
     b <- bu[1:nX, 1, drop = FALSE]
     u <- bu[(nX + 1):nrow(bu), 1, drop = FALSE]
-    toc()
+    #toc()
     
     ### Computing the log-likelihood ====
-    tic("Computing log-likelihood")
+    #tic("Computing log-likelihood")
     # logDetG:
     logDetG <- 0
     for (re in 1:nU) { # Start loop over random effects
@@ -884,11 +884,11 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     # Full LL:
     LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
-    toc()
+    #toc()
     
     ### Working variates ====
     #### Genetic working variates ====
-    tic("Genetic working variates")
+    #tic("Genetic working variates")
     Wu <- Matrix(0, n, nrow(k), sparse = FALSE, doDiag = FALSE) # Matrix for the working variates.
     umat_sigmai <- vector("list", nU) # We will store these matrices for computing the scores later.
     derivs <- vector("list", nUR) # Same thing for all derivatives, except the last entry is reserved for the residual effect.
@@ -1028,10 +1028,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         }
       }
     } # End of loop over random effects
-    toc()
+    #toc()
     
     #### Residual working variates ====
-    tic("Residual working variates")
+    #tic("Residual working variates")
     if (sparse && hasDense) {
       e <- y - denseW %*% bDense - sparseW %*% buSparse
     } else {
@@ -1081,10 +1081,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         param <- param + 1
       }
     }
-    toc()
+    #toc()
     
     ### Computing the AI matrix ====
-    tic("Computing the AI matrix and its inverse")
+    #tic("Computing the AI matrix and its inverse")
     RiWu <- Ri %*% Wu
     WiWj <- forceSymmetric(crossprod(Wu, RiWu)) # Similar to t(y) %*% Ri %*% y
     if (sparse && hasDense) {
@@ -1122,11 +1122,11 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     } else {
       AIi <- solve(AI)
     }
-    toc()
+    #toc()
     
     ### Computing the inverse of the coefficient matrix ====
     # We can again overwrite C as we no longer need the CF after this.
-    tic("Inversion of C from cholesky factor")
+    #tic("Inversion of C from cholesky factor")
     if (sparse && hasDense) {
       # Compute the base sparse inverse subset of the sparse block of C.
       Ci <- SIS(Cchol) # The cholmod_extra code already returns the SIS in original model order. Remember, Cchol is only for the sparse block of C!
@@ -1141,11 +1141,11 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     } else {
       stop("Invalid combination of 'sparse', 'hasDense', and 'useGPU'...")
     }
-    toc()
+    #toc()
     
     ### Computing scores ====
     #browser()
-    tic("Computing genetic scores")
+    #tic("Computing genetic scores")
     # See equations (18) and (15) from Jensen, Mantysaari, Madsen, & Thompson 1997:
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
     # mixed linear models using average information"
@@ -1172,11 +1172,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
           # C_start <- corner
           # C_end <- corner + dimVar * dimNvar - 1
           # Ci_sub <- Ci[C_start:C_end, C_start:C_end, drop = FALSE]
-          
           if (is(nvarGi[[re]], "sparseMatrix")) {
             stop("SparseSparse still needs to be checked!")
             # traces <- getBlockTracesSparseSparse(Ci_sub@p, Ci_sub@i, Ci_sub@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar)
-          } else {
+            } else {
             traces <- getBlockTracesSparseDense(Ci@p, Ci@i, Ci@x, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
           }
         } else {
@@ -1209,11 +1208,11 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         param <- param + 1
       }
     } # End of loop over random effects.
-    toc()
+    #toc()
     #browser()
     
     #### Residual scores ====
-    tic("Computing residual scores")
+    #tic("Computing residual scores")
     re <- nUR
     if (sparse && hasDense) {
       Cidd <- solve(SC) # Inverse of the Schur complement = inverse of C corresponding to the dense block in the top-left.
@@ -1250,11 +1249,11 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       }
       param <- param + 1
     }
-    toc()
+    #toc()
     #browser()
     
     ### Updating parameters ====
-    tic("Updating parameters and checking constraints")
+    #tic("Updating parameters and checking constraints")
     delta <- AIi %*% scores * stepSize[iter]
     
     #### Checking constraints ====
@@ -1551,10 +1550,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     if (any(boundary == timesToBoundary)) {
       isFixed[which(boundary == timesToBoundary)] <- TRUE
     }
-    toc()
+    #toc()
     
     # Printing:
-    tic("Printing info")
+    #tic("Printing info")
     stop <- proc.time()[3]
     duration <- as.numeric(stop - start)
     duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
@@ -1568,7 +1567,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
       }
     }
-    toc()
+    #toc()
     
     # Checking for convergence:
     if (iter > 1) {

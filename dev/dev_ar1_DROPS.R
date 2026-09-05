@@ -80,6 +80,7 @@ fit.asr <- asreml(GY ~ 1 + Env,
 )
 
 system.time(
+  
 fit.kmmr <- kmmr(fixed = GY ~ 1 + Env,
                  random = ~ atEach("Env", ~ re(~ id(compBlock), vars = ~ 1)) +
                             atEach("Env", ~ re(~ id(compBlock):id(incompBlock), vars = ~ 1)) +
@@ -87,9 +88,10 @@ fit.kmmr <- kmmr(fixed = GY ~ 1 + Env,
                             re(~ exfa(Env, 1):lk(Gen, Ki.kmmr), vars = ~ Env),
                  residual = ~ re(~ id(Env):id(Gen):id(Rep), vars = ~ Env),
                  data = dss,
-                 stepSize = rep(0.1, 5),
+                 stepSize = c(0.1, 0.2, 0.3, 0.4, 0.5),
                  sparse = TRUE,
                  maxit = 30)
+
 )
 
 # The last (nEnv + m) x 246 BLUPs should be for the GxE part:
