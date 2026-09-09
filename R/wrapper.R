@@ -660,6 +660,7 @@ atEach <- function(factor, formula, levels = NULL, ...) {
 #' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
 #' @param useGPU Should the GPU be used for dense models?
 #' @param denseThreshold Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.
+#' @param debugging If \code{TRUE}, additional information such as derivatives, log determinants, etc., is returned for debugging purposes.
 #'
 #' @returns A list with the results.
 #' @export
@@ -667,7 +668,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
                  sparse = FALSE, timesToBoundary = 5, getStartingValues = FALSE, super = TRUE,
-                 useGPU = FALSE, denseThreshold = 0.1) {
+                 useGPU = FALSE, denseThreshold = 0.1, debugging = FALSE) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -729,7 +730,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   
   # Getting rid of any missing values:
   data <- na.omit(data)
-  
+
   # Fixed effects:
   X <- sparse.model.matrix(revInteractions(fixed), data)
   
@@ -898,7 +899,11 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   
   # Setting the step sizes if they were not set by the user:
   if (is.null(stepSize)) {
-    stepSize <- c(0.25, 0.5, 0.75, rep(1, maxit - 3))
+    if (maxit > 2) {
+      stepSize <- c(0.25, 0.5, 0.75, rep(1, maxit - 3))
+    } else {
+      stepSize <- c(0.25, 0.5, 0.75)[1:maxit]
+    }
     stepSize <- stepSize^nU
   } else if (length(stepSize) < maxit) {
     stepSize <- c(stepSize, rep(1, maxit - length(stepSize)))
@@ -917,7 +922,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                        u.forFactor = u.forFactor, u.indexCor = u.indexCor,
                        bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
                        isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
-                       timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold)
+                       timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold,
+                       debugging = debugging)
   
     result$params <- unlist(params)
     result$trace <- rbind(result$LL[1:ncol(result$k)],

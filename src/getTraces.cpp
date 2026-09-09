@@ -38,7 +38,9 @@ inline double get_sparse_val(int r, int c, const int* p, const int* i, const dou
 // C is the sparse inverse coefficient matrix.
 // K is the dense constant matrix (inverse GRM) passed as a flat vector.
 // [[Rcpp::export]]
-NumericMatrix getBlockTracesSparseDense(IntegerVector C_p, IntegerVector C_i, NumericVector C_x, NumericVector K_x, int dimVar, int dimNvar, int offset) {
+NumericMatrix getBlockTracesSparseDense(IntegerVector C_p, IntegerVector C_i, NumericVector C_x,
+                                        NumericVector K_x,
+                                        int dimVar, int dimNvar, int offset) {
   
   NumericMatrix traces(dimVar, dimVar); // Matrix to hold the traces, size is the same as sigma.
   
@@ -104,39 +106,65 @@ NumericMatrix getBlockTracesSparseDense(IntegerVector C_p, IntegerVector C_i, Nu
   return traces;
 }
 
-// C is the sparse block of the inverse coefficient matrix.
-// K is the sparse constant matrix (pedigree based matrix).
-NumericMatrix getBlockTracesSparseSparse(IntegerVector C_p, IntegerVector C_i, NumericVector C_x, IntegerVector K_p, IntegerVector K_i, NumericVector K_x, int dimVar, int dimNvar) {
-
-  NumericMatrix traces(dimVar, dimVar);
-
+// C is the sparse inverse coefficient matrix.
+// K is the sparse constant matrix (inverse pedigree based matrix).
+// [[Rcpp::export]]
+NumericMatrix getBlockTracesSparseSparse(IntegerVector C_p, IntegerVector C_i, NumericVector C_x, 
+                                         IntegerVector K_p, IntegerVector K_i, NumericVector K_x, 
+                                         int dimVar, int dimNvar, int offset) {
+  
+  NumericMatrix traces(dimVar, dimVar); // Output matrix of same dimensions as sigma.
+  
   const int* C_p_ptr = INTEGER(C_p);
   const int* C_i_ptr = INTEGER(C_i);
   const double* C_x_ptr = REAL(C_x);
   const int* K_p_ptr = INTEGER(K_p);
   const int* K_i_ptr = INTEGER(K_i);
   const double* K_x_ptr = REAL(K_x);
-
-  int n_cols = C_p.length() - 1;
-  for (int col = 0; col < n_cols; ++col) {
-    int block_j = col / dimNvar;
-    int in_j = col % dimNvar;
-
-    int start = C_p_ptr[col];
-    int end = C_p_ptr[col + 1];
-
-    for (int idx = start; idx < end; ++idx) {
-      int row = C_i_ptr[idx];
-      int block_i = row / dimNvar;
-      int in_i = row % dimNvar;
-
-      double k_val = get_sparse_val(in_i, in_j, K_p_ptr, K_i_ptr, K_x_ptr);
-      if (k_val == 0.0) continue;
-
-      double val = C_x_ptr[idx] * k_val;
-
-      // No * 2.0 multiplier needed; C_sub is a dgCMatrix with both triangles
-      traces(block_j, block_i) += val;
+  
+  int block_size = dimVar * dimNvar; // Size of the diagonal block of C^-1 for the current random effect.
+  int start_col = offset; // Where does the current diagonal block of C^-1 start?
+  int end_col = offset + block_size; // Where does it end?
+  
+  // Only iterate through the cols of C^-1 that belong to the current diagonal block:
+  for (int col = start_col; col < end_col; ++col) {
+    int c_rel = col - offset; // Column within the current diagonal block.
+    int block_j = c_rel / dimNvar; // Col-coordinate of the current sub-block.
+    int in_j = c_rel % dimNvar; // Local column number within the sub-block.
+    
+    int start = C_p_ptr[col]; // Start index of the values in this col of C^-1.
+    int end = C_p_ptr[col + 1]; // Start index of the values in the next col of C^-1.
+    
+    // C^-1 is lower triangular packed CSC from SIS(), so row >= col is guaranteed:
+    for (int idx = start; idx < end; ++idx) { // Iterating over the non-zero values in the current col of C^-1.
+      int row = C_i_ptr[idx]; // Global row index of that value within C^-1.
+      
+      // Check so we only process values within the current diagonal block of C^-1.
+      // If row < start_col we are above the diagonal block, if row >= end_col we
+      // are below the diagonal block:
+      if (row >= start_col && row < end_col) {
+        int r_rel = row - offset; // Row within the current diagonal block of C^-1.
+        int block_i = r_rel / dimNvar; // Row coordinate of the current sub-block.
+        int in_i = r_rel % dimNvar; // Local row number within the sub-block.
+        
+        // Fetch k_val using the helper. It is 100% agnostic to K's uplo and 
+        // perfectly handles lookups where in_i > in_j in asymmetric off-diagonal blocks.
+        double k_val = get_sparse_val(in_i, in_j, K_p_ptr, K_i_ptr, K_x_ptr);
+        if (k_val == 0.0) { // No need to do anything.
+          continue;
+        }
+        double val = C_x_ptr[idx] * k_val;
+        
+        // C^-1 logic is identical to SparseDense.
+        // Only double the off-diagonal elements if we are inside a diagonal sub-block.
+        // Off-diagonal sub-blocks (block_i != block_j) are fully stored in the lower 
+        // triangle of C^-1, so we don't double them:
+        if (block_i == block_j && in_i != in_j) {
+          val *= 2.0;
+        }
+        // Swap indices to write into the upper triangle of traces:
+        traces(block_j, block_i) += val;
+      }
     }
   }
   return traces;
@@ -145,7 +173,9 @@ NumericMatrix getBlockTracesSparseSparse(IntegerVector C_p, IntegerVector C_i, N
 // C is the dense inverse of the coefficient matrix.
 // K is the dense constant matrix (inverse GRM).
 // [[Rcpp::export]]
-NumericMatrix getBlockTracesDenseDense(NumericVector C, int C_rows, NumericVector K, int dimVar, int dimNvar, int offset) {
+NumericMatrix getBlockTracesDenseDense(NumericVector C, int C_rows,
+                                       NumericVector K,
+                                       int dimVar, int dimNvar, int offset) {
   
   NumericMatrix traces(dimVar, dimVar); // Output matrix, same size as sigma for the current random effect.
   const double* C_ptr = REAL(C); // Values in dense C^-1.
@@ -201,7 +231,9 @@ NumericMatrix getBlockTracesDenseDense(NumericVector C, int C_rows, NumericVecto
 
 // C is the dense inverse of the coefficient matrix.
 // K is the sparse constant matrix (inverse pedigree based matrix).
-NumericMatrix getBlockTracesDenseSparse(NumericVector C, int C_rows, IntegerVector K_p, IntegerVector K_i, NumericVector K_x, int dimVar, int dimNvar, int offset) {
+NumericMatrix getBlockTracesDenseSparse(NumericVector C, int C_rows,
+                                        IntegerVector K_p, IntegerVector K_i, NumericVector K_x,
+                                        int dimVar, int dimNvar, int offset) {
 
   NumericMatrix traces(dimVar, dimVar);
   const double* C_ptr = REAL(C);

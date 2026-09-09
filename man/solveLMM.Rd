@@ -34,7 +34,8 @@ solveLMM(
   timesToBoundary,
   super,
   useGPU,
-  denseThreshold
+  denseThreshold,
+  debugging
 )
 }
 \arguments{
@@ -98,6 +99,8 @@ elements of the AI matrix by 10\%.}
 \item{useGPU}{Should the GPU be used for dense models?}
 
 \item{denseThreshold}{Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.}
+
+\item{debugging}{If \code{TRUE}, additional information such as derivatives, log determinants, etc., is returned for debugging purposes.}
 }
 \value{
 A list containing the log-likelihood, parameter estimates, average information matrix,

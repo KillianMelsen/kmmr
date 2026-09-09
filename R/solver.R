@@ -402,6 +402,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 #' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
 #' @param useGPU Should the GPU be used for dense models?
 #' @param denseThreshold Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.
+#' @param debugging If \code{TRUE}, additional information such as derivatives, log determinants, etc., is returned for debugging purposes.
 #'
 #' @returns A list containing the log-likelihood, parameter estimates, average information matrix,
 #' scores, BLUEs for fixed effects, and BLUPs for random effects.
@@ -409,7 +410,7 @@ getDeriv <- function(struc, type, cormatIndex = NULL, params = NULL, p = NULL, b
 solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfReg, verbose, tolConvLL,
                      indices, u.applyvars, ur.types, u.nlevels, u.nparams, u.forFactor, u.indexCor,
                      bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list, sparse,
-                     timesToBoundary, super, useGPU, denseThreshold) {
+                     timesToBoundary, super, useGPU, denseThreshold, debugging) {
   ## Prelims ====
   start <- proc.time()[3]
   k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
@@ -794,6 +795,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         xList[[re + 1]] <- Gi@x
       } else {
         #tic("Adding Gi to dense C")
+        # If we have a dense C, but a sparse random effect, convert Gi to dense format:
+        if (is(Gi, "sparseMatrix")) {
+          Gi <- as(Gi, "unpackedMatrix")
+        }
         addBlockInplace(C, Gi, offset = offset)
         #toc()
       }
@@ -1150,6 +1155,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
     # mixed linear models using average information"
     #### Genetic scores ====
+    if (debugging) {
+      traces.debugging <- vector("list", nU)
+    }
     scores <- Matrix(0, nrow(k), 1, sparse = FALSE)
     if (sparse && hasDense) {
       corner <- nXsparse + 1
@@ -1169,25 +1177,23 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       
       if (n.nvar[re] > 0) {
         if (sparse) {
-          # C_start <- corner
-          # C_end <- corner + dimVar * dimNvar - 1
-          # Ci_sub <- Ci[C_start:C_end, C_start:C_end, drop = FALSE]
           if (is(nvarGi[[re]], "sparseMatrix")) {
-            stop("SparseSparse still needs to be checked!")
-            # traces <- getBlockTracesSparseSparse(Ci_sub@p, Ci_sub@i, Ci_sub@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar)
+            traces <- getBlockTracesSparseSparse(Ci@p, Ci@i, Ci@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
             } else {
             traces <- getBlockTracesSparseDense(Ci@p, Ci@i, Ci@x, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
           }
         } else {
           if (is(nvarGi[[re]], "sparseMatrix")) {
-            stop("DenseSparse still needs to be checked!")
-            # traces <- getBlockTracesDenseSparse(Ci@x, nrow(Ci), nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
+            traces <- getBlockTracesDenseSparse(Ci@x, nrow(Ci), nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
           } else {
             traces <- getBlockTracesDenseDense(Ci@x, nrow(Ci), nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
           }
         }
         if (nrow(traces) > 1) {
           traces <- forceSymmetric(traces)
+        }
+        if (debugging) {
+          traces.debugging[[re]] <- traces
         }
         corner <- corner + dimVar * dimNvar
       } else {
@@ -1598,14 +1604,42 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     Cchol <- gpuResult$Cchol
   }
   
-  return(list(LL = LL,
-              k = k,
-              AI = AI,
-              scores = scores,
-              b = b,
-              u = u,
-              Cchol = Cchol,
-              isFixed = isFixed,
-              converged = converged))
+  if (debugging) {
+    return(list(LL = LL,
+                k = k,
+                AI = AI,
+                scores = scores,
+                b = b,
+                u = u,
+                Cchol = Cchol,
+                isFixed = isFixed,
+                converged = converged,
+                derivs = derivs,
+                sigmai = sigmai,
+                vars = vars,
+                cormats = cormats,
+                logDetC = logDetC,
+                logDetR = logDetR,
+                logDetG = logDetG,
+                yPy = yPy,
+                traces = traces.debugging,
+                logDetvarGtotal = logDetvarGtotal,
+                logDetnvarGtotal = logDetnvarGtotal,
+                X = X,
+                Z = Z,
+                y = y,
+                Wu = Wu,
+                e = e))
+  } else {
+    return(list(LL = LL,
+                k = k,
+                AI = AI,
+                scores = scores,
+                b = b,
+                u = u,
+                Cchol = Cchol,
+                isFixed = isFixed,
+                converged = converged))
+  }
 }
 

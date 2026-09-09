@@ -22,7 +22,8 @@ kmmr(
   getStartingValues = FALSE,
   super = TRUE,
   useGPU = FALSE,
-  denseThreshold = 0.1
+  denseThreshold = 0.1,
+  debugging = FALSE
 )
 }
 \arguments{
@@ -62,6 +63,8 @@ elements of the AI matrix by 10\% before inverting.}
 \item{useGPU}{Should the GPU be used for dense models?}
 
 \item{denseThreshold}{Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.}
+
+\item{debugging}{If \code{TRUE}, additional information such as derivatives, log determinants, etc., is returned for debugging purposes.}
 }
 \value{
 A list with the results.
