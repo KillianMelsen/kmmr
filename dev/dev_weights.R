@@ -5,6 +5,7 @@ d <- d$ydata
 K <- readRDS("~/repos/kmmr/dev/weights_K.rds")
 Ki <- solve(K)
 attr(Ki, "INVERSE") <- TRUE
+Ki.kmmr <- Matrix(Ki)
 
 d <- droplevels(d[d$Man == "LN" & d$Env %in% c("HAN_2015", "HAN_2016", "HAN_2017"),])
 
@@ -18,7 +19,7 @@ fit.asr <- asreml(fixed = GY ~ -1 + Env,
 fit.asr.wt <- asreml(fixed = GY ~ -1 + Env,
                      random = ~ corgh(Env):vm(Gen, Ki),
                      residual = ~ units,
-                     data = d, maxit = 1,
+                     data = d, maxit = 20,
                      weights = weight,
                      family = asr_gaussian(dispersion = 1.0))
 
@@ -30,7 +31,7 @@ fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  init = c(8, 8, 8, 0.5, 0.5, 0.5, 8))
 
 fit.kmmr.wt <- kmmr(fixed = GY ~ -1 + Env,
-                    random = ~ re(~ corg(Env):lk(Gen, Ki), vars = ~ Env),
+                    random = ~ re(~ corg(Env):lk(Gen, Ki.kmmr), vars = ~ Env),
                     residual = ~ units,
                     data = d,
                     weights = "weight",

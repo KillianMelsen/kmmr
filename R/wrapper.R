@@ -108,6 +108,12 @@ getInit <- function(response, call, data, init, isFixed, indices) {
     if (grepl("stack\\(.*", currentCall)) { # If it's a stacked structure.
       currentCall <- gsub("(.*\\()(.*)\\)", "getInit_\\1\\2, data = data, response = response)", currentCall)
       result <- eval(parse(text = currentCall)[[1]])
+      
+      # 1 + j so we skip indices for the variances.
+      # We leave init values that are not NA. These have been supplied by the user. We will only
+      # set initial values that were not yet set by the user.
+      init[indices[[1 + j]]][is.na(init[indices[[1 + j]]])] <- result$init[is.na(init[indices[[1 + j]]])]
+      isFixed[indices[[1 + j]]][is.na(isFixed[indices[[1 + j]]])] <- result$isFixed[is.na(isFixed[indices[[1 + j]]])]
     } else if (!(gsub("(.*)\\(.*", "\\1", currentCall) %in% c("lk", "id", "exfalk"))) { # We don't need to do anything if the structure is id, lk, or exfalk as these have no parameters.
       currentCall <- gsub("(.*\\()([^,]*)(,?.*)\\)", "getInit_\\1'\\2'\\3, data = data, response = response)", currentCall)
       result <- eval(parse(text = currentCall)[[1]])
@@ -876,6 +882,8 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
         # vars <- diag(cov(unstack(data, formula), use = "complete"))
         vars <- aggregate(data, formula, var)[[response]]
       }
+      # For a stack the indices[[i]][[1]] will be an even multiple (size of the stack)
+      # of the length of vars. Therefore, this is safe:
       init[indices[[i]][[1]]] <- vars / 20
       isFixed[indices[[i]][[1]]] <- FALSE
       

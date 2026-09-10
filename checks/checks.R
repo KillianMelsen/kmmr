@@ -758,8 +758,272 @@ for (i in 1:length(fit$derivs[[4]])) {
 all.equal(scores.check, fit$scores) # TRUE
 
 # Multi-trait with 2 x corg for 2 traits ====
+rm(list = ls())
+d <- kmmr::dataDROPS
+K <- kmmr::kinshipDROPS
+Ki <- solve(K)
+attr(Ki, "logDet") <- sum(log(eigen(K, only.values = TRUE)$values))
+set.seed(1997)
+dss <- droplevels(d[d$Man == "R" & d$Env %in% levels(d$Env)[1:2],])
+dss <- dss[sample(1:nrow(dss), nrow(dss)),] # Shuffling data.
+dss$GY[sample(1:nrow(dss), floor(nrow(dss) / 4))] <- NA # Introducing missing values.
 
+fit <- kmmr(fixed = GY ~ -1 + Env,
+            random = ~ re(~ corg(Env):lk(Gen, Ki), vars = ~ Env),
+            residual = ~ re(~ corg(Env):id(Gen), vars = ~ Env),
+            data = dss, sparse = FALSE, maxit = 1, debugging = TRUE)
 
+R <- kronecker(fit$vars[[2]] * Matrix(c(1, fit$k[6, 1], fit$k[6, 1], 1), 2, 2),
+               fit$bases[[2]][[2]])
+R <- fit$Z[[2]] %*% R %*% t(fit$Z[[2]])
+all.equal(sum(log(eigen(R, only.values = TRUE)$values)), as.numeric(fit$logDetR)) # TRUE
+vars <- outer(sqrt(fit$k[1:2, 1]), sqrt(fit$k[1:2, 1]))
+all.equal(vars, as.matrix(fit$vars[[1]])) # TRUE
+sigma <- vars * Matrix(c(1, fit$k[3, 1], fit$k[3, 1], 1), 2, 2)
+all.equal(sigma, solve(fit$sigmai[[1]])) # TRUE
+all.equal(sum(log(eigen(sigma, only.values = TRUE)$values)), fit$logDetvarGtotal[1]) # TRUE
+all.equal(sum(log(eigen(K, only.values = TRUE)$values)), fit$logDetnvarGtotal[1]) # TRUE
+G <- kronecker(sigma, K)
+all.equal(sum(log(eigen(G, only.values = TRUE)$values)), fit$logDetG) # TRUE
+V <- fit$Z[[1]] %*% G %*% t(fit$Z[[1]]) + R
+Vi <- solve(V)
+X <- fit$X
+P <- Vi - Vi %*% X %*% solve(t(X) %*% Vi %*% X) %*% t(X) %*% Vi
+all.equal(as.numeric(t(fit$y) %*% P %*% fit$y), fit$yPy) # TRUE
+Ri <- solve(R)
+Gi <- solve(G)
+W <- cbind(fit$X, fit$Z[[1]])
+C <- as(t(W) %*% Ri %*% W, "unpackedMatrix")
+C[(ncol(fit$X) + 1):nrow(C), (ncol(fit$X) + 1):ncol(C)] <- C[(ncol(fit$X) + 1):nrow(C), (ncol(fit$X) + 1):ncol(C)] + Gi
+all.equal(sum(log(eigen(C, only.values = TRUE)$values)), fit$logDetC) # TRUE
+Ci <- solve(C)
+Cire1 <- Ci[(ncol(fit$X) + 1):nrow(C), (ncol(fit$X) + 1):ncol(C)]
+traces <- Matrix(0, nrow(sigma), ncol(sigma), sparse = FALSE, doDiag = FALSE)
+for (i in 1:nrow(sigma)) {
+  for (j in i:ncol(sigma)) {
+    traces[i, j] <- sum(Cire1[((i - 1) * nrow(Ki) + 1):(i * nrow(Ki)), ((j - 1) * nrow(Ki) + 1):(j * nrow(Ki))] * Ki)
+  }
+}
+traces <- forceSymmetric(traces)
+all.equal(traces, fit$traces[[1]]) # TRUE
+Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
+param <- 1
+for (i in 1:length(fit$derivs[[1]])) {
+  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% Gi %*% fit$u
+  param <- param + 1
+}
+for (i in 1:length(fit$derivs[[2]])) {
+  Wu.check[, param] <- fit$derivs[[2]][[i]] %*% Ri %*% fit$e
+  param <- param + 1
+}
+all.equal(Wu.check, fit$Wu) # TRUE
+scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
+param <- 1
+for (i in 1:length(fit$derivs[[1]])) {
+  s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% Gi))
+  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
+  s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
+  scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
+  param <- param + 1
+}
+for (i in 1:length(fit$derivs[[2]])) {
+  s1 <- sum(diag(fit$derivs[[2]][[i]] %*% Ri))
+  s2 <- sum(diag((t(W) %*% Ri %*% fit$derivs[[2]][[i]] %*% Ri %*% W) %*% Ci))
+  s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
+  scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
+  param <- param + 1
+}
+all.equal(scores.check, fit$scores) # TRUE
+
+# exfa for 10 environments with weights and intercept ====
+rm(list = setdiff(ls(), c("d", "K", "Ki", "fit")))
+set.seed(1997)
+dss <- droplevels(d[d$Man == "R" & d$Env %in% levels(d$Env)[1:10],])
+dss$weight.kmmr <- 1 / dss$weight
+dss <- dss[sample(1:nrow(dss), nrow(dss)),] # Shuffling data.
+dss$GY[sample(1:nrow(dss), floor(nrow(dss) / 4))] <- NA # Introducing missing values.
+
+fit <- kmmr(fixed = GY ~ 1 + Env,
+            random = ~ re(~ exfa(Env, 2):lk(Gen, Ki), vars = ~ Env),
+            residual = ~ units,
+            weights = "weight.kmmr",
+            data = dss, sparse = TRUE, maxit = 1, debugging = TRUE, denseThreshold = 0.2,
+            getStartingValues = TRUE)
+
+old.var <- fit$Init[31]
+new.var <- mean(na.omit(dss)$weight.kmmr)
+inc <- new.var / old.var
+fit$Init[31] <- 1
+fit$Fixed[31] <- TRUE
+fit$Init[1:10] <- fit$Init[1:10] * inc
+
+fit <- kmmr(fixed = GY ~ 1 + Env,
+            random = ~ re(~ exfa(Env, 2):lk(Gen, Ki), vars = ~ Env),
+            residual = ~ units,
+            weights = "weight.kmmr",
+            init = fit$Init, isFixed = fit$Fixed,
+            data = dss, sparse = TRUE, maxit = 1, debugging = TRUE, denseThreshold = 0.2)
+
+R <- Diagonal(nrow(fit$y), na.omit(dss)$weight.kmmr)
+all.equal(sum(log(eigen(R, only.values = TRUE)$values)), fit$logDetR) # TRUE
+vars <- outer(sqrt(c(fit$k[1:10, 1], 1, 1)), sqrt(c(fit$k[1:10, 1], 1, 1)))
+all.equal(vars, as.matrix(fit$vars[[1]])) # TRUE
+L <- Matrix(fit$k[11:30, 1], length(levels(dss$Env)), 2)
+sigma <- vars * rbind(cbind(L %*% t(L) + diag(1 - diag(L %*% t(L))), -L), cbind(-t(L), Diagonal(2, 1)))
+sigma <- forceSymmetric(sigma)
+all.equal(sigma, as(solve(fit$sigmai[[1]]), "unpackedMatrix")) # TRUE
+all.equal(sum(log(eigen(sigma, only.values = TRUE)$values)), fit$logDetvarGtotal[1]) # TRUE
+all.equal(sum(log(eigen(K, only.values = TRUE)$values)), fit$logDetnvarGtotal[1]) # TRUE
+G <- kronecker(sigma, K)
+all.equal(sum(log(eigen(G, only.values = TRUE)$values)), fit$logDetG) # TRUE
+V <- fit$Z[[1]] %*% G %*% t(fit$Z[[1]]) + R
+Vi <- solve(V)
+X <- fit$X
+P <- Vi - Vi %*% X %*% solve(t(X) %*% Vi %*% X) %*% t(X) %*% Vi
+all.equal(as.numeric(t(fit$y) %*% P %*% fit$y), fit$yPy) # TRUE
+Ri <- solve(R)
+Gi <- solve(G)
+W <- cbind(fit$X, fit$Z[[1]])
+C <- as(t(W) %*% Ri %*% W, "unpackedMatrix")
+C[(ncol(fit$X) + 1):nrow(C), (ncol(fit$X) + 1):ncol(C)] <- C[(ncol(fit$X) + 1):nrow(C), (ncol(fit$X) + 1):ncol(C)] + Gi
+all.equal(sum(log(eigen(C, only.values = TRUE)$values)), as.numeric(fit$logDetC)) # TRUE
+Ci <- solve(C)
+Cire1 <- Ci[(ncol(fit$X) + 1):nrow(C), (ncol(fit$X) + 1):ncol(C)]
+traces <- Matrix(0, nrow(sigma), ncol(sigma), sparse = FALSE, doDiag = FALSE)
+for (i in 1:nrow(sigma)) {
+  for (j in i:ncol(sigma)) {
+    traces[i, j] <- sum(Cire1[((i - 1) * nrow(Ki) + 1):(i * nrow(Ki)), ((j - 1) * nrow(Ki) + 1):(j * nrow(Ki))] * Ki)
+  }
+}
+traces <- forceSymmetric(traces)
+all.equal(traces[fit$traces[[1]] != 0], fit$traces[[1]][fit$traces[[1]] != 0]) # TRUE
+Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
+param <- 1
+for (i in 1:length(fit$derivs[[1]])) {
+  if (!is.null(fit$derivs[[1]][[i]])) {
+    Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% Gi %*% fit$u
+  }
+  param <- param + 1
+}
+for (i in 1:length(fit$derivs[[2]])) {
+  if (!is.null(fit$derivs[[2]][[i]])) {
+    Wu.check[, param] <- fit$derivs[[2]][[i]] %*% Ri %*% fit$e
+  }
+  param <- param + 1
+}
+all.equal(Wu.check, fit$Wu) # TRUE
+scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
+param <- 1
+for (i in 1:length(fit$derivs[[1]])) {
+  if (!is.null(fit$derivs[[1]][[i]])) {
+    s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% Gi))
+    s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
+    s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
+    scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
+  }
+  param <- param + 1
+}
+for (i in 1:length(fit$derivs[[2]])) {
+  if (!is.null(fit$derivs[[2]][[i]])) {
+    s1 <- sum(diag(fit$derivs[[2]][[i]] %*% Ri))
+    s2 <- sum(diag((t(W) %*% Ri %*% fit$derivs[[2]][[i]] %*% Ri %*% W) %*% Ci))
+    s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
+    scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
+  }
+  param <- param + 1
+}
+all.equal(scores.check, fit$scores) # TRUE
+
+# gk + fa stacked for 10 environments ====
+rm(list = setdiff(ls(), c("d", "K", "Ki")))
+ED <- kmmr::distmatDROPS
+set.seed(1997)
+dss <- droplevels(d[d$Man == "R" & d$Env %in% levels(d$Env)[1:10],])
+dss <- dss[sample(1:nrow(dss), nrow(dss)),] # Shuffling data.
+dss$GY[sample(1:nrow(dss), floor(nrow(dss) / 4))] <- NA # Introducing missing values.
+ED <- ED[levels(dss$Env), levels(dss$Env)]
+
+fit <- kmmr(fixed = GY ~ -1 + Env,
+            random = ~ re(~ stack(~ gk(Env, ED) + fa(Env, 1)):lk(Gen, Ki), vars = ~ Env),
+            residual = ~ units,
+            data = dss, sparse = FALSE, maxit = 2, debugging = TRUE,
+            stepSize = c(0.25, 0.5)^2)
+
+fit2 <- kmmr(fixed = GY ~ -1 + Env,
+             random = ~ re(~ gk(Env, ED):lk(Gen, Ki), vars = ~ Env) +
+                        re(~ fa(Env, 1):lk(Gen, Ki), vars = ~ Env),
+             residual = ~ units,
+             data = dss, sparse = FALSE, maxit = 2, debugging = TRUE,
+             stepSize = c(0.25, 0.5)^2)
+
+R <- Diagonal(nrow(fit$y), fit$k[32, 2])
+all.equal(sum(log(eigen(R, only.values = TRUE)$values)), fit$logDetR) # TRUE
+all.equal(sum(log(eigen(R, only.values = TRUE)$values)), fit2$logDetR) # TRUE
+vars1 <- outer(sqrt(fit$k[1:10, 2]), sqrt(fit$k[1:10, 2]))
+vars2 <- outer(sqrt(fit$k[11:20, 2]), sqrt(fit$k[11:20, 2]))
+all.equal(vars1, as.matrix(fit$vars[[1]][[1]])) # TRUE
+all.equal(vars2, as.matrix(fit$vars[[1]][[2]])) # TRUE
+L <- Matrix(fit$k[22:31, 2], 10, 1)
+sigma1 <- forceSymmetric(vars1 * exp(-fit$k[21, 2] * ED))
+sigma2 <- forceSymmetric(vars2 * (L %*% t(L) + diag(1 - diag(L %*% t(L)))))
+sigma <- sigma1 + sigma2
+all.equal(as.matrix(sigma), as.matrix(solve(fit$sigmai[[1]]))) # TRUE
+all.equal(sum(log(eigen(sigma, only.values = TRUE)$values)), fit$logDetvarGtotal[1]) # TRUE
+all.equal(sum(log(eigen(K, only.values = TRUE)$values)), fit$logDetnvarGtotal[1]) # TRUE
+G <- kronecker(sigma, K)
+all.equal(sum(log(eigen(G, only.values = TRUE)$values)), fit$logDetG) # TRUE
+V <- fit$Z[[1]] %*% G %*% t(fit$Z[[1]]) + R
+Vi <- solve(V)
+X <- fit$X
+P <- Vi - Vi %*% X %*% solve(t(X) %*% Vi %*% X) %*% t(X) %*% Vi
+all.equal(as.numeric(t(fit$y) %*% P %*% fit$y), fit$yPy) # TRUE
+all.equal(as.numeric(t(fit$y) %*% P %*% fit$y), fit2$yPy) # TRUE
+Ri <- solve(R)
+Gi <- solve(G)
+W <- cbind(fit$X, fit$Z[[1]])
+C <- as(t(W) %*% Ri %*% W, "unpackedMatrix")
+C[(ncol(fit$X) + 1):nrow(C), (ncol(fit$X) + 1):ncol(C)] <- C[(ncol(fit$X) + 1):nrow(C), (ncol(fit$X) + 1):ncol(C)] + Gi
+all.equal(sum(log(eigen(C, only.values = TRUE)$values)), fit$logDetC) # TRUE
+Ci <- solve(C)
+Cire1 <- Ci[(ncol(fit$X) + 1):nrow(C), (ncol(fit$X) + 1):ncol(C)]
+traces <- Matrix(0, nrow(sigma), ncol(sigma), sparse = FALSE, doDiag = FALSE)
+for (i in 1:nrow(sigma)) {
+  for (j in i:ncol(sigma)) {
+    traces[i, j] <- sum(Cire1[((i - 1) * nrow(Ki) + 1):(i * nrow(Ki)), ((j - 1) * nrow(Ki) + 1):(j * nrow(Ki))] * Ki)
+  }
+}
+traces <- forceSymmetric(traces)
+all.equal(traces, fit$traces[[1]]) # TRUE
+Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
+param <- 1
+for (i in 1:length(fit$derivs[[1]])) {
+  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% Gi %*% fit$u
+  param <- param + 1
+}
+for (i in 1:length(fit$derivs[[2]])) {
+  Wu.check[, param] <- fit$derivs[[2]][[i]] %*% Ri %*% fit$e
+  param <- param + 1
+}
+all.equal(Wu.check, fit$Wu) # TRUE
+all.equal(Wu.check, fit2$Wu[, c(1:10, 12:21, 11, 22:32)]) # TRUE
+scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
+param <- 1
+for (i in 1:length(fit$derivs[[1]])) {
+  s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% Gi))
+  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
+  s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
+  scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
+  param <- param + 1
+}
+for (i in 1:length(fit$derivs[[2]])) {
+  s1 <- sum(diag(fit$derivs[[2]][[i]] %*% Ri))
+  s2 <- sum(diag((t(W) %*% Ri %*% fit$derivs[[2]][[i]] %*% Ri %*% W) %*% Ci))
+  s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
+  scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
+  param <- param + 1
+}
+all.equal(scores.check, fit$scores) # TRUE
+all.equal(scores.check, fit2$scores[c(1:10, 12:21, 11, 22:32),, drop = FALSE]) # TRUE
 
 
 

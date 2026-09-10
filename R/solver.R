@@ -1261,7 +1261,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     ### Updating parameters ====
     #tic("Updating parameters and checking constraints")
     delta <- AIi %*% scores * stepSize[iter]
-    
     #### Checking constraints ====
     # - We check all parameters and constrain as needed (adding them to con).
     # - We then recompute delta for any unconstrained parameters.
@@ -1532,8 +1531,8 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
         con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.autoCors, bound.autoCors, con.bws, bound.bws, con.loadings, bound.loadings)))
         noncon <- setdiff(1:nrow(delta), con)
+        nConstrained <- length(con)
         if (length(setdiff(noncon, which(isFixed))) > 0) {
-          nConstrained <- length(con)
           AIuu <- AI[noncon, noncon, drop = FALSE]
           uuisFixed <- isFixed[noncon]
           AIff <- AI[con, con, drop = FALSE]
