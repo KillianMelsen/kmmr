@@ -1274,6 +1274,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     #     (1) none of the unconstrained parameters have to be constrained (this can happen in the first cycle).
     #     Or
     #     (2) all of the parameters are constrained (this can also happen in the first cycle).
+    if (debugging) {
+      vars.debugging <- vars
+    }
     con <- c() # Vector to keep the total set of constrained parameters across cycles. We need this for recomputing delta for unconstrained params.
     vars <- which(ur.types == "V") # Which of the parameters in k are variances?
     cors <- which(ur.types == "R") # Which of the parameters in k are correlations?
@@ -1616,7 +1619,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
                 converged = converged,
                 derivs = derivs,
                 sigmai = sigmai,
-                vars = vars,
+                vars = vars.debugging,
                 cormats = cormats,
                 logDetC = logDetC,
                 logDetR = logDetR,
@@ -1629,7 +1632,8 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
                 Z = Z,
                 y = y,
                 Wu = Wu,
-                e = e))
+                e = e,
+                bases = bases))
   } else {
     return(list(LL = LL,
                 k = k,

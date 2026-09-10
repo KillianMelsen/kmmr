@@ -891,7 +891,11 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   # Also adding some penalty to the average information matrix if factor analytic structures are present:
   if (is.null(avInfReg)) {
     if (any(unlist(struc) %in% c("fa", "exfa"))) {
-      avInfReg <- c(1.1, 1.05, rep(1, maxit - 2))
+      if (maxit > 1) {
+        avInfReg <- c(1.1, 1.05, rep(1, maxit - 2))
+      } else {
+        avInfReg <- c(1.1)
+      }
     } else {
       avInfReg <- rep(1, maxit)
     }
