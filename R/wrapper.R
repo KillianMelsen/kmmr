@@ -204,6 +204,7 @@ re <- function(formula, vars = ~ 1, ...) {
   types <- lapply(results, `[[`, "types")
   # indexCor <- unlist(lapply(results, `[[`, "indexCor"), recursive = FALSE) # I don't think we ever needed this recursive = FALSE...
   indexCor <- lapply(results, `[[`, "indexCor")
+  sparse <- any(unlist(lapply(results, `[[`, "sparse")))
   forFactor <- lapply(seq_along(results), function(i) {
     if (isStack[i]) {
       lapply(results[[i]]$nparams, function(x) rep(i, x))
@@ -361,7 +362,8 @@ re <- function(formula, vars = ~ 1, ...) {
               i.var = i.var,
               i.nvar = i.nvar,
               params = params,
-              factorNames = factorNames))
+              factorNames = factorNames,
+              sparse = sparse))
 }
 
 addParamLabels <- function(structure, levels, factorName, p, s = NULL) {
@@ -405,7 +407,8 @@ corg <- function(factor) {
               nparams = nparams,
               types = rep("R", nparams),
               indexCor = 1:nparams,
-              part = "var"))
+              part = "var",
+              sparse = FALSE))
 }
 
 #' \code{fa} is for a naive factor analytic correlation structure.
@@ -425,7 +428,8 @@ fa <- function(factor, m) {
               nparams = nparams,
               types = rep("L", nparams),
               indexCor = 1:nparams,
-              part = "var"))
+              part = "var",
+              sparse = FALSE))
 }
 
 #' \code{exfa} is for an extended (sparse) factor analytic correlation structure.
@@ -445,7 +449,8 @@ exfa <- function(factor, m) {
               nparams = nparams,
               types = rep("L", nparams),
               indexCor = 1:nparams,
-              part = "var"))
+              part = "var",
+              sparse = TRUE))
 }
 
 #' \code{cors} is for a simple correlation structure.
@@ -464,7 +469,8 @@ cors <- function(factor) {
               nparams = nparams,
               types = rep("R", nparams),
               indexCor = list(1:((p^2 - p) / 2)),
-              part = "var"))
+              part = "var",
+              sparse = FALSE))
 }
 
 #' \code{id} is for a diagonal (identity) correlation structure.
@@ -483,7 +489,8 @@ id <- function(factor) {
               nparams = nparams,
               types = NA,
               indexCor = NA,
-              part = "nvar"))
+              part = "nvar",
+              sparse = TRUE))
 }
 
 #' \code{gk} is for a Gaussian kernel correlation structure.
@@ -506,7 +513,8 @@ gk <- function(factor, base) {
               nparams = nparams,
               types = "B",
               indexCor = 0,
-              part = "var"))
+              part = "var",
+              sparse = FALSE))
 }
 
 #' \code{lk} is for a linear kernel correlation structure.
@@ -531,7 +539,8 @@ lk <- function(factor, base) {
               nparams = nparams,
               types = NA,
               indexCor = NA,
-              part = "nvar"))
+              part = "nvar",
+              sparse = FALSE))
 }
 
 #' \code{exfalk} is for an extended factor analytic approximation of a linear kernel.
@@ -559,7 +568,8 @@ exfalk <- function(factor, setup) {
               nparams = nparams,
               types = NA,
               indexCor = NA,
-              part = "nvar"))
+              part = "nvar",
+              sparse = TRUE))
 }
 
 #' \code{ar1} is for an order 1 autoregressive correlation structure
@@ -578,7 +588,8 @@ ar1 <- function(factor) {
               nparams = 1,
               types = "AR",
               indexCor = NA,
-              part = "var"))
+              part = "var",
+              sparse = TRUE))
 }
 
 #' stack
@@ -607,6 +618,7 @@ stack <- function(formula, ...) {
   types <- lapply(results, `[[`, "types")
   indexCor <- lapply(results, `[[`, "indexCor")
   # part <- vapply(results, `[[`, character(1), "part")
+  sparse <- any(unlist(lapply(results, `[[`, "sparse")))
   stackResults <- list(base = bases,
                        levels = unlist(levels),
                        nlevels = nlevels,
@@ -614,7 +626,8 @@ stack <- function(formula, ...) {
                        types = types,
                        indexCor = indexCor,
                        part = "var", # Stacks are by definition in the variable part of the random effect
-                       sizeOfStack = length(calls))
+                       sizeOfStack = length(calls),
+                       sparse = sparse)
   return(stackResults)
 }
 
@@ -782,7 +795,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   # The length of these lists already takes additional random effects due to atEach() calls into account.
   Z <- indices <- u.applyvars <- u.types <- u.nlevels <- u.forFactor <-
     u.indexCor <- bases <- struc <- u.nparams <- i.var <- i.nvar  <-
-    u.isStack <- u.nparams.list <- params <- factorNames <- callsRe <- vector("list", nU + 1)
+    u.isStack <- u.nparams.list <- params <- factorNames <- callsRe <- u.sparse <- vector("list", nU + 1)
   j <- 1 # Index to keep track of the actual random effect spec we are working on.
   k <- 1 # Index to keep track of which atEach() spec we are at.
   # for (i in 1:(nU + 1)) {
@@ -806,6 +819,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
         u.isStack[[j]] <- specs.atEach[[k]][[l]]$isStack
         u.nparams.list[[j]] <- specs.atEach[[k]][[l]]$nparams.list
         factorNames[[j]] <- specs.atEach[[k]][[l]]$factorNames
+        u.sparse[[j]] <- specs.atEach[[k]][[l]]$sparse
         j <- j + 1
       }
       k <- k + 1
@@ -834,6 +848,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
       u.isStack[[j]] <- spec$isStack
       u.nparams.list[[j]] <- spec$nparams.list
       factorNames[[j]] <- spec$factorNames
+      u.sparse[[j]] <- spec$sparse
       j <- j + 1
     }
   }
@@ -845,6 +860,9 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   
   # Vector of parameter types
   ur.types <- unlist(u.types)
+  
+  # Unlisting the dense/sparse info for the random effects:
+  u.sparse <- unlist(u.sparse)
   
   # Response matrix:
   y <- Matrix(data[[response]], sparse = FALSE, doDiag = FALSE)
@@ -931,7 +949,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                        maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
                        tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
                        ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
-                       u.forFactor = u.forFactor, u.indexCor = u.indexCor,
+                       u.forFactor = u.forFactor, u.indexCor = u.indexCor, u.sparse = u.sparse,
                        bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
                        isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
                        timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold,
@@ -943,7 +961,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                           avInfReg[1:ncol(result$k)],
                           result$k)
     rownames(result$trace) <- c("Log-likelihood", "Stepsize", "AI penalty", result$params)
-    rownames(result$u) <- unlist(lapply(Z[-length(Z)], colnames)) # Last design matrix is for the residual effect.
+    rownames(result$u) <- unlist(lapply(Z[-length(Z)], colnames)) # Last design matrix is for the residual effect. This will probably have to be changed when using the SC for dense/sparse effects.
     class(result) <- "kmmrFit"
   }
   return(result)
