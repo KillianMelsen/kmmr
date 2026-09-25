@@ -23,6 +23,7 @@ solveLMM(
   u.nparams,
   u.forFactor,
   u.indexCor,
+  u.sparse,
   bases,
   struc,
   i.var,
@@ -75,6 +76,8 @@ elements of the AI matrix by 10\%.}
 \item{u.forFactor}{For which factor is each parameter.}
 
 \item{u.indexCor}{Indices used to count correlations.}
+
+\item{u.sparse}{Provides info on whether a random effect is sparse or not.}
 
 \item{bases}{Base matrices}
 

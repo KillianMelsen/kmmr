@@ -52,3 +52,7 @@ inplaceUpdateSIS <- function(x_ptr, p_ptr, i_ptr, W_mat, Q) {
     invisible(.Call(`_kmmr_inplaceUpdateSIS`, x_ptr, p_ptr, i_ptr, W_mat, Q))
 }
 
+inplaceUpdateSISnew <- function(x_ptr, p_ptr, i_ptr, tW_mat, tQ) {
+    invisible(.Call(`_kmmr_inplaceUpdateSISnew`, x_ptr, p_ptr, i_ptr, tW_mat, tQ))
+}
+

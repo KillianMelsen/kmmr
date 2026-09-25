@@ -945,7 +945,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                          Fixed = isFixed)
   } else {
     # Fitting:
-    result <- solveLMM(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
+    result <- solveLMM_old(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
                        maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
                        tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
                        ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,

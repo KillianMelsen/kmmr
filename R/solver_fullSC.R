@@ -458,7 +458,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   } # End loop over random effects
   
   # Forming non-variable structures for random effects:
-  #tic("Forming nvarGi for each random effect")
   nvarGi <- vector("list", nU)
   logDetnvarGtotal <- numeric(nU)
   for (re in 1:nU) { # Start loop over random effects
@@ -491,7 +490,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       nvarGi[[re]] <- Reduce(kronecker, bases[[re]][i.nvar[[re]]])
     }
   } # End loop over random effects
-  #toc()
   
   # Forming non-variable structure for the residual effect:
   re <- nUR
@@ -501,7 +499,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   }
   
   ## Forming W = [X Z] for the dense and sparse equations ====
-  #tic("Forming W")
   Wdense <- cbind(X[, Xdense.idx, drop = FALSE], Reduce(cbind, Z[which(!(u.sparse[1:nU]))]))
   Wsparse <- cbind(X[, Xsparse.idx, drop = FALSE], Reduce(cbind, Z[which(u.sparse[1:nU])]))
   dense.idx <- c(Xdense.idx, unlist(Z.idx[Zdense.idx])) # This will come in handy for putting the solutions back into the order specified by the user.
@@ -514,7 +511,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   } else {
     Cmode <- "mixed"
   }
-  #toc()
   
   stop <- proc.time()[3]
   duration <- as.numeric(stop - start)
@@ -535,13 +531,13 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   }
   
   ## Setup the GPU CUDA context ====
-  #tic("Initializing CUDA")
+  ##tic("Initializing CUDA")
   if (useGPU && Cmode %in% c("dense", "mixed")) {
     gpu_ctx <- cuSolverInit(N = ncol(Wdense), rhs_cols_1 = 1, rhs_cols_2 = nrow(k)) # N = dim of the dense block of C (Cdd) matrix, rhs_cols_2 is the number of parameters.
   } else if (useGPU && Cmode == "sparse") {
     stop("GPU cannot be used for a fully sparse model...")
   }
-  #toc()
+  ##toc()
   
   ## Start iterating ====
   LL <- numeric(maxit + 1)
@@ -839,7 +835,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       logDetCss <- as.numeric(determinant(Ccholss, sqrt = FALSE, logarithm = TRUE)$modulus)
       denseRHS <- crossprod(Wdense, Riy)
       sparseRHS <- crossprod(Wsparse, Riy)
-      #tic("Solving for BLUEs and BLUPs")
+      ##tic("Solving for BLUEs and BLUPs")
       Q <- solve(Ccholss, t(as(Cds, "unpackedMatrix")))
       SC <- Cdd - forceSymmetric(Cds %*% Q)
       sparseTemp <- solve(Ccholss, sparseRHS)
@@ -858,7 +854,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         rownames(buDense) <- colnames(SC)
         buSparse <- sparseTemp - (Q %*% buDense)
       }
-      #toc()
+      ##toc()
       # logDetC <- as.numeric(determinant(Ccholss, sqrt = FALSE, logarithm = TRUE)$modulus + determinant(SC, logarithm = TRUE)$modulus)
       logDetC <- logDetCss + logDetSC
       yPy <- as.numeric(crossprod(y, Riy) - (crossprod(sparseRHS, buSparse) + crossprod(denseRHS, buDense)))
@@ -866,9 +862,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     } else if (Cmode == "sparse") { # Fully sparse equations.
       Ccholss <- Cholesky(Css, LDL = ifelse(super, FALSE, TRUE), perm = TRUE, super = super)
       RHS <- crossprod(Wsparse, Riy)
-      #tic("Solving for BLUEs and BLUPs")
+      ##tic("Solving for BLUEs and BLUPs")
       buSparse <- solve(Ccholss, RHS)
-      #toc()
+      ##toc()
       logDetC <- determinant(Ccholss, sqrt = FALSE, logarithm = TRUE)$modulus
       yPy <- as.numeric(crossprod(y, Riy) - crossprod(RHS, buSparse))
       
@@ -876,9 +872,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       RHS <- crossprod(Wdense, Riy)
       if (!useGPU) {
         Ccholdd <- Cholesky(Cdd, perm = FALSE)
-        #tic("Solving for BLUEs and BLUPs")
+        ##tic("Solving for BLUEs and BLUPs")
         buDense <- solve(Ccholdd, RHS)
-        #toc()
+        ##toc()
         # Looks strange because the 2 * is missing, but is correct as diag(Cholesky(Cdd, perm = FALSE))
         # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
         logDetC <- sum(log(diag(Ccholdd)))
@@ -1182,17 +1178,26 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     ### Computing the inverse of the coefficient matrix ====
     #tic("Inversion of C from cholesky factor")
     if (Cmode == "mixed") { # If we have both dense and sparse equations.
+      #tic("Base SIS of Ciss")
       Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
+      #toc()
       # Inverse of the dense Schur complement:
       if (!useGPU) {
+        #tic("Inversion of SC")
         Cidd <- chol2inv(as(SCchol, "dtrMatrix"))
+        #toc()
       } else {
         Cidd <- gpuResult2$Ci
       }
       # Updated sparse block of the inverse of C:
-      inplaceUpdateSIS(x_ptr = Ciss@x, p_ptr = Ciss@p, i_ptr = Ciss@i, W_mat = as.matrix(Q %*% Cidd), Q = as.matrix(Q))
+      #tic("Updating the SIS")
+      # inplaceUpdateSIS(x_ptr = Ciss@x, p_ptr = Ciss@p, i_ptr = Ciss@i, W_mat = as.matrix(Q %*% Cidd), Q = as.matrix(Q))
+      inplaceUpdateSISnew(x_ptr = Ciss@x, p_ptr = Ciss@p, i_ptr = Ciss@i, tW_mat = t(as.matrix(Q %*% Cidd)), tQ = t(as.matrix(Q)))
+      #toc()
       # Off-diagonal (bottom left) block of the inverse of C:
+      #tic("Off-diagonal block of Ci")
       Cisd <- -Q %*% Cidd
+      #toc()
       
     } else if (Cmode == "sparse") { # If we only have sparse equations, so Ciss is the full inverse.
       Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
@@ -1634,7 +1639,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     #toc()
     
     # Printing:
-    #tic("Printing info")
+    ##tic("Printing info")
     stop <- proc.time()[3]
     duration <- as.numeric(stop - start)
     duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
@@ -1648,7 +1653,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
       }
     }
-    #toc()
+    ##toc()
     
     # Checking for convergence:
     if (iter > 1) {
