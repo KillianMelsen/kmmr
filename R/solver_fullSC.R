@@ -634,14 +634,16 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     ### Adding Gi to C ====
     #tic("Computing Gi and adding it to C")
-    if (Cmode == "mixed") { # If we have both dense and sparse equations we need to add the relevant Gi's to the correct sub-blocks of Cdd and Css.
-      offsetDense <- nXdense + 1
-      offsetSparse <- nXsparse + 1
-    } else if (Cmode == "dense") { # If C is fully dense...
-      offsetDense <- nX + 1
-    } else { # ... or fully sparse.
-      offsetSparse <- nX + 1
-    }
+    offsetDense <- nXdense + 1
+    offsetSparse <- nXsparse + 1
+    # if (Cmode == "mixed") { # If we have both dense and sparse equations we need to add the relevant Gi's to the correct sub-blocks of Cdd and Css.
+    #   offsetDense <- nXdense + 1
+    #   offsetSparse <- nXsparse + 1
+    # } else if (Cmode == "dense") { # If C is fully dense...
+    #   offsetDense <- nX + 1
+    # } else { # ... or fully sparse.
+    #   offsetSparse <- nX + 1
+    # }
     
     # if we have a sparse block of C, or if C is fully sparse.
     if (Cmode %in% c("mixed", "sparse")) {
@@ -834,18 +836,31 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     Riy <- Ri %*% y
     if (Cmode == "mixed") { # Mix of dense and sparse equations.
       Ccholss <- Cholesky(Css, LDL = ifelse(super, FALSE, TRUE), perm = TRUE, super = super)
+      logDetCss <- as.numeric(determinant(Ccholss, sqrt = FALSE, logarithm = TRUE)$modulus)
       denseRHS <- crossprod(Wdense, Riy)
       sparseRHS <- crossprod(Wsparse, Riy)
       #tic("Solving for BLUEs and BLUPs")
-      Q <- solve(Ccholss, t(Cds))
-      SC <- forceSymmetric(Cdd - (Cds %*% Q))
+      Q <- solve(Ccholss, t(as(Cds, "unpackedMatrix")))
+      SC <- Cdd - forceSymmetric(Cds %*% Q)
       sparseTemp <- solve(Ccholss, sparseRHS)
       adjDenseRHS <- denseRHS - (Cds %*% sparseTemp)
-      buDense <- solve(SC, adjDenseRHS) # GPU, and keep the context to complete the inversion of the SC later for the scores.
-      buSparse <- sparseTemp - (Q %*% buDense)
-      bu <- rbind(buDense, buSparse)
+      if (!useGPU) {
+        SCchol <- Cholesky(SC, perm = FALSE)
+        # Looks strange because the 2 * is missing, but is correct as diag(Cholesky(SC, perm = FALSE))
+        # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
+        logDetSC <- sum(log(diag(SCchol)))
+        buDense <- solve(SCchol, adjDenseRHS)
+        buSparse <- sparseTemp - (Q %*% buDense)
+      } else {
+        gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = SC, RHS_in = adjDenseRHS, returnCchol = FALSE)
+        logDetSC <- gpuResult$logDetC
+        buDense <- gpuResult$bu
+        rownames(buDense) <- colnames(SC)
+        buSparse <- sparseTemp - (Q %*% buDense)
+      }
       #toc()
-      logDetC <- as.numeric(determinant(Ccholss, sqrt = FALSE, logarithm = TRUE)$modulus + determinant(SC, logarithm = TRUE)$modulus)
+      # logDetC <- as.numeric(determinant(Ccholss, sqrt = FALSE, logarithm = TRUE)$modulus + determinant(SC, logarithm = TRUE)$modulus)
+      logDetC <- logDetCss + logDetSC
       yPy <- as.numeric(crossprod(y, Riy) - (crossprod(sparseRHS, buSparse) + crossprod(denseRHS, buDense)))
       
     } else if (Cmode == "sparse") { # Fully sparse equations.
@@ -878,14 +893,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     # Splitting BLUEs and BLUPs:
     if (Cmode == "mixed") {
-      if (nXdense > 0) {
-        bDense <- buDense[1:nXdense, 1, drop = FALSE]
-      }
-      uDense <- buDense[(nXdense + 1):nrow(buDense), 1, drop = FALSE]
-      if (nXsparse > 0) {
-        bSparse <- buSparse[1:nXsparse, 1, drop = FALSE]
-      }
-      uSparse <- buSparse[(nXsparse + 1):nrow(buSparse), 1, drop = FALSE]
+      if (nXdense > 0) { bDense <- buDense[1:nXdense, 1, drop = FALSE] }
+      if (nZdense > 0) { uDense <- buDense[(nXdense + 1):nrow(buDense), 1, drop = FALSE] }
+      if (nXsparse > 0) { bSparse <- buSparse[1:nXsparse, 1, drop = FALSE] }
+      if (nZsparse > 0) { uSparse <- buSparse[(nXsparse + 1):nrow(buSparse), 1, drop = FALSE] }
     } else if (Cmode == "sparse") {
       bSparse <- buSparse[1:nXsparse, 1, drop = FALSE]
       uSparse <- buSparse[(nXsparse + 1):nrow(buSparse), 1, drop = FALSE]
@@ -1128,7 +1139,12 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       sparseWuRHS <- crossprod(Wsparse, RiWu)
       sparseWuTemp <- solve(Ccholss, sparseWuRHS)
       adjDenseWuRHS <- denseWuRHS - (Cds %*% sparseWuTemp)
-      buWuDense <- solve(SC, adjDenseWuRHS) # GPU phase 2 here as well, also compute the inverse of the SC here.
+      if (!useGPU) {
+        buWuDense <- solve(SCchol, adjDenseWuRHS)
+      } else {
+        gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = adjDenseWuRHS)
+        buWuDense <- gpuResult2$buWu
+      }
       buWuSparse <- sparseWuTemp - (Q %*% buWuDense)
       buWuXWjxZWj <- forceSymmetric(crossprod(sparseWuRHS, buWuSparse) + crossprod(denseWuRHS, buWuDense))
       
@@ -1164,31 +1180,29 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     #toc()
     
     ### Computing the inverse of the coefficient matrix ====
-    # We can again overwrite C as we no longer need the CF after this.
     #tic("Inversion of C from cholesky factor")
     if (Cmode == "mixed") { # If we have both dense and sparse equations.
+      Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
+      # Inverse of the dense Schur complement:
+      if (!useGPU) {
+        Cidd <- chol2inv(as(SCchol, "dtrMatrix"))
+      } else {
+        Cidd <- gpuResult2$Ci
+      }
+      # Updated sparse block of the inverse of C:
+      inplaceUpdateSIS(x_ptr = Ciss@x, p_ptr = Ciss@p, i_ptr = Ciss@i, W_mat = as.matrix(Q %*% Cidd), Q = as.matrix(Q))
+      # Off-diagonal (bottom left) block of the inverse of C:
+      Cisd <- -Q %*% Cidd
       
+    } else if (Cmode == "sparse") { # If we only have sparse equations, so Ciss is the full inverse.
+      Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
       
-    } else if (Cmode == "sparse") { # If we only have sparse equations.
-      
-      
-    } else { # if we only have dense equations.
-      
-    }
-    
-    if (sparse && hasDense) {
-      # Compute the base sparse inverse subset of the sparse block of C.
-      Ci <- SIS(Cchol) # The cholmod_extra code already returns the SIS in original model order. Remember, Cchol is only for the sparse block of C!
-      # Then update the base SIS in-place using the inverse of the Schur complement SC^-1 and Q = C_ss^-1 %*% C_sd:
-      inplaceUpdateSIS(x_ptr = Ci@x, p_ptr = Ci@p, i_ptr = Ci@i, W_mat = as.matrix(Q %*% solve(SC)), Q = as.matrix(Q))
-    } else if (sparse && !hasDense) {
-      Ci <- SIS(Cchol) # SIS() returns a lower triangular dsCMatrix!!!
-    } else if (!sparse && !useGPU) {
-      Ci <- chol2inv(as(Cchol, "dtrMatrix"))
-    } else if (!sparse && useGPU) {
-      Ci <- gpuResult2$Ci
-    } else {
-      stop("Invalid combination of 'sparse', 'hasDense', and 'useGPU'...")
+    } else { # if we only have dense equations, so Cidd is the full inverse.
+      if (!useGPU) {
+        Cidd <- chol2inv(as(Ccholdd, "dtrMatrix"))
+      } else {
+        Cidd <- gpuResult2$Ci
+      }
     }
     #toc()
     
@@ -1203,13 +1217,14 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       traces.debugging <- vector("list", nU)
     }
     scores <- Matrix(0, nrow(k), 1, sparse = FALSE)
-    if (sparse && hasDense) {
-      corner <- nXsparse + 1
-    } else {
-      corner <- nX + 1
-    }
+    offsetDense <- nXdense + 1
+    offsetSparse <- nXsparse + 1
+    # if (sparse && hasDense) {
+    #   corner <- nXsparse + 1
+    # } else {
+    #   corner <- nX + 1
+    # }
     param <- 1
-    
     for (re in 1:nU) { # Start of loop over random effects
       if (any(struc[[re]] == "exfa")) {
         m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
@@ -1219,36 +1234,45 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       }
       dimNvar <- dim.nvar[re]
       
-      if (n.nvar[re] > 0) {
-        if (sparse) {
-          if (is(nvarGi[[re]], "sparseMatrix")) {
-            traces <- getBlockTracesSparseSparse(Ci@p, Ci@i, Ci@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
-            } else {
-            traces <- getBlockTracesSparseDense(Ci@p, Ci@i, Ci@x, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
+      if (n.nvar[re] > 0) { # If there is a non-variable structure like a GRM.
+        if (u.sparse[re]) { # If the current random effect is part of the sparse equations.
+          if (is(nvarGi[[re]], "sparseMatrix")) { # If the non-variable structure is sparse.
+            traces <- getBlockTracesSparseSparse(Ciss@p, Ciss@i, Ciss@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, offsetSparse - 1)
+          } else { # If the non-variable structure is dense.
+            traces <- getBlockTracesSparseDense(Ciss@p, Ciss@i, Ciss@x, nvarGi[[re]]@x, dimVar, dimNvar, offsetSparse - 1)
           }
-        } else {
-          if (is(nvarGi[[re]], "sparseMatrix")) {
-            traces <- getBlockTracesDenseSparse(Ci@x, nrow(Ci), nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
-          } else {
-            traces <- getBlockTracesDenseDense(Ci@x, nrow(Ci), nvarGi[[re]]@x, dimVar, dimNvar, corner - 1)
+          offsetSparse <- offsetSparse + dimVar * dimNvar
+          
+        } else { # If the current random effect is part of the dense equations.
+          if (is(nvarGi[[re]], "sparseMatrix")) { # If the non-variable structure is sparse, I don't think this will typically ever be the case cause if true, we'd probably be in the sparse equations.
+            traces <- getBlockTracesDenseSparse(Cidd@x, nrow(Cidd), nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, offsetDense - 1)
+          } else { # If the non-variable structure is dense.
+            traces <- getBlockTracesDenseDense(Cidd@x, nrow(Cidd), nvarGi[[re]]@x, dimVar, dimNvar, offsetDense - 1)
           }
+          offsetDense <- offsetDense + dimVar * dimNvar
         }
+        
         if (nrow(traces) > 1) {
           traces <- forceSymmetric(traces)
         }
         if (debugging) {
           traces.debugging[[re]] <- traces
         }
-        corner <- corner + dimVar * dimNvar
-      } else {
-        traces <- Ci[corner:(corner - 1 + dimVar), corner:(corner - 1 + dimVar)]
-        corner <- corner + dimVar
+        
+      } else { # If there is no non-variable structure like a GRM.
+        if (u.sparse[re]) { # If part of the sparse equations.
+          traces <- Ciss[offsetSparse:(offsetSparse - 1 + dimVar), offsetSparse:(offsetSparse - 1 + dimVar)]
+          offsetSparse <- offsetSparse + dimVar
+        } else { # If part of the dense equations.
+          traces <- Cidd[offsetSparse:(offsetSparse - 1 + dimVar), offsetSparse:(offsetSparse - 1 + dimVar)]
+          offsetDense <- offsetDense + dimVar
+        }
       }
       
       if (n.nvar[re] > 0) {
-        basisScores <- -0.5 * (dimNvar * sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - crossprod(umat_sigmai[[re]], nvarGi[[re]] %*% umat_sigmai[[re]])) # Last term maybe on the GPU?
+        basisScores <- -0.5 * (dimNvar * sigmai[[re]] - forceSymmetric(sigmai[[re]] %*% traces %*% sigmai[[re]]) - forceSymmetric(crossprod(umat_sigmai[[re]], nvarGi[[re]] %*% umat_sigmai[[re]]))) # Last term maybe on the GPU?
       } else {
-        basisScores <- -0.5 * (sigmai[[re]] - sigmai[[re]] %*% traces %*% sigmai[[re]] - crossprod(umat_sigmai[[re]])) # Last term maybe on the GPU?
+        basisScores <- -0.5 * (sigmai[[re]] - forceSymmetric(sigmai[[re]] %*% traces %*% sigmai[[re]]) - crossprod(umat_sigmai[[re]])) # Last term maybe on the GPU?
       }
       
       for (i in 1:length(derivs[[re]])) {
@@ -1264,36 +1288,41 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     #### Residual scores ====
     #tic("Computing residual scores")
     re <- nUR
-    if (sparse && hasDense) {
-      Cidd <- solve(SC) # Inverse of the Schur complement = inverse of C corresponding to the dense block in the top-left.
-      Cisd <- -Q %*% Cidd # Inverse of C corresponding to the bottom-right block.
-    } else {
-      RiW <- Ri %*% W
-    }
     Rie <- Ri %*% e
+    if (Cmode == "mixed") {
+      RiWdense <- Ri %*% Wdense
+      RiWsparse <- Ri %*% Wsparse
+    } else if (Cmode == "sparse") {
+      RiWsparse <- Ri %*% Wsparse
+    } else {
+      RiWdense <- Ri %*% Wdense
+    }
+    
     for (i in 1:length(derivs[[re]])) {
       if (!isFixed[param]) {
-        Di <- derivs[[re]][[i]]
-        tr1 <- sum(diag(Di %*% Ri))
-        quad <- as.numeric(crossprod(Rie, Di %*% Rie))
-        if (sparse && hasDense) {
-          RidRRi <- Ri %*% Di %*% Ri
-          RidRRi_denseW  <- RidRRi %*% denseW
-          RidRRi_sparseW <- RidRRi %*% sparseW
-          Mdd <- forceSymmetric(crossprod(denseW, RidRRi_denseW))
-          Msd <- crossprod(sparseW, RidRRi_denseW)
-          Mss <- forceSymmetric(crossprod(sparseW, RidRRi_sparseW))
+        dR <- derivs[[re]][[i]]
+        RidR <- Ri %*% dR
+        tr1 <- sum(diag(RidR))
+        quad <- as.numeric(crossprod(Rie, dR %*% Rie))
+        if (Cmode == "mixed") {
+          RidRRi_Wdense  <- RidR %*% RiWdense
+          RidRRi_Wsparse <- RidR %*% RiWsparse
+          Mdd <- forceSymmetric(crossprod(Wdense, RidRRi_Wdense))
+          Msd <- crossprod(Wsparse, RidRRi_Wdense)
+          Mss <- forceSymmetric(crossprod(Wsparse, RidRRi_Wsparse))
           ddTrace <- sum(Mdd * Cidd)
-          ssTrace <- sum(diag(Mss %*% Ci)) # Ci is actually the SIS of the sparse block of C, updated with the inverse Schur complement and Q = C_ss^-1 %*% C_sd!
+          ssTrace <- sum(diag(Mss %*% Ciss))
           sdTrace <- 2 * sum(Msd * Cisd)
           tr2 <- ssTrace + sdTrace + ddTrace
-        } else if (sparse && !hasDense) { # In this case the SIS (Ci) is for the full coefficient matrix.
-          WRidRRiW <- forceSymmetric(crossprod(RiW, Di %*% RiW))
-          tr2 <- sum(diag(WRidRRiW %*% Ci)) # As both WRidRRiW and Ci are sparse, this is probably the fastest.
-        } else { # If C and Ci are both dense, regardless of whether we used the GPU or CPU to obtain Ci.
-          WRidRRiW <- forceSymmetric(crossprod(RiW, Di %*% RiW))
-          tr2 <- getTraceSparseDense(p = WRidRRiW@p, i = WRidRRiW@i, x = WRidRRiW@x, dense_x = Ci@x, n_rows = nrow(Ci))
-          # scores[param, 1] <- -0.5 * (sum(diag(Di %*% Ri)) - sum(diag(crossprod(W, RidRRi %*% W) %*% Ci)) - crossprod(e, RidRRi %*% e))
+          
+        } else if (Cmode == "sparse") {
+          Wsparse_RidRRi_Wsparse <- forceSymmetric(crossprod(RiWsparse, Di %*% RiWsparse))
+          tr2 <- sum(diag(Wsparse_RidRRi_Wsparse %*% Ciss)) # As both Wsparse_RidRRi_Wsparse and Ciss are sparse, this is probably the fastest.
+          
+        } else {
+          Wdense_RidRRi_Wdense <- forceSymmetric(crossprod(RiWdense, Di %*% RiWdense))
+          tr2 <- getTraceSparseDense(p = Wdense_RidRRi_Wdense@p, i = Wdense_RidRRi_Wdense@i, x = Wdense_RidRRi_Wdense@x, dense_x = Cidd@x, n_rows = nrow(Cidd))
+          
         }
         scores[param, 1] <- -0.5 * (tr1 - tr2 - quad)
       }
@@ -1644,10 +1673,43 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   # last time if we are using the GPU. This is because the Cholesky factor of C
   # only ever existed on the GPU, and we don't want to copy it back in every
   # single iteration.
-  if (useGPU) {
-    gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = C, RHS_in = RHS, returnCchol = TRUE)
+  if (useGPU && Cmode == "dense") {
+    gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = Cdd, RHS_in = RHS, returnCchol = TRUE)
     cuSolverCleanup(gpu_ctx)
-    Cchol <- gpuResult$Cchol
+    Ccholdd <- gpuResult$Cchol
+  }
+  
+  # Putting the BLUEs and BLUPs back into specified order:
+  if (Cmode == "mixed") {
+    bu <- rbind(buDense, buSparse)
+  } else if (cmode == "sparse") {
+    bu <- buSparse
+  } else {
+    bu <- buDense
+  }
+  
+  mapping <- match(1:nrow(bu), c(dense.idx, sparse.idx))
+  bu <- bu[mapping, 1, drop = FALSE]
+  b <- bu[1:nX, 1, drop = FALSE]
+  u <- bu[(nX + 1):nrow(bu), 1, drop = FALSE]
+  
+  if (Cmode == "mixed") {
+    infoPEV <- list(Cmode = "mixed",
+                    Ccholss = Ccholss,
+                    Q = Q,
+                    Cidd = Cidd,
+                    dense.idx = dense.idx,
+                    sparse.idx = sparse.idx)
+    
+  } else if (Cmode == "sparse") {
+    infoPEV <- list(Cmode = "sparse",
+                    Ccholss = Ccholss,
+                    sparse.idx = sparse.idx)
+    
+  } else {
+    infoPEV <- list(Cmode = "dense",
+                    Ccholdd = Ccholdd,
+                    dense.idx = dense.idx)
   }
   
   if (debugging) {
@@ -1657,7 +1719,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
                 scores = scores,
                 b = b,
                 u = u,
-                Cchol = Cchol,
+                infoPEV = infoPEV,
                 isFixed = isFixed,
                 converged = converged,
                 derivs = derivs,
@@ -1684,7 +1746,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
                 scores = scores,
                 b = b,
                 u = u,
-                Cchol = Cchol,
+                infoPEV = infoPEV,
                 isFixed = isFixed,
                 converged = converged))
   }
