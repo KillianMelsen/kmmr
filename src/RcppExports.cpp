@@ -162,30 +162,14 @@ BEGIN_RCPP
 END_RCPP
 }
 // inplaceUpdateSIS
-void inplaceUpdateSIS(NumericVector x_ptr, IntegerVector p_ptr, IntegerVector i_ptr, NumericMatrix W_mat, NumericMatrix Q);
-RcppExport SEXP _kmmr_inplaceUpdateSIS(SEXP x_ptrSEXP, SEXP p_ptrSEXP, SEXP i_ptrSEXP, SEXP W_matSEXP, SEXP QSEXP) {
+void inplaceUpdateSIS(S4 Ciss, S4 tW_mat, S4 tQ_mat);
+RcppExport SEXP _kmmr_inplaceUpdateSIS(SEXP CissSEXP, SEXP tW_matSEXP, SEXP tQ_matSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericVector >::type x_ptr(x_ptrSEXP);
-    Rcpp::traits::input_parameter< IntegerVector >::type p_ptr(p_ptrSEXP);
-    Rcpp::traits::input_parameter< IntegerVector >::type i_ptr(i_ptrSEXP);
-    Rcpp::traits::input_parameter< NumericMatrix >::type W_mat(W_matSEXP);
-    Rcpp::traits::input_parameter< NumericMatrix >::type Q(QSEXP);
-    inplaceUpdateSIS(x_ptr, p_ptr, i_ptr, W_mat, Q);
-    return R_NilValue;
-END_RCPP
-}
-// inplaceUpdateSISnew
-void inplaceUpdateSISnew(NumericVector x_ptr, IntegerVector p_ptr, IntegerVector i_ptr, NumericMatrix tW_mat, NumericMatrix tQ);
-RcppExport SEXP _kmmr_inplaceUpdateSISnew(SEXP x_ptrSEXP, SEXP p_ptrSEXP, SEXP i_ptrSEXP, SEXP tW_matSEXP, SEXP tQSEXP) {
-BEGIN_RCPP
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericVector >::type x_ptr(x_ptrSEXP);
-    Rcpp::traits::input_parameter< IntegerVector >::type p_ptr(p_ptrSEXP);
-    Rcpp::traits::input_parameter< IntegerVector >::type i_ptr(i_ptrSEXP);
-    Rcpp::traits::input_parameter< NumericMatrix >::type tW_mat(tW_matSEXP);
-    Rcpp::traits::input_parameter< NumericMatrix >::type tQ(tQSEXP);
-    inplaceUpdateSISnew(x_ptr, p_ptr, i_ptr, tW_mat, tQ);
+    Rcpp::traits::input_parameter< S4 >::type Ciss(CissSEXP);
+    Rcpp::traits::input_parameter< S4 >::type tW_mat(tW_matSEXP);
+    Rcpp::traits::input_parameter< S4 >::type tQ_mat(tQ_matSEXP);
+    inplaceUpdateSIS(Ciss, tW_mat, tQ_mat);
     return R_NilValue;
 END_RCPP
 }
@@ -202,8 +186,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_getDeviceProps", (DL_FUNC) &_kmmr_getDeviceProps, 1},
     {"_kmmr_cuSolverPhase1", (DL_FUNC) &_kmmr_cuSolverPhase1, 4},
     {"_kmmr_cuSolverPhase2", (DL_FUNC) &_kmmr_cuSolverPhase2, 2},
-    {"_kmmr_inplaceUpdateSIS", (DL_FUNC) &_kmmr_inplaceUpdateSIS, 5},
-    {"_kmmr_inplaceUpdateSISnew", (DL_FUNC) &_kmmr_inplaceUpdateSISnew, 5},
+    {"_kmmr_inplaceUpdateSIS", (DL_FUNC) &_kmmr_inplaceUpdateSIS, 3},
     {NULL, NULL, 0}
 };
 

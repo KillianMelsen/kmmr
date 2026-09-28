@@ -17,7 +17,6 @@ kmmr(
   tolConvLL = 0.001,
   isFixed = NULL,
   verbose = TRUE,
-  sparse = FALSE,
   timesToBoundary = 5,
   getStartingValues = FALSE,
   super = TRUE,
@@ -51,8 +50,6 @@ elements of the AI matrix by 10\% before inverting.}
 \item{isFixed}{Should any of the parameters be fixed?}
 
 \item{verbose}{Verbosity.}
-
-\item{sparse}{Optional argument for forcing the sparse or dense versions of the solver.}
 
 \item{timesToBoundary}{How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?}
 

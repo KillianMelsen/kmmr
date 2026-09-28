@@ -673,7 +673,6 @@ atEach <- function(factor, formula, levels = NULL, ...) {
 #' @param tolConvLL Tolerance for detecting convergence.
 #' @param isFixed Should any of the parameters be fixed?
 #' @param verbose Verbosity.
-#' @param sparse Optional argument for forcing the sparse or dense versions of the solver.
 #' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
 #' @param getStartingValues Should the model be fitted, or should suggested starting values be returned?
 #' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
@@ -686,7 +685,7 @@ atEach <- function(factor, formula, levels = NULL, ...) {
 kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
-                 sparse = FALSE, timesToBoundary = 5, getStartingValues = FALSE, super = TRUE,
+                 timesToBoundary = 5, getStartingValues = FALSE, super = TRUE,
                  useGPU = FALSE, denseThreshold = 0.1, debugging = FALSE) {
   
   # Basic argument checking:
@@ -945,13 +944,13 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                          Fixed = isFixed)
   } else {
     # Fitting:
-    result <- solveLMM_old(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
+    result <- solveLMM(y = y, X = X, Z = Z, init = init, weights = weights, useWeights = useWeights,
                        maxit = maxit, stepSize = stepSize, avInfReg = avInfReg, verbose = verbose,
                        tolConvLL = tolConvLL, indices = indices, u.applyvars = u.applyvars,
                        ur.types = ur.types, u.nlevels = u.nlevels, u.nparams = u.nparams,
                        u.forFactor = u.forFactor, u.indexCor = u.indexCor, u.sparse = u.sparse,
                        bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
-                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list, sparse = sparse,
+                       isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list,
                        timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold,
                        debugging = debugging)
   

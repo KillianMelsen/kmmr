@@ -28,7 +28,7 @@ predict.kmmrFit <- function(object, predictionMatrix, ...) {
   }
   tau <- rbind(object$b, object$u)
   pvals <- crossprod(predictionMatrix, tau)
-  x <- solve(object$Cchol, predictionMatrix)
+  x <- solve(object$infoPEV$Ccholdd, predictionMatrix)
   ppevs <- colSums(predictionMatrix * x)
   return(data.frame(Prediction = pvals@x,
                     SE = sqrt(ppevs)))
