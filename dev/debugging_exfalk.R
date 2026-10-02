@@ -103,14 +103,14 @@ Ki.kmr <- solve(K)
 # m <- 100
 # setup <- exfalkSetup(K, m = m)
 # system.time(
-#   fit.kmr.exfalk <- kmmr(fixed = GY ~ -1 + Man,
-#                          random = ~ re(~ exfa(Man, 2):exfalk(Gen, setup), vars = ~ Man),
-#                          residual = ~ units,
-#                          data = d,
-#                          maxit = 25,
-#                          stepSize = c(0.15, 0.25, 0.5, 0.75, rep(1, 21)),
-#                          avInfReg = c(1.1, 1.1, 1.05, 1.05, rep(1, 21)),
-#                          sparse = TRUE)
+  # fit.kmr.exfalk <- kmmr(fixed = GY ~ -1 + Man,
+  #                        random = ~ re(~ exfa(Man, 2):exfalk(Gen, setup), vars = ~ Man),
+  #                        residual = ~ units,
+  #                        data = d,
+  #                        maxit = 25,
+  #                        stepSize = c(0.15, 0.25, 0.5, 0.75, rep(1, 21)),
+  #                        avInfReg = c(1.1, 1.1, 1.05, 1.05, rep(1, 21)),
+  #                        sparse = TRUE)
 # )
 # 
 # isZero <- kronecker(c(rep(F, length(levels(d$Man))), rep(T, 2)),

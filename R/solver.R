@@ -412,6 +412,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
                      bases, struc, i.var, i.nvar, isFixed, u.isStack, u.nparams.list,
                      timesToBoundary, super, useGPU, denseThreshold, debugging) {
   ## Prelims ====
+  
   start <- proc.time()[3]
   k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
@@ -1078,6 +1079,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     #### Residual working variates ====
     #tic("Residual working variates")
+    
     if (Cmode == "mixed") { # If there are both dense and sparse equations.
       e <- y - Wdense %*% buDense - Wsparse %*% buSparse
     } else if (Cmode == "sparse") { # If there are only sparse equations.
@@ -1133,6 +1135,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     ### Computing the AI matrix ====
     #tic("Computing the AI matrix and its inverse")
+    
     RiWu <- Ri %*% Wu
     WiWj <- forceSymmetric(crossprod(Wu, RiWu)) # Similar to t(y) %*% Ri %*% y
     if (Cmode == "mixed") { # If we have both dense and sparse equations.
@@ -1182,6 +1185,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     ### Computing the inverse of the coefficient matrix ====
     #tic("Inversion of C from cholesky factor")
+    
     if (Cmode == "mixed") { # If we have both dense and sparse equations.
       #tic("Base SIS of Ciss")
       Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
@@ -1221,6 +1225,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     # "Residual maximum likelihood estimation of (co) variance components in multivariate
     # mixed linear models using average information"
     #### Genetic scores ====
+    
     if (debugging) {
       traces.debugging <- vector("list", nU)
     }
