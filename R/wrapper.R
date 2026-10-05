@@ -679,6 +679,7 @@ atEach <- function(factor, formula, levels = NULL, ...) {
 #' @param useGPU Should the GPU be used for dense models?
 #' @param denseThreshold Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.
 #' @param debugging If \code{TRUE}, additional information such as derivatives, log determinants, etc., is returned for debugging purposes.
+#' @param timing Report runtimes for individual steps in the algorithm.
 #'
 #' @returns A list with the results.
 #' @export
@@ -686,7 +687,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
                  timesToBoundary = 5, getStartingValues = FALSE, super = TRUE,
-                 useGPU = FALSE, denseThreshold = 0.1, debugging = FALSE) {
+                 useGPU = FALSE, denseThreshold = 0.1, debugging = FALSE, timing = FALSE) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
@@ -952,7 +953,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                        bases = bases, struc = struc, i.var = i.var, i.nvar = i.nvar,
                        isFixed = isFixed, u.isStack = u.isStack, u.nparams.list = u.nparams.list,
                        timesToBoundary = timesToBoundary, super = super, useGPU = useGPU, denseThreshold = denseThreshold,
-                       debugging = debugging)
+                       debugging = debugging, timing = timing)
   
     result$params <- unlist(params)
     result$trace <- rbind(result$LL[1:ncol(result$k)],

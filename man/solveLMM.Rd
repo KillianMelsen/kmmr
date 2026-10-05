@@ -35,7 +35,8 @@ solveLMM(
   super,
   useGPU,
   denseThreshold,
-  debugging
+  debugging,
+  timing
 )
 }
 \arguments{
@@ -101,6 +102,8 @@ elements of the AI matrix by 10\%.}
 \item{denseThreshold}{Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.}
 
 \item{debugging}{If \code{TRUE}, additional information such as derivatives, log determinants, etc., is returned for debugging purposes.}
+
+\item{timing}{Can be set to \code{TRUE} to report runtimes.}
 }
 \value{
 A list containing the log-likelihood, parameter estimates, average information matrix,

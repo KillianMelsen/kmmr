@@ -89,7 +89,6 @@ fit.kmmr <- kmmr(fixed = GY ~ 1 + Env,
                  residual = ~ re(~ id(Env):id(Gen):id(Rep), vars = ~ Env),
                  data = dss,
                  stepSize = c(0.1, 0.2, 0.3, 0.4, 0.5),
-                 sparse = TRUE,
                  maxit = 30)
 
 )

@@ -52,3 +52,11 @@ inplaceUpdateSIS <- function(Ciss, tW_mat, tQ_mat) {
     invisible(.Call(`_kmmr_inplaceUpdateSIS`, Ciss, tW_mat, tQ_mat))
 }
 
+batchedWorkingVariates <- function(umat_sigmai, batchedDerivs) {
+    .Call(`_kmmr_batchedWorkingVariates`, umat_sigmai, batchedDerivs)
+}
+
+batchedScores <- function(basisScores, batchedDerivs) {
+    .Call(`_kmmr_batchedScores`, basisScores, batchedDerivs)
+}
+

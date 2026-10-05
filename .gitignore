@@ -4,4 +4,4 @@
 .Rhistory
 *.o
 *.so
-
+.cursorignore

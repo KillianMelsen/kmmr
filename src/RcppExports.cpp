@@ -173,6 +173,30 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// batchedWorkingVariates
+Rcpp::S4 batchedWorkingVariates(const Rcpp::S4& umat_sigmai, const Rcpp::S4& batchedDerivs);
+RcppExport SEXP _kmmr_batchedWorkingVariates(SEXP umat_sigmaiSEXP, SEXP batchedDerivsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::S4& >::type umat_sigmai(umat_sigmaiSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::S4& >::type batchedDerivs(batchedDerivsSEXP);
+    rcpp_result_gen = Rcpp::wrap(batchedWorkingVariates(umat_sigmai, batchedDerivs));
+    return rcpp_result_gen;
+END_RCPP
+}
+// batchedScores
+Rcpp::NumericVector batchedScores(const Rcpp::S4& basisScores, const Rcpp::S4& batchedDerivs);
+RcppExport SEXP _kmmr_batchedScores(SEXP basisScoresSEXP, SEXP batchedDerivsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::S4& >::type basisScores(basisScoresSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::S4& >::type batchedDerivs(batchedDerivsSEXP);
+    rcpp_result_gen = Rcpp::wrap(batchedScores(basisScores, batchedDerivs));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_SIS", (DL_FUNC) &_kmmr_SIS, 1},
@@ -187,6 +211,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_cuSolverPhase1", (DL_FUNC) &_kmmr_cuSolverPhase1, 4},
     {"_kmmr_cuSolverPhase2", (DL_FUNC) &_kmmr_cuSolverPhase2, 2},
     {"_kmmr_inplaceUpdateSIS", (DL_FUNC) &_kmmr_inplaceUpdateSIS, 3},
+    {"_kmmr_batchedWorkingVariates", (DL_FUNC) &_kmmr_batchedWorkingVariates, 2},
+    {"_kmmr_batchedScores", (DL_FUNC) &_kmmr_batchedScores, 2},
     {NULL, NULL, 0}
 };
 
