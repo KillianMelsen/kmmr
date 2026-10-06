@@ -22,15 +22,25 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// addBlockInplace
-void addBlockInplace(S4 C, S4 Gi, int offset);
-RcppExport SEXP _kmmr_addBlockInplace(SEXP CSEXP, SEXP GiSEXP, SEXP offsetSEXP) {
+// resetCoefficientMatrix
+void resetCoefficientMatrix(S4 base);
+RcppExport SEXP _kmmr_resetCoefficientMatrix(SEXP baseSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< S4 >::type C(CSEXP);
-    Rcpp::traits::input_parameter< S4 >::type Gi(GiSEXP);
+    Rcpp::traits::input_parameter< S4 >::type base(baseSEXP);
+    resetCoefficientMatrix(base);
+    return R_NilValue;
+END_RCPP
+}
+// addToCoefficientMatrix
+void addToCoefficientMatrix(S4 base, S4 addition, int offset);
+RcppExport SEXP _kmmr_addToCoefficientMatrix(SEXP baseSEXP, SEXP additionSEXP, SEXP offsetSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< S4 >::type base(baseSEXP);
+    Rcpp::traits::input_parameter< S4 >::type addition(additionSEXP);
     Rcpp::traits::input_parameter< int >::type offset(offsetSEXP);
-    addBlockInplace(C, Gi, offset);
+    addToCoefficientMatrix(base, addition, offset);
     return R_NilValue;
 END_RCPP
 }
@@ -200,7 +210,8 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_SIS", (DL_FUNC) &_kmmr_SIS, 1},
-    {"_kmmr_addBlockInplace", (DL_FUNC) &_kmmr_addBlockInplace, 3},
+    {"_kmmr_resetCoefficientMatrix", (DL_FUNC) &_kmmr_resetCoefficientMatrix, 1},
+    {"_kmmr_addToCoefficientMatrix", (DL_FUNC) &_kmmr_addToCoefficientMatrix, 3},
     {"_kmmr_getBlockTracesSparseDense", (DL_FUNC) &_kmmr_getBlockTracesSparseDense, 7},
     {"_kmmr_getBlockTracesSparseSparse", (DL_FUNC) &_kmmr_getBlockTracesSparseSparse, 9},
     {"_kmmr_getBlockTracesDenseDense", (DL_FUNC) &_kmmr_getBlockTracesDenseDense, 6},

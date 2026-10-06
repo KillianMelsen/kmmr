@@ -551,6 +551,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   while (!(converged) && iter <= maxit) {
     start <- proc.time()[3]
     ### Computing Ri ====
+    #browser()
     if (timing) {timer("start", "Computing Ri", iter)}
     # These lists will also be used later for the random effects:
     cormats <- vector("list", nUR)
@@ -617,29 +618,59 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     if (timing) {timer("stop")}
     
     ### Computing C = t(W) %*% Ri %*% W ====
+    #browser()
     if (timing) {timer("start", "Forming base C", iter)}
-    if (Cmode == "mixed") { # Both dense and sparse equations.
-      Ri_Wdense <- Ri %*% Wdense
-      Ri_Wsparse <- Ri %*% Wsparse
-      Cdd <- as(forceSymmetric(crossprod(Wdense, Ri_Wdense)), "unpackedMatrix") # Top-left dense block of C.
-      Css <- as(forceSymmetric(crossprod(Wsparse, Ri_Wsparse)), "TsparseMatrix") # Bottom-right sparse block of C.
-      Cds <- crossprod(Wdense, Ri_Wsparse) # Top-right block of C.
-      dimCss <- dim(Css)
-      dimCdd <- dim(Cdd)
-    } else if (Cmode == "dense") { # Only dense equations.
-      Cdd <- as(forceSymmetric(crossprod(Wdense, Ri %*% Wdense)), "unpackedMatrix") # Full C!
-    } else { # Only sparse equations.
-      Css <- as(forceSymmetric(crossprod(Wsparse, Ri %*% Wsparse)), "TsparseMatrix") # Full C!
-      dimCss <- dim(Css)
+    # In the first iteration we build up C^-1 as a triplet matrix for the sparse
+    # equations and dsyMatrix for the dense equations.
+    # This is expensive for the sparse matrices, so we only do it once. Then we
+    # update Css (and Cdd) in-place in the next iterations.
+    if (iter == 1) {
+      if (Cmode == "mixed") { # Both dense and sparse equations.
+        Ri_Wdense <- Ri %*% Wdense
+        Ri_Wsparse <- Ri %*% Wsparse
+        Cdd <- as(forceSymmetric(crossprod(Wdense, Ri_Wdense)), "unpackedMatrix") # Top-left dense block of C.
+        Css <- as(forceSymmetric(crossprod(Wsparse, Ri_Wsparse)), "TsparseMatrix") # Bottom-right sparse block of C.
+        Cds <- crossprod(Wdense, Ri_Wsparse) # Top-right block of C.
+        dimCss <- dim(Css)
+        dimCdd <- dim(Cdd)
+      } else if (Cmode == "dense") { # Only dense equations.
+        Cdd <- as(forceSymmetric(crossprod(Wdense, Ri %*% Wdense)), "unpackedMatrix") # Full C!
+        dimCdd <- dim(Cdd)
+      } else { # Only sparse equations.
+        Css <- as(forceSymmetric(crossprod(Wsparse, Ri %*% Wsparse)), "TsparseMatrix") # Full C!
+        dimCss <- dim(Css)
+      }
+    } else if (iter > 1) { # If we are not in the first iteration we already have a C^-1 with all of the non-zeroes present.
+      if (Cmode == "mixed") {
+        Ri_Wdense <- Ri %*% Wdense
+        Ri_Wsparse <- Ri %*% Wsparse
+        # Now reset the elements of Cdd and Css to 0.0:
+        resetCoefficientMatrix(base = Cdd)
+        resetCoefficientMatrix(base = Css)
+        # Then we add the cross-products, we already have the dimensions dimCss and dimCdd:
+        addToCoefficientMatrix(base = Cdd, addition = forceSymmetric(crossprod(Wdense, Ri_Wdense)), offset = 0)
+        addToCoefficientMatrix(base = Css, addition = forceSymmetric(crossprod(Wsparse, Ri_Wsparse)), offset = 0)
+        Cds <- crossprod(Wdense, Ri_Wsparse) # Top-right block of C. This is easy because we don't have to add any Gi matrices.
+      } else if (Cmode == "dense") {
+        resetCoefficientMatrix(base = Cdd)
+        addToCoefficientMatrix(base = Cdd, addition = forceSymmetric(crossprod(Wdense, Ri %*% Wdense)), offset = 0)
+      } else {
+        resetCoefficientMatrix(base = Css)
+        addToCoefficientMatrix(base = Css, addition = forceSymmetric(crossprod(Wsparse, Ri %*% Wsparse)), offset = 0)
+      }
     }
     if (timing) {timer("stop")}
     
     ### Adding Gi to C ====
+    #browser()
     if (timing) {timer("start", "Computing Gi and adding to base C", iter)}
     offsetDense <- nXdense + 1
     offsetSparse <- nXsparse + 1
     # if we have a sparse block of C, or if C is fully sparse.
-    if (Cmode %in% c("mixed", "sparse")) {
+    # Only do this in the first iteration because it is relatively expensive.
+    # Once we have Css with the correct sparse pattern as a dsCMatrix in iteration 2
+    # we only update it in-place.
+    if (iter == 1 && Cmode %in% c("mixed", "sparse")) {
       iList <- vector("list", nZsparse + 1)
       jList <- vector("list", nZsparse + 1)
       xList <- vector("list", nZsparse + 1)
@@ -650,7 +681,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     
     for (re in 1:nU) { # Start loop over random effects
       #### Computing Gi ====
-      tic("Forming Sigmai")
+      #tic("Forming Sigmai")
       if (any(u.isStack[[re]])) { # If there is a stack in the random effect
         # Determining which factor is a stack and the size of the stack:
         i.stack <- which(u.isStack[[re]])
@@ -787,21 +818,23 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
           logDetvarGtotal[re] <- -1 * log(sigmai[[re]])@x
         }
       }
-      toc()
+      #toc()
       ### Adding it to C ====
       if (n.nvar[re] > 0) {
-        tic("Kronecker product to form Gi")
+        # tic("Kronecker product to form Gi")
         Gi <- formGi(sigmai[[re]], nvarGi[[re]])
-        toc()
+        # toc()
       } else {
         Gi <- sigmai[[re]]
       }
       
       # Now add to C:
-      tic("Adding to Ci")
+      #browser()
+      # tic("Adding to Ci")
       dimGi <- nrow(Gi)
-      if (u.sparse[re]) { # Add to Css.
-        if (!is(Gi, "TsparseMatrix")) { # Convert to triplet format to add to Css.
+      if (iter == 1 && u.sparse[re]) {
+        
+        if (!is(Gi, "TsparseMatrix")) { # Convert to triplet format to add to Css for the first iteration.
           Gi <- as(Gi, "TsparseMatrix")
         }
         # Collecting the values of the previous Css and current Gi.
@@ -811,25 +844,39 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         xList[[re + 1]] <- Gi@x
         offsetSparse <- offsetSparse + dimGi # Moving offset to next random effect.
         
-      } else { # Add to Cdd.
-        if (!is(Gi, "dsyMatrix")) { # Convert to dsyMatrix in case for some reason a sparse matrix is forced into the dense equations.
-          Gi <- as(Gi, "unpackedMatrix")
+      } else {
+        if (u.sparse[re]) { # Add to Css, this should only ever run AFTER the first iteration.
+          
+          # Convert to dsCMatrix in case for some reason it is something else:
+          if (!is(Gi, "dsCMatrix")) { Gi <- as(Gi, "CsparseMatrix") }
+          addToCoefficientMatrix(base = Css, addition = Gi, offset = offsetSparse - 1)
+          offsetSparse <- offsetSparse + dimGi # Moving offset to next random effect.
+        } else { # Add to Cdd.
+          
+          # Convert to dsyMatrix in case for some reason a sparse matrix is forced into the dense equations:
+          if (!is(Gi, "dsyMatrix")) { Gi <- as(Gi, "unpackedMatrix") }
+          addToCoefficientMatrix(base = Cdd, addition = Gi, offset = offsetDense - 1)
+          offsetDense <- offsetDense + dimGi # Moving offset to next random effect.
         }
-        addBlockInplace(Cdd, Gi, offset = offsetDense)
-        offsetDense <- offsetDense + dimGi # Moving offset to next random effect.
       }
-      toc()
+      # toc()
     } # End loop over random effects.
     
-    # If C is either fully or partly sparse, we can actually re-construct Css only once we have collected all
-    # i's, j's, and x's for all sparse random effects.
-    tic("Reconstructing Css from accumulated data and row/col indices")
-    if (Cmode %in% c("mixed", "sparse")) {
-      Css <- sparseMatrix(i = unlist(iList) + 1, j = unlist(jList) + 1, x = unlist(xList), dims = dimCss, symmetric = TRUE, repr = "C")
+    # If we have a Css and we are in iteration 1, we need to construct Css as a dsCMatrix
+    # from the triplets. We only do this once since it's relatively expensive. It's
+    # an easy way to get a Css that has slots for all non-zeros we ever need:
+    # 1. Those coming from W_s^T R^-1 W_s.
+    # 2. Those coming from all the sparse Gi matrices.
+    #browser()
+    if (iter == 1 && Cmode %in% c("mixed", "sparse")) {
+      #tic("Reconstructing Css from accumulated data and row/col indices")
+      if (Cmode %in% c("mixed", "sparse")) {
+        Css <- sparseMatrix(i = unlist(iList) + 1, j = unlist(jList) + 1, x = unlist(xList), dims = dimCss, symmetric = TRUE, repr = "C")
+      }
+      #toc()
     }
-    toc()
     if (timing) {timer("stop")}
-    
+    #browser()
     ### Cholesky decomposition of C and computing BLUEs/BLUPs ====
     if (timing) {timer("start", "CF of C and solves BLUEs/BLUPs", iter)}
     Riy <- Ri %*% y
@@ -1286,14 +1333,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       } else {
         basisScores <- -0.5 * (sigmai[[re]] - forceSymmetric(sigmai[[re]] %*% traces %*% sigmai[[re]]) - crossprod(umat_sigmai[[re]])) # Last term maybe on the GPU?
       }
-      
-      # Old unbatched version:
-      # for (i in 1:length(derivs[[re]])) {
-      #   if (!isFixed[param]) {
-      #     scores[param, 1] <- sum(derivs[[re]][[i]] * basisScores)
-      #   }
-      #   param <- param + 1
-      # }
       
       # New batched version:
       row.start <- param

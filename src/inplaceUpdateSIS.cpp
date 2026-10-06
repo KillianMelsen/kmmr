@@ -38,3 +38,19 @@ void inplaceUpdateSIS(S4 Ciss, S4 tW_mat, S4 tQ_mat) {
 }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -8,8 +8,12 @@ SIS <- function(choleskyFactor) {
     .Call(`_kmmr_SIS`, choleskyFactor)
 }
 
-addBlockInplace <- function(C, Gi, offset) {
-    invisible(.Call(`_kmmr_addBlockInplace`, C, Gi, offset))
+resetCoefficientMatrix <- function(base) {
+    invisible(.Call(`_kmmr_resetCoefficientMatrix`, base))
+}
+
+addToCoefficientMatrix <- function(base, addition, offset) {
+    invisible(.Call(`_kmmr_addToCoefficientMatrix`, base, addition, offset))
 }
 
 getBlockTracesSparseDense <- function(C_p, C_i, C_x, K_x, dimVar, dimNvar, offset) {
