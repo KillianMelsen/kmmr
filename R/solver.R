@@ -973,599 +973,614 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     # Full LL:
     LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
     if (timing) {timer("stop")}
-    
-    ### Working variates ====
-    #### Genetic working variates ====
-    if (timing) {timer("start", "Random effect working variates", iter)}
-    Wu <- Matrix(0, n, nrow(k), sparse = FALSE, doDiag = FALSE) # Matrix for the working variates.
-    umat_sigmai <- vector("list", nU) # We will store these matrices for computing the scores later.
-    derivs <- vector("list", nUR) # Same thing for all derivatives, except the last entry is reserved for the residual effect.
-    uDense.start <- 1
-    uSparse.start <- 1
-    param <- 1 # Keeping track of which column/parameter of Wu we are working on.
-    for (re in 1:nU) { # Start of loop over random effects
-      if (any(struc[[re]] == "exfa")) {
-        m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
-        dim.var.corrected <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
-      } else {
-        m <- 0
-        dim.var.corrected <- dim.var[re]
-      }
-      dim.total <- dim.var.corrected * dim.nvar[re]
-      if (u.sparse[re]) {
-        u <- uSparse[uSparse.start:(uSparse.start - 1 + dim.total), 1]
-        uSparse.start <- uSparse.start + dim.total
-      } else {
-        u <- uDense[uDense.start:(uDense.start - 1 + dim.total), 1]
-        uDense.start <- uDense.start + dim.total
-      }
-      umat <- Matrix(u, nrow = ifelse(n.nvar[re] > 0, dim.nvar[re], 1), ncol = dim.var.corrected)
-      umat_sigmai[[re]] <- umat %*% sigmai[[re]]
-      derivs[[re]] <- Matrix(0, dim.var.corrected, dim.var.corrected * u.nparams[[re]], sparse = FALSE, doDiag = FALSE) # Allocate big matrix for batched derivatives.
-      if (any(u.isStack[[re]])) { # If there is a stack in this random effect
-        # Determining which factor is a stack and the size of the stack:
-        i.stack <- which(u.isStack[[re]])
-        sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
-        nvars <- length(indices[[re]][[1]]) / sos # Number of variances per stack layer
-        for (i in 1:u.nparams[[re]]) {
-          col.start <- (i - 1) * dim.var.corrected + 1 # Start col index of the matrix containing batched derivatives.
-          col.end <- i * dim.var.corrected # End col index of the matrix containing batched derivatives.
-          idx.start <- (col.start - 1) * dim.var.corrected + 1
-          idx.end <- col.end * dim.var.corrected
-          if (isFixed[param]) {
-            param <- param + 1
-          } else {
-            if (ur.types[param] == "V") {
-              # We need to figure out for which stack layer the current variance is:
-              s <- ceiling(i / nvars)
-              if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
-                derivs[[re]]@x[idx.start:idx.end] <- Reduce(kronecker, c(cormats[[re]][[i.stack]][s], cormats[[re]][-i.stack]))@x # The stack is always the first factor.
-              } else { # If variances are applied to the factor in the stack.
-                # In this case u.applyvars[[re]] is always equal to 1.
-                A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
-                A[i - (s - 1) * nvars,] <- 0.5 # we can't use i directly
-                if (n.var[re] > 1) { # If there are more variable factors besides the stack.
-                  derivs[[re]]@x[idx.start:idx.end] <- kronecker((A + t(A)) * vars[[re]][[s]] * cormats[[re]][[u.applyvars[[re]]]][[s]] / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))@x
-                } else { # If the stack is the only variable factor.
-                  derivs[[re]]@x[idx.start:idx.end] <- ((A + t(A)) * vars[[re]][[s]] * cormats[[re]][[u.applyvars[[re]]]][[s]] / k[param, iter])@x
+    if (iter == 1 || LL[iter] >= LL[iter - 1]) {
+      ### Working variates ====
+      #### Genetic working variates ====
+      if (timing) {timer("start", "Random effect working variates", iter)}
+      Wu <- Matrix(0, n, nrow(k), sparse = FALSE, doDiag = FALSE) # Matrix for the working variates.
+      umat_sigmai <- vector("list", nU) # We will store these matrices for computing the scores later.
+      derivs <- vector("list", nUR) # Same thing for all derivatives, except the last entry is reserved for the residual effect.
+      uDense.start <- 1
+      uSparse.start <- 1
+      param <- 1 # Keeping track of which column/parameter of Wu we are working on.
+      for (re in 1:nU) { # Start of loop over random effects
+        if (any(struc[[re]] == "exfa")) {
+          m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
+          dim.var.corrected <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
+        } else {
+          m <- 0
+          dim.var.corrected <- dim.var[re]
+        }
+        dim.total <- dim.var.corrected * dim.nvar[re]
+        if (u.sparse[re]) {
+          u <- uSparse[uSparse.start:(uSparse.start - 1 + dim.total), 1]
+          uSparse.start <- uSparse.start + dim.total
+        } else {
+          u <- uDense[uDense.start:(uDense.start - 1 + dim.total), 1]
+          uDense.start <- uDense.start + dim.total
+        }
+        umat <- Matrix(u, nrow = ifelse(n.nvar[re] > 0, dim.nvar[re], 1), ncol = dim.var.corrected)
+        umat_sigmai[[re]] <- umat %*% sigmai[[re]]
+        derivs[[re]] <- Matrix(0, dim.var.corrected, dim.var.corrected * u.nparams[[re]], sparse = FALSE, doDiag = FALSE) # Allocate big matrix for batched derivatives.
+        if (any(u.isStack[[re]])) { # If there is a stack in this random effect
+          # Determining which factor is a stack and the size of the stack:
+          i.stack <- which(u.isStack[[re]])
+          sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
+          nvars <- length(indices[[re]][[1]]) / sos # Number of variances per stack layer
+          for (i in 1:u.nparams[[re]]) {
+            col.start <- (i - 1) * dim.var.corrected + 1 # Start col index of the matrix containing batched derivatives.
+            col.end <- i * dim.var.corrected # End col index of the matrix containing batched derivatives.
+            idx.start <- (col.start - 1) * dim.var.corrected + 1
+            idx.end <- col.end * dim.var.corrected
+            if (isFixed[param]) {
+              param <- param + 1
+            } else {
+              if (ur.types[param] == "V") {
+                # We need to figure out for which stack layer the current variance is:
+                s <- ceiling(i / nvars)
+                if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
+                  derivs[[re]]@x[idx.start:idx.end] <- Reduce(kronecker, c(cormats[[re]][[i.stack]][s], cormats[[re]][-i.stack]))@x # The stack is always the first factor.
+                } else { # If variances are applied to the factor in the stack.
+                  # In this case u.applyvars[[re]] is always equal to 1.
+                  A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
+                  A[i - (s - 1) * nvars,] <- 0.5 # we can't use i directly
+                  if (n.var[re] > 1) { # If there are more variable factors besides the stack.
+                    derivs[[re]]@x[idx.start:idx.end] <- kronecker((A + t(A)) * vars[[re]][[s]] * cormats[[re]][[u.applyvars[[re]]]][[s]] / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))@x
+                  } else { # If the stack is the only variable factor.
+                    derivs[[re]]@x[idx.start:idx.end] <- ((A + t(A)) * vars[[re]][[s]] * cormats[[re]][[u.applyvars[[re]]]][[s]] / k[param, iter])@x
+                  }
+                }
+              } else {
+                j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
+                cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
+                if (j == i.stack) { # If we are looking at a parameter that is part of a structure in the stack
+                  # We need to determine which layer of the stack this parameter appears in:
+                  s <- findInterval(i - nvars * sos, c(0, cumsum(u.nparams.list[[re]][[j + 1]])), left.open = TRUE)
+                  indices.stack.start <- 1 + c(0, cumsum(u.nparams.list[[re]][[j + 1]]))[s]
+                  indices.stack.end <- indices.stack.start - 1 + u.nparams.list[[re]][[j + 1]][s]
+                  indices.stack <- indices.stack.start:indices.stack.end # Indices of the parameters that belong to this layer of the stack.
+                  cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]][s],
+                                            type = ur.types[param],
+                                            cormatIndex = u.indexCor[[re]][[i]],
+                                            params = k[indices[[re]][[1 + j]][indices.stack], iter],
+                                            p = u.nlevels[[re]][j],
+                                            base = bases[[re]][[j]][[s]],
+                                            inverse = FALSE)
+                  # Now add the relevant variances to compute the final derivative.
+                  # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
+                  if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
+                    derivs[[re]]@x[idx.start:idx.end] <- (vars[[re]][[s]]@x * Reduce(kronecker, cormats1))@x
+                  } else { # If there is a variance for each level of the stacked factor.
+                    derivs[[re]]@x[idx.start:idx.end] <- Reduce(kronecker, c(list(vars[[re]][[s]] * cormats1[[i.stack]]), cormats1[-i.stack]))@x
+                  }
+                } else { # If we are looking at a parameter for a structure that is not part of the stack
+                  cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]],
+                                            type = ur.types[param],
+                                            cormatIndex = u.indexCor[[re]][[i]],
+                                            params = k[indices[[re]][[1 + j]], iter],
+                                            p = u.nlevels[[re]][j],
+                                            base = bases[[re]][[j]],
+                                            inverse = FALSE)
+                  # Now add the relevant variances to compute the final derivative.
+                  # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
+                  if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
+                    covmat.stack <- Reduce(`+`, lapply(1:sos, function(s) {vars[[re]][[s]]@x * cormats1[[i.stack]][[s]]}))
+                  } else { # If there is a variance for each level of the stacked factor.
+                    covmat.stack <- Reduce(`+`, lapply(1:sos, function(s) {vars[[re]][[s]] * cormats1[[i.stack]][[s]]}))
+                  }
+                  derivs[[re]]@x[idx.start:idx.end] <- kronecker(covmat.stack, Reduce(kronecker, cormats1[-i.stack]))@x
                 }
               }
+              param <- param + 1
+            }
+          } # End of loop over the parameters for this random effect.
+        } else { # If there is no stack
+          for (i in 1:u.nparams[[re]]) {
+            col.start <- (i - 1) * dim.var.corrected + 1
+            col.end <- i * dim.var.corrected
+            idx.start <- (col.start - 1) * dim.var.corrected + 1
+            idx.end <- col.end * dim.var.corrected
+            if (isFixed[param]) {
+              param <- param + 1
             } else {
-              j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
-              cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
-              if (j == i.stack) { # If we are looking at a parameter that is part of a structure in the stack
-                # We need to determine which layer of the stack this parameter appears in:
-                s <- findInterval(i - nvars * sos, c(0, cumsum(u.nparams.list[[re]][[j + 1]])), left.open = TRUE)
-                indices.stack.start <- 1 + c(0, cumsum(u.nparams.list[[re]][[j + 1]]))[s]
-                indices.stack.end <- indices.stack.start - 1 + u.nparams.list[[re]][[j + 1]][s]
-                indices.stack <- indices.stack.start:indices.stack.end # Indices of the parameters that belong to this layer of the stack.
-                cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]][s],
-                                          type = ur.types[param],
-                                          cormatIndex = u.indexCor[[re]][[i]],
-                                          params = k[indices[[re]][[1 + j]][indices.stack], iter],
-                                          p = u.nlevels[[re]][j],
-                                          base = bases[[re]][[j]][[s]],
-                                          inverse = FALSE)
-                # Now add the relevant variances to compute the final derivative.
-                # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
-                if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
-                  derivs[[re]]@x[idx.start:idx.end] <- (vars[[re]][[s]]@x * Reduce(kronecker, cormats1))@x
-                } else { # If there is a variance for each level of the stacked factor.
-                  derivs[[re]]@x[idx.start:idx.end] <- Reduce(kronecker, c(list(vars[[re]][[s]] * cormats1[[i.stack]]), cormats1[-i.stack]))@x
+              if (ur.types[param] == "V") { # If the parameter is a variance.
+                if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
+                  if (n.var[re] > 0) {
+                    derivs[[re]]@x[idx.start:idx.end] <- Reduce(kronecker, cormats[[re]])@x
+                  } else {
+                    derivs[[re]]@x[idx.start:idx.end] <- Matrix(1, sparse = FALSE, doDiag = FALSE)@x
+                  }
+                } else { # If variances are applied to 1 or more factors.
+                  # If there is no exfa structure, m = 0 and nothing changes.
+                  # If there is an exfa structure, u.applyvars[[re]] = 1 by definition and m is added to the number of levels of the factor modeled by the exfa structure.
+                  A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]) + m, prod(u.nlevels[[re]][u.applyvars[[re]]]) + m, sparse = FALSE, doDiag = FALSE)
+                  A[i,] <- 0.5
+                  if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
+                    derivs[[re]]@x[idx.start:idx.end] <- ((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter])@x
+                  } else { # If variances are applied to 1 or more factors, but not all factors.
+                    derivs[[re]]@x[idx.start:idx.end] <- kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))@x
+                  }
                 }
-              } else { # If we are looking at a parameter for a structure that is not part of the stack
-                cormats1[[j]] <- getDeriv(struc = struc[[re]][[j]],
+              } else { # If the parameter is not a variance.
+                j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
+                cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
+                cormats1[[j]] <- getDeriv(struc = struc[[re]][j],
                                           type = ur.types[param],
                                           cormatIndex = u.indexCor[[re]][[i]],
                                           params = k[indices[[re]][[1 + j]], iter],
                                           p = u.nlevels[[re]][j],
                                           base = bases[[re]][[j]],
                                           inverse = FALSE)
-                # Now add the relevant variances to compute the final derivative.
-                # We're dealing with a stack so there can either be 1 variance per layer or a variance for each level of the stacked factor:
-                if (u.applyvars[[re]][1] == 0) { # If there is a single variance per layer.
-                  covmat.stack <- Reduce(`+`, lapply(1:sos, function(s) {vars[[re]][[s]]@x * cormats1[[i.stack]][[s]]}))
-                } else { # If there is a variance for each level of the stacked factor.
-                  covmat.stack <- Reduce(`+`, lapply(1:sos, function(s) {vars[[re]][[s]] * cormats1[[i.stack]][[s]]}))
-                }
-                derivs[[re]]@x[idx.start:idx.end] <- kronecker(covmat.stack, Reduce(kronecker, cormats1[-i.stack]))@x
-              }
-            }
-            param <- param + 1
-          }
-        } # End of loop over the parameters for this random effect.
-      } else { # If there is no stack
-        for (i in 1:u.nparams[[re]]) {
-          col.start <- (i - 1) * dim.var.corrected + 1
-          col.end <- i * dim.var.corrected
-          idx.start <- (col.start - 1) * dim.var.corrected + 1
-          idx.end <- col.end * dim.var.corrected
-          if (isFixed[param]) {
-            param <- param + 1
-          } else {
-            if (ur.types[param] == "V") { # If the parameter is a variance.
-              if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
-                if (n.var[re] > 0) {
-                  derivs[[re]]@x[idx.start:idx.end] <- Reduce(kronecker, cormats[[re]])@x
+                if (u.applyvars[[re]][1] == 0) {
+                  derivs[[re]]@x[idx.start:idx.end] <- (vars[[re]]@x * Reduce(kronecker, cormats1))@x
+                } else if (all(u.applyvars[[re]] == i.var[[re]])) {
+                  derivs[[re]]@x[idx.start:idx.end] <- (vars[[re]] * Reduce(kronecker, cormats1))@x
                 } else {
-                  derivs[[re]]@x[idx.start:idx.end] <- Matrix(1, sparse = FALSE, doDiag = FALSE)@x
-                }
-              } else { # If variances are applied to 1 or more factors.
-                # If there is no exfa structure, m = 0 and nothing changes.
-                # If there is an exfa structure, u.applyvars[[re]] = 1 by definition and m is added to the number of levels of the factor modeled by the exfa structure.
-                A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]) + m, prod(u.nlevels[[re]][u.applyvars[[re]]]) + m, sparse = FALSE, doDiag = FALSE)
-                A[i,] <- 0.5
-                if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
-                  derivs[[re]]@x[idx.start:idx.end] <- ((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter])@x
-                } else { # If variances are applied to 1 or more factors, but not all factors.
-                  derivs[[re]]@x[idx.start:idx.end] <- kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]]))@x
+                  derivs[[re]]@x[idx.start:idx.end] <- kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]]))@x
                 }
               }
-            } else { # If the parameter is not a variance.
-              j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
-              cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
-              cormats1[[j]] <- getDeriv(struc = struc[[re]][j],
-                                        type = ur.types[param],
-                                        cormatIndex = u.indexCor[[re]][[i]],
-                                        params = k[indices[[re]][[1 + j]], iter],
-                                        p = u.nlevels[[re]][j],
-                                        base = bases[[re]][[j]],
-                                        inverse = FALSE)
-              if (u.applyvars[[re]][1] == 0) {
-                derivs[[re]]@x[idx.start:idx.end] <- (vars[[re]]@x * Reduce(kronecker, cormats1))@x
-              } else if (all(u.applyvars[[re]] == i.var[[re]])) {
-                derivs[[re]]@x[idx.start:idx.end] <- (vars[[re]] * Reduce(kronecker, cormats1))@x
-              } else {
-                derivs[[re]]@x[idx.start:idx.end] <- kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]]))@x
-              }
-            }
-            param <- param + 1
-          }
-        }
-      }
-      # We have now collected all derivatives in a big matrix ready for the batched execution.
-      # Get all working variates for this random effect at once:
-      col.start <- param - u.nparams[[re]]
-      col.end <- param - 1
-      USD <- batchedWorkingVariates(umat_sigmai[[re]], derivs[[re]]) # Batched execution and reshaping in C++.
-      Wu[, col.start:col.end] <- Z[[re]] %*% USD # Single multiplication and dropping into Wu.
-    } # End of loop over random effects
-    if (timing) {timer("stop")}
-    
-    #### Residual working variates ====
-    if (timing) {timer("start", "Residual working variates", iter)}
-    if (Cmode == "mixed") { # If there are both dense and sparse equations.
-      e <- y - Wdense %*% buDense - Wsparse %*% buSparse
-    } else if (Cmode == "sparse") { # If there are only sparse equations.
-      e <- y - Wsparse %*% buSparse
-    } else { # If there are only dense equations.
-      e <- y - Wdense %*% buDense
-    }
-    re <- nUR
-    derivs[[re]] <- vector("list", u.nparams[[re]])
-    for (i in 1:u.nparams[[re]]) {
-      if (isFixed[param]) {
-        param <- param + 1
-      } else {
-        if (ur.types[param] == "V") { # If the parameter is a variance.
-          if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
-            # Don't forget to multiply with the non-variable structure and selection matrices:
-            derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% Reduce(kronecker, c(cormats[[re]], S)), Z[[re]]))
-          } else { # If variances are applied to 1 or more factors.
-            A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
-            A[i,] <- 0.5
-            if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
-              derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter], S), Z[[re]]))
-            } else { # If variances are applied to 1 or more factors, but not all factors.
-              derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]])), S), Z[[re]]))
+              param <- param + 1
             }
           }
-        } else { # If the parameter is not a variance.
-          j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
-          cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
-          cormats1[[j]] <- getDeriv(struc = struc[[re]][j],
-                                    type = ur.types[param],
-                                    cormatIndex = u.indexCor[[re]][[i]],
-                                    params = k[indices[[re]][[1 + j]], iter],
-                                    p = u.nlevels[[re]][j],
-                                    base = bases[[re]][[j]],
-                                    inverse = FALSE)
-          if (u.applyvars[[re]][1] == 0) {
-            derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% (vars[[re]]@x * Reduce(kronecker, c(cormats1, S))), Z[[re]]))
-          } else if (all(u.applyvars[[re]] == i.var[[re]])) {
-            derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(vars[[re]] * Reduce(kronecker, cormats1), S), Z[[re]]))
-          } else {
-            derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]])), S), Z[[re]]))
-          }
         }
-        if (useWeights) {
-          derivs[[re]][[i]] <- weights %*% derivs[[re]][[i]] %*% weights
-        }
-        Wu[, param] <- derivs[[re]][[i]] %*% Ri %*% e
-        param <- param + 1
-      }
-    }
-    if (timing) {timer("stop")}
-    
-    ### Computing the AI matrix ====
-    if (timing) {timer("start", "AI matrix and Cidd if on GPU", iter)}
-    RiWu <- Ri %*% Wu
-    WiWj <- forceSymmetric(crossprod(Wu, RiWu)) # Similar to t(y) %*% Ri %*% y
-    if (Cmode == "mixed") { # If we have both dense and sparse equations.
-      denseWuRHS <- crossprod(Wdense, RiWu)
-      sparseWuRHS <- crossprod(Wsparse, RiWu)
-      sparseWuTemp <- solve(Ccholss, sparseWuRHS)
-      adjDenseWuRHS <- denseWuRHS - (Cds %*% sparseWuTemp)
-      if (!useGPU) {
-        buWuDense <- solve(SCchol, adjDenseWuRHS)
-      } else {
-        gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = adjDenseWuRHS)
-        buWuDense <- gpuResult2$buWu
-      }
-      buWuSparse <- sparseWuTemp - (Q %*% buWuDense)
-      buWuXWjxZWj <- forceSymmetric(crossprod(sparseWuRHS, buWuSparse) + crossprod(denseWuRHS, buWuDense))
+        # We have now collected all derivatives in a big matrix ready for the batched execution.
+        # Get all working variates for this random effect at once:
+        col.start <- param - u.nparams[[re]]
+        col.end <- param - 1
+        USD <- batchedWorkingVariates(umat_sigmai[[re]], derivs[[re]]) # Batched execution and reshaping in C++.
+        Wu[, col.start:col.end] <- Z[[re]] %*% USD # Single multiplication and dropping into Wu.
+      } # End of loop over random effects
+      if (timing) {timer("stop")}
       
-    } else if (Cmode == "sparse") { # If we only have sparse equations.
-      XWjxZWj <- solve(Ccholss, crossprod(Wsparse, RiWu), system = "P") # Similar to permRHS
-      zWu <- solve(Ccholss, XWjxZWj, system = "L") # Similar to z
-      buWu <- solve(Ccholss, zWu, system = "Lt") # Similar to obtaining bu using a backsolve
-      buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
-      
-    } else { # If we only have dense equations.
-      XWjxZWj <- crossprod(Wdense, RiWu) # t(W) %*% Ri %*% Wu
-      if (!useGPU) {
-        buWu <- solve(Ccholdd, XWjxZWj)
-      } else {
-        gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = XWjxZWj)
-        buWu <- gpuResult2$buWu
+      #### Residual working variates ====
+      if (timing) {timer("start", "Residual working variates", iter)}
+      if (Cmode == "mixed") { # If there are both dense and sparse equations.
+        e <- y - Wdense %*% buDense - Wsparse %*% buSparse
+      } else if (Cmode == "sparse") { # If there are only sparse equations.
+        e <- y - Wsparse %*% buSparse
+      } else { # If there are only dense equations.
+        e <- y - Wdense %*% buDense
       }
-      buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
-    }
-    AI <- (WiWj - buWuXWjxZWj) / 2
-    
-    if (avInfReg[iter] > 1) { # Potential inflation of diagonal elements of the AI matrix
-      # diag(AI) <- diag(AI) * avInfReg[iter]
-      diag(AI)[ur.types == "L"] <- diag(AI)[ur.types == "L"] * avInfReg[iter] # Alternative that only inflates loadings.
-    }
-    if (any(isFixed)) { # If there are any fixed parameters, remove them from the AI matrix before inverting.
-      AIi <- Matrix(0, nrow(AI), ncol(AI), sparse = FALSE, doDiag = FALSE)
-      notFixed <- which(!isFixed)
-      AIi[notFixed, notFixed] <- solve(AI[notFixed, notFixed])
-    } else {
-      AIi <- solve(AI)
-    }
-    if (timing) {timer("stop")}
-    
-    ### Computing the inverse of the coefficient matrix ====
-    if (timing) {timer("start", "Inversion of C", iter)}
-    if (Cmode == "mixed") { # If we have both dense and sparse equations.
-      #tic("Base SIS of Ciss")
-      Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
-      #toc()
-      # Inverse of the dense Schur complement:
-      if (!useGPU) {
-        #tic("Inversion of SC")
-        Cidd <- chol2inv(as(SCchol, "dtrMatrix"))
-        #toc()
-      } else {
-        Cidd <- gpuResult2$Ci
-      }
-      # Updated sparse block of the inverse of C:
-      #tic("Updating the SIS")
-      inplaceUpdateSIS(Ciss, tcrossprod(Cidd, Q), t(Q))
-      #toc()
-      # Off-diagonal (bottom left) block of the inverse of C:
-      #tic("Off-diagonal block of Ci")
-      Cisd <- -Q %*% Cidd
-      #toc()
-      
-    } else if (Cmode == "sparse") { # If we only have sparse equations, so Ciss is the full inverse.
-      Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
-      
-    } else { # if we only have dense equations, so Cidd is the full inverse.
-      if (!useGPU) {
-        Cidd <- chol2inv(as(Ccholdd, "dtrMatrix"))
-      } else {
-        Cidd <- gpuResult2$Ci
-      }
-    }
-    if (timing) {timer("stop")}
-    
-    ### Computing scores ====
-    if (timing) {timer("start", "Random effect scores", iter)}
-    # See equations (18) and (15) from Jensen, Mantysaari, Madsen, & Thompson 1997:
-    # "Residual maximum likelihood estimation of (co) variance components in multivariate
-    # mixed linear models using average information"
-    #### Genetic scores ====
-    if (debugging) {
-      traces.debugging <- vector("list", nU)
-    }
-    scores <- Matrix(0, nrow(k), 1, sparse = FALSE)
-    offsetDense <- nXdense + 1
-    offsetSparse <- nXsparse + 1
-    param <- 1
-    for (re in 1:nU) { # Start of loop over random effects
-      if (any(struc[[re]] == "exfa")) {
-        m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
-        dimVar <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
-      } else {
-        dimVar <- dim.var[re]
-      }
-      dimNvar <- dim.nvar[re]
-      
-      if (n.nvar[re] > 0) { # If there is a non-variable structure like a GRM.
-        if (u.sparse[re]) { # If the current random effect is part of the sparse equations.
-          if (is(nvarGi[[re]], "sparseMatrix")) { # If the non-variable structure is sparse.
-            traces <- getBlockTracesSparseSparse(Ciss@p, Ciss@i, Ciss@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, offsetSparse - 1)
-          } else { # If the non-variable structure is dense.
-            traces <- getBlockTracesSparseDense(Ciss@p, Ciss@i, Ciss@x, nvarGi[[re]]@x, dimVar, dimNvar, offsetSparse - 1)
-          }
-          offsetSparse <- offsetSparse + dimVar * dimNvar
-          
-        } else { # If the current random effect is part of the dense equations.
-          if (is(nvarGi[[re]], "sparseMatrix")) { # If the non-variable structure is sparse, I don't think this will typically ever be the case cause if true, we'd probably be in the sparse equations.
-            traces <- getBlockTracesDenseSparse(Cidd@x, nrow(Cidd), nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, offsetDense - 1)
-          } else { # If the non-variable structure is dense.
-            traces <- getBlockTracesDenseDense(Cidd@x, nrow(Cidd), nvarGi[[re]]@x, dimVar, dimNvar, offsetDense - 1)
-          }
-          offsetDense <- offsetDense + dimVar * dimNvar
-        }
-        
-        if (nrow(traces) > 1) {
-          traces <- forceSymmetric(traces)
-        }
-        if (debugging) {
-          traces.debugging[[re]] <- traces
-        }
-        
-      } else { # If there is no non-variable structure like a GRM.
-        if (u.sparse[re]) { # If part of the sparse equations.
-          traces <- Ciss[offsetSparse:(offsetSparse - 1 + dimVar), offsetSparse:(offsetSparse - 1 + dimVar)]
-          offsetSparse <- offsetSparse + dimVar
-        } else { # If part of the dense equations.
-          traces <- Cidd[offsetSparse:(offsetSparse - 1 + dimVar), offsetSparse:(offsetSparse - 1 + dimVar)]
-          offsetDense <- offsetDense + dimVar
-        }
-      }
-      
-      if (n.nvar[re] > 0) {
-        basisScores <- -0.5 * (dimNvar * sigmai[[re]] - forceSymmetric(sigmai[[re]] %*% traces %*% sigmai[[re]]) - forceSymmetric(crossprod(umat_sigmai[[re]], nvarGi[[re]] %*% umat_sigmai[[re]]))) # Last term maybe on the GPU?
-      } else {
-        basisScores <- -0.5 * (sigmai[[re]] - forceSymmetric(sigmai[[re]] %*% traces %*% sigmai[[re]]) - crossprod(umat_sigmai[[re]])) # Last term maybe on the GPU?
-      }
-      
-      # New batched version:
-      row.start <- param
-      row.end <- param + u.nparams[[re]] - 1
-      scores[row.start:row.end, 1] <- batchedScores(basisScores, derivs[[re]])
-      param <- param + u.nparams[[re]] # Move to the start of the set of parameters for the next random effect.
-    } # End of loop over random effects.
-    if (timing) {timer("stop")}
-    
-    #### Residual scores ====
-    if (timing) {timer("start", "Residual scores", iter)}
-    re <- nUR
-    Rie <- Ri %*% e
-    if (Cmode == "mixed") {
-      RiWdense <- Ri %*% Wdense
-      RiWsparse <- Ri %*% Wsparse
-    } else if (Cmode == "sparse") {
-      RiWsparse <- Ri %*% Wsparse
-    } else {
-      RiWdense <- Ri %*% Wdense
-    }
-    
-    for (i in 1:length(derivs[[re]])) {
-      if (!isFixed[param]) {
-        dR <- derivs[[re]][[i]]
-        RidR <- Ri %*% dR
-        tr1 <- sum(diag(RidR))
-        quad <- as.numeric(crossprod(Rie, dR %*% Rie))
-        if (Cmode == "mixed") {
-          RidRRi_Wdense  <- RidR %*% RiWdense
-          RidRRi_Wsparse <- RidR %*% RiWsparse
-          Mdd <- forceSymmetric(crossprod(Wdense, RidRRi_Wdense))
-          Msd <- crossprod(Wsparse, RidRRi_Wdense)
-          Mss <- forceSymmetric(crossprod(Wsparse, RidRRi_Wsparse))
-          ddTrace <- sum(Mdd * Cidd)
-          # ssTrace <- sum(diag(Mss %*% Ciss))
-          if (!is(Mss, "dsCMatrix")) {
-            stop("Mss must be a dsCMatrix...")
-          }
-          ssTrace <- as.numeric(getBlockTracesSparseSparse(Mss@p, Mss@i, Mss@x,
-                                                           Ciss@p, Ciss@i, Ciss@x, dimVar = 1, dimNvar = nrow(Ciss), offset = 0))
-          sdTrace <- 2 * sum(Msd * Cisd)
-          tr2 <- ssTrace + sdTrace + ddTrace
-          
-        } else if (Cmode == "sparse") {
-          Wsparse_RidRRi_Wsparse <- forceSymmetric(crossprod(RiWsparse, dR %*% RiWsparse))
-          # tr2 <- sum(diag(Wsparse_RidRRi_Wsparse %*% Ciss)) # As both Wsparse_RidRRi_Wsparse and Ciss are sparse, this is probably the fastest.
-          if (!is(Wsparse_RidRRi_Wsparse, "dsCMatrix")) {
-            stop("Wsparse_RidRRi_Wsparse must be a dsCMatrix...")
-          }
-          tr2 <- as.numeric(getBlockTracesSparseSparse(Wsparse_RidRRi_Wsparse@p, Wsparse_RidRRi_Wsparse@i, Wsparse_RidRRi_Wsparse@x,
-                                                       Ciss@p, Ciss@i, Ciss@x, dimVar = 1, dimNvar = nrow(Ciss), offset = 0))
-          
+      re <- nUR
+      derivs[[re]] <- vector("list", u.nparams[[re]])
+      for (i in 1:u.nparams[[re]]) {
+        if (isFixed[param]) {
+          param <- param + 1
         } else {
-          Wdense_RidRRi_Wdense <- forceSymmetric(crossprod(RiWdense, dR %*% RiWdense))
-          tr2 <- getTraceSparseDense(p = Wdense_RidRRi_Wdense@p, i = Wdense_RidRRi_Wdense@i, x = Wdense_RidRRi_Wdense@x, dense_x = Cidd@x, n_rows = nrow(Cidd))
-          
+          if (ur.types[param] == "V") { # If the parameter is a variance.
+            if (u.applyvars[[re]][1] == 0) { # If there is only a single variance.
+              # Don't forget to multiply with the non-variable structure and selection matrices:
+              derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% Reduce(kronecker, c(cormats[[re]], S)), Z[[re]]))
+            } else { # If variances are applied to 1 or more factors.
+              A <- Matrix(0, prod(u.nlevels[[re]][u.applyvars[[re]]]), prod(u.nlevels[[re]][u.applyvars[[re]]]), sparse = FALSE, doDiag = FALSE)
+              A[i,] <- 0.5
+              if (all(u.applyvars[[re]] == i.var[[re]])) { # If variances are applied to all variable factors.
+                derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]]) / k[param, iter], S), Z[[re]]))
+              } else { # If variances are applied to 1 or more factors, but not all factors.
+                derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(kronecker((A + t(A)) * vars[[re]] * Reduce(kronecker, cormats[[re]][u.applyvars[[re]]]) / k[param, iter], Reduce(kronecker, cormats[[re]][-u.applyvars[[re]]])), S), Z[[re]]))
+              }
+            }
+          } else { # If the parameter is not a variance.
+            j <- u.forFactor[[re]][i] # Which factor does this parameter belong to?
+            cormats1 <- cormats[[re]] # Making a copy of the correlation matrices so we can replace the matrix of factor j with the derivative.
+            cormats1[[j]] <- getDeriv(struc = struc[[re]][j],
+                                      type = ur.types[param],
+                                      cormatIndex = u.indexCor[[re]][[i]],
+                                      params = k[indices[[re]][[1 + j]], iter],
+                                      p = u.nlevels[[re]][j],
+                                      base = bases[[re]][[j]],
+                                      inverse = FALSE)
+            if (u.applyvars[[re]][1] == 0) {
+              derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% (vars[[re]]@x * Reduce(kronecker, c(cormats1, S))), Z[[re]]))
+            } else if (all(u.applyvars[[re]] == i.var[[re]])) {
+              derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(vars[[re]] * Reduce(kronecker, cormats1), S), Z[[re]]))
+            } else {
+              derivs[[re]][[i]] <- forceSymmetric(tcrossprod(Z[[re]] %*% kronecker(kronecker(vars[[re]] * Reduce(kronecker, cormats1[u.applyvars[[re]]]), Reduce(kronecker, cormats1[-u.applyvars[[re]]])), S), Z[[re]]))
+            }
+          }
+          if (useWeights) {
+            derivs[[re]][[i]] <- weights %*% derivs[[re]][[i]] %*% weights
+          }
+          Wu[, param] <- derivs[[re]][[i]] %*% Ri %*% e
+          param <- param + 1
         }
-        scores[param, 1] <- -0.5 * (tr1 - tr2 - quad)
       }
-      param <- param + 1
-    }
-    if (timing) {timer("stop")}
-    
-    ### Updating parameters ====
-    if (timing) {timer("start", "Updating parameters and constraining", iter)}
-    delta <- AIi %*% scores * stepSize[iter]
-    #### Checking constraints ====
-    # - We check all parameters and constrain as needed (adding them to con).
-    # - We then recompute delta for any unconstrained parameters.
-    # - We then check again to see if any of the previously unconstrained parameters
-    #   now need to be constrained.
-    # - If so, we constrain them and add them to con.
-    # - Then we recompute delta again for any parameters that remained unconstrained.
-    # - ...
-    # - We exit this loop when:
-    #     (1) none of the unconstrained parameters have to be constrained (this can happen in the first cycle).
-    #     Or
-    #     (2) all of the parameters are constrained (this can also happen in the first cycle).
-    if (debugging) {
-      vars.debugging <- vars
-    }
-    con <- c() # Vector to keep the total set of constrained parameters across cycles. We need this for recomputing delta for unconstrained params.
-    vars <- which(ur.types == "V") # Which of the parameters in k are variances?
-    cors <- which(ur.types == "R") # Which of the parameters in k are correlations?
-    autoCors <- which(ur.types == "AR") # Which of the parameters in k are autocorrelations?
-    bws <- which(ur.types == "B") # Which of the parameters in k are bandwidths?
-    checkConstraints <- TRUE # Control variable to break the loop after satisfying (1) or (2).
-    constraintsUsed <- FALSE # Variable that lets us print to the console if any params were constrained.
-    q <- 1 # If we can't get a good update after 10 cycles we stop.
-    while (checkConstraints) {
-      if (q > 10) {
-        stop("Cannot constrain to get a good update...")
+      if (timing) {timer("stop")}
+      
+      ### Computing the AI matrix ====
+      if (timing) {timer("start", "AI matrix and Cidd if on GPU", iter)}
+      RiWu <- Ri %*% Wu
+      WiWj <- forceSymmetric(crossprod(Wu, RiWu)) # Similar to t(y) %*% Ri %*% y
+      if (Cmode == "mixed") { # If we have both dense and sparse equations.
+        denseWuRHS <- crossprod(Wdense, RiWu)
+        sparseWuRHS <- crossprod(Wsparse, RiWu)
+        sparseWuTemp <- solve(Ccholss, sparseWuRHS)
+        adjDenseWuRHS <- denseWuRHS - (Cds %*% sparseWuTemp)
+        if (!useGPU) {
+          buWuDense <- solve(SCchol, adjDenseWuRHS)
+        } else {
+          gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = adjDenseWuRHS)
+          buWuDense <- gpuResult2$buWu
+        }
+        buWuSparse <- sparseWuTemp - (Q %*% buWuDense)
+        buWuXWjxZWj <- forceSymmetric(crossprod(sparseWuRHS, buWuSparse) + crossprod(denseWuRHS, buWuDense))
+        
+      } else if (Cmode == "sparse") { # If we only have sparse equations.
+        XWjxZWj <- solve(Ccholss, crossprod(Wsparse, RiWu), system = "P") # Similar to permRHS
+        zWu <- solve(Ccholss, XWjxZWj, system = "L") # Similar to z
+        buWu <- solve(Ccholss, zWu, system = "Lt") # Similar to obtaining bu using a backsolve
+        buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
+        
+      } else { # If we only have dense equations.
+        XWjxZWj <- crossprod(Wdense, RiWu) # t(W) %*% Ri %*% Wu
+        if (!useGPU) {
+          buWu <- solve(Ccholdd, XWjxZWj)
+        } else {
+          gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = XWjxZWj)
+          buWu <- gpuResult2$buWu
+        }
+        buWuXWjxZWj <- forceSymmetric(crossprod(buWu, XWjxZWj))
       }
-      checkConstraints <- FALSE # Assume everything is fine and we don't need to check again.
+      AI <- (WiWj - buWuXWjxZWj) / 2
       
-      constrained <- FALSE # Were any parameters constrained because the deltas were too large?
-      hitBoundary <- FALSE # Were any parameters constrained because the delta pushed them across a boundary?
-      nonPD <- FALSE # Were any correlations constrained because they resulted in a non-PD corg matrix?
-      con.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas being too large.
-      con.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas being too large.
-      con.autoCors <- c() # Vector with indices of autocorrelations that were constrained in the current cycle due to the deltas being too large.
-      con.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas being too large.
-      con.loadings <- c() # Vector with indices of loadings that were constrained in the current cycle due to the deltas being too large.
-      bound.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas pushing them across boundaries.
-      bound.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas pushing them across boundaries.
-      bound.autoCors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas pushing them across boundaries.
-      bound.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas pushing them across boundaries.
-      bound.loadings <- c() # Vector with indices of loadings that were constrained in the current cycle due to the deltas pushing the communalities over 1 - 1e-3.
-      npd.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the presence of non-PD corg matrices.
+      if (avInfReg[iter] > 1) { # Potential inflation of diagonal elements of the AI matrix
+        # diag(AI) <- diag(AI) * avInfReg[iter]
+        diag(AI)[ur.types == "L"] <- diag(AI)[ur.types == "L"] * avInfReg[iter] # Alternative that only inflates loadings.
+      }
+      if (any(isFixed)) { # If there are any fixed parameters, remove them from the AI matrix before inverting.
+        AIi <- Matrix(0, nrow(AI), ncol(AI), sparse = FALSE, doDiag = FALSE)
+        notFixed <- which(!isFixed)
+        AIi[notFixed, notFixed] <- solve(AI[notFixed, notFixed])
+      } else {
+        AIi <- solve(AI)
+      }
+      if (timing) {timer("stop")}
       
-      # Computing the proposed update so we can check for constraints:
-      kUpdate <- k[, iter, drop = FALSE] + delta
+      ### Computing the inverse of the coefficient matrix ====
+      if (timing) {timer("start", "Inversion of C", iter)}
+      if (Cmode == "mixed") { # If we have both dense and sparse equations.
+        #tic("Base SIS of Ciss")
+        Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
+        #toc()
+        # Inverse of the dense Schur complement:
+        if (!useGPU) {
+          #tic("Inversion of SC")
+          Cidd <- chol2inv(as(SCchol, "dtrMatrix"))
+          #toc()
+        } else {
+          Cidd <- gpuResult2$Ci
+        }
+        # Updated sparse block of the inverse of C:
+        #tic("Updating the SIS")
+        inplaceUpdateSIS(Ciss, tcrossprod(Cidd, Q), t(Q))
+        #toc()
+        # Off-diagonal (bottom left) block of the inverse of C:
+        #tic("Off-diagonal block of Ci")
+        Cisd <- -Q %*% Cidd
+        #toc()
+        
+      } else if (Cmode == "sparse") { # If we only have sparse equations, so Ciss is the full inverse.
+        Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
+        
+      } else { # if we only have dense equations, so Cidd is the full inverse.
+        if (!useGPU) {
+          Cidd <- chol2inv(as(Ccholdd, "dtrMatrix"))
+        } else {
+          Cidd <- gpuResult2$Ci
+        }
+      }
+      if (timing) {timer("stop")}
       
-      # Checking variances for changes that result in an increase larger than a factor 15 or decrease larger than a factor 1/15:
-      # In other words, check that k.new >= 1/15 * k.old & k.new <= 15 * k.old
-      # deltaFactor <- delta[vars, 1] / k[vars, iter]
-      deltaFactor <- kUpdate[vars, 1] / k[vars, iter]
-      if (any(deltaFactor > 15 | deltaFactor < 1 / 15)) {
-        con.vars.up <- vars[deltaFactor > 15] # Indices of variances that go up with more than a factor 15
-        con.vars.down <- vars[deltaFactor < 1 / 15] # Indices of variances that go down with more than a factor 1 / 15
-        con.vars <- sort(c(con.vars.up, con.vars.down)) # All indices of constrained variances
-        # con.vars <- vars[deltaFactor > 15 | deltaFactor < 1 / 15]
-        delta[con.vars.up, 1] <- (14 - 1e-5) * k[con.vars.up, iter] # (k + d) / k = 15
-        delta[con.vars.down, 1] <- -(14 - 1e-5) / 15 * k[con.vars.down, iter] # (k + d) / k = 1 / 15
-        # delta[con.vars, 1] <- sign(delta[con.vars, 1]) * 15 * k[con.vars, iter]
-        constrained <- TRUE
-        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-        constraintsUsed <- TRUE
+      ### Computing scores ====
+      if (timing) {timer("start", "Random effect scores", iter)}
+      # See equations (18) and (15) from Jensen, Mantysaari, Madsen, & Thompson 1997:
+      # "Residual maximum likelihood estimation of (co) variance components in multivariate
+      # mixed linear models using average information"
+      #### Genetic scores ====
+      if (debugging) {
+        traces.debugging <- vector("list", nU)
+      }
+      scores <- Matrix(0, nrow(k), 1, sparse = FALSE)
+      offsetDense <- nXdense + 1
+      offsetSparse <- nXsparse + 1
+      param <- 1
+      for (re in 1:nU) { # Start of loop over random effects
+        if (any(struc[[re]] == "exfa")) {
+          m <- u.nparams.list[[re]][[1 + 1]] / u.nlevels[[re]][1]
+          dimVar <- prod(c(u.nlevels.var[[re]][1] + m, u.nlevels.var[[re]][-1]))
+        } else {
+          dimVar <- dim.var[re]
+        }
+        dimNvar <- dim.nvar[re]
+        
+        if (n.nvar[re] > 0) { # If there is a non-variable structure like a GRM.
+          if (u.sparse[re]) { # If the current random effect is part of the sparse equations.
+            if (is(nvarGi[[re]], "sparseMatrix")) { # If the non-variable structure is sparse.
+              traces <- getBlockTracesSparseSparse(Ciss@p, Ciss@i, Ciss@x, nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, offsetSparse - 1)
+            } else { # If the non-variable structure is dense.
+              traces <- getBlockTracesSparseDense(Ciss@p, Ciss@i, Ciss@x, nvarGi[[re]]@x, dimVar, dimNvar, offsetSparse - 1)
+            }
+            offsetSparse <- offsetSparse + dimVar * dimNvar
+            
+          } else { # If the current random effect is part of the dense equations.
+            if (is(nvarGi[[re]], "sparseMatrix")) { # If the non-variable structure is sparse, I don't think this will typically ever be the case cause if true, we'd probably be in the sparse equations.
+              traces <- getBlockTracesDenseSparse(Cidd@x, nrow(Cidd), nvarGi[[re]]@p, nvarGi[[re]]@i, nvarGi[[re]]@x, dimVar, dimNvar, offsetDense - 1)
+            } else { # If the non-variable structure is dense.
+              traces <- getBlockTracesDenseDense(Cidd@x, nrow(Cidd), nvarGi[[re]]@x, dimVar, dimNvar, offsetDense - 1)
+            }
+            offsetDense <- offsetDense + dimVar * dimNvar
+          }
+          
+          if (nrow(traces) > 1) {
+            traces <- forceSymmetric(traces)
+          }
+          if (debugging) {
+            traces.debugging[[re]] <- traces
+          }
+          
+        } else { # If there is no non-variable structure like a GRM.
+          if (u.sparse[re]) { # If part of the sparse equations.
+            traces <- Ciss[offsetSparse:(offsetSparse - 1 + dimVar), offsetSparse:(offsetSparse - 1 + dimVar)]
+            offsetSparse <- offsetSparse + dimVar
+          } else { # If part of the dense equations.
+            traces <- Cidd[offsetSparse:(offsetSparse - 1 + dimVar), offsetSparse:(offsetSparse - 1 + dimVar)]
+            offsetDense <- offsetDense + dimVar
+          }
+        }
+        
+        if (n.nvar[re] > 0) {
+          basisScores <- -0.5 * (dimNvar * sigmai[[re]] - forceSymmetric(sigmai[[re]] %*% traces %*% sigmai[[re]]) - forceSymmetric(crossprod(umat_sigmai[[re]], nvarGi[[re]] %*% umat_sigmai[[re]]))) # Last term maybe on the GPU?
+        } else {
+          basisScores <- -0.5 * (sigmai[[re]] - forceSymmetric(sigmai[[re]] %*% traces %*% sigmai[[re]]) - crossprod(umat_sigmai[[re]])) # Last term maybe on the GPU?
+        }
+        
+        # New batched version:
+        row.start <- param
+        row.end <- param + u.nparams[[re]] - 1
+        scores[row.start:row.end, 1] <- batchedScores(basisScores, derivs[[re]])
+        param <- param + u.nparams[[re]] # Move to the start of the set of parameters for the next random effect.
+      } # End of loop over random effects.
+      if (timing) {timer("stop")}
+      
+      #### Residual scores ====
+      if (timing) {timer("start", "Residual scores", iter)}
+      re <- nUR
+      Rie <- Ri %*% e
+      if (Cmode == "mixed") {
+        RiWdense <- Ri %*% Wdense
+        RiWsparse <- Ri %*% Wsparse
+      } else if (Cmode == "sparse") {
+        RiWsparse <- Ri %*% Wsparse
+      } else {
+        RiWdense <- Ri %*% Wdense
       }
       
-      # Checking correlations for absolute changes larger than 0.3:
-      deltaChange <- delta[cors, 1]
-      if (any(abs(deltaChange) > 0.3)) {
-        con.cors <- cors[abs(deltaChange) > 0.3]
-        delta[con.cors, 1] <- sign(delta[con.cors, 1]) * 0.3
-        constrained <- TRUE
-        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-        constraintsUsed <- TRUE
+      for (i in 1:length(derivs[[re]])) {
+        if (!isFixed[param]) {
+          dR <- derivs[[re]][[i]]
+          RidR <- Ri %*% dR
+          tr1 <- sum(diag(RidR))
+          quad <- as.numeric(crossprod(Rie, dR %*% Rie))
+          if (Cmode == "mixed") {
+            RidRRi_Wdense  <- RidR %*% RiWdense
+            RidRRi_Wsparse <- RidR %*% RiWsparse
+            Mdd <- forceSymmetric(crossprod(Wdense, RidRRi_Wdense))
+            Msd <- crossprod(Wsparse, RidRRi_Wdense)
+            Mss <- forceSymmetric(crossprod(Wsparse, RidRRi_Wsparse))
+            ddTrace <- sum(Mdd * Cidd)
+            # ssTrace <- sum(diag(Mss %*% Ciss))
+            if (!is(Mss, "dsCMatrix")) {
+              stop("Mss must be a dsCMatrix...")
+            }
+            ssTrace <- as.numeric(getBlockTracesSparseSparse(Mss@p, Mss@i, Mss@x,
+                                                             Ciss@p, Ciss@i, Ciss@x, dimVar = 1, dimNvar = nrow(Ciss), offset = 0))
+            sdTrace <- 2 * sum(Msd * Cisd)
+            tr2 <- ssTrace + sdTrace + ddTrace
+            
+          } else if (Cmode == "sparse") {
+            Wsparse_RidRRi_Wsparse <- forceSymmetric(crossprod(RiWsparse, dR %*% RiWsparse))
+            # tr2 <- sum(diag(Wsparse_RidRRi_Wsparse %*% Ciss)) # As both Wsparse_RidRRi_Wsparse and Ciss are sparse, this is probably the fastest.
+            if (!is(Wsparse_RidRRi_Wsparse, "dsCMatrix")) {
+              stop("Wsparse_RidRRi_Wsparse must be a dsCMatrix...")
+            }
+            tr2 <- as.numeric(getBlockTracesSparseSparse(Wsparse_RidRRi_Wsparse@p, Wsparse_RidRRi_Wsparse@i, Wsparse_RidRRi_Wsparse@x,
+                                                         Ciss@p, Ciss@i, Ciss@x, dimVar = 1, dimNvar = nrow(Ciss), offset = 0))
+            
+          } else {
+            Wdense_RidRRi_Wdense <- forceSymmetric(crossprod(RiWdense, dR %*% RiWdense))
+            tr2 <- getTraceSparseDense(p = Wdense_RidRRi_Wdense@p, i = Wdense_RidRRi_Wdense@i, x = Wdense_RidRRi_Wdense@x, dense_x = Cidd@x, n_rows = nrow(Cidd))
+            
+          }
+          scores[param, 1] <- -0.5 * (tr1 - tr2 - quad)
+        }
+        param <- param + 1
       }
+      if (timing) {timer("stop")}
       
-      # Checking autocorrelations for absolute changes larger than 0.3:
-      deltaChange <- delta[autoCors, 1]
-      if (any(abs(deltaChange) > 0.3)) {
-        con.autoCors <- autoCors[abs(deltaChange) > 0.3]
-        delta[con.autoCors, 1] <- sign(delta[con.autoCors, 1]) * 0.3
-        constrained <- TRUE
-        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-        constraintsUsed <- TRUE
+      ### Updating parameters ====
+      if (timing) {timer("start", "Updating parameters and constraining", iter)}
+      delta <- AIi %*% scores * stepSize[iter]
+      #### Checking constraints ====
+      # - We check all parameters and constrain as needed (adding them to con).
+      # - We then recompute delta for any unconstrained parameters.
+      # - We then check again to see if any of the previously unconstrained parameters
+      #   now need to be constrained.
+      # - If so, we constrain them and add them to con.
+      # - Then we recompute delta again for any parameters that remained unconstrained.
+      # - ...
+      # - We exit this loop when:
+      #     (1) none of the unconstrained parameters have to be constrained (this can happen in the first cycle).
+      #     Or
+      #     (2) all of the parameters are constrained (this can also happen in the first cycle).
+      if (debugging) {
+        vars.debugging <- vars
       }
-      
-      # Checking bandwidths for absolute changes larger than 0.3:
-      deltaChange <- delta[bws, 1]
-      if (any(abs(deltaChange) > 0.3)) {
-        con.bws <- bws[abs(deltaChange) > 0.3]
-        delta[con.bws, 1] <- sign(delta[con.bws, 1]) * 0.3
-        constrained <- TRUE
-        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-        constraintsUsed <- TRUE
-      }
-      
-      # Computing the proposed update so we can check for boundaries:
-      kUpdate <- k[, iter, drop = FALSE] + delta
-      
-      # Checking variances for boundaries:
-      if (any(kUpdate[vars, 1] < 1e-6)) {
-        bound.vars <- vars[kUpdate[vars, 1] < 1e-6]
-        boundary[bound.vars] <- boundary[bound.vars] + 1
-        delta[bound.vars, 1] <- 1e-5 - k[bound.vars, iter]
-        hitBoundary <- TRUE
-        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-        constraintsUsed <- TRUE
-      }
-      
-      # Checking correlations for boundaries:
-      if (any(abs(kUpdate[cors, 1]) > 0.99)) {
-        bound.cors <- cors[abs(kUpdate[cors, 1]) > 0.99]
-        boundary[bound.cors] <- boundary[bound.cors] + 1
-        signs <- sign(kUpdate[bound.cors, 1])
-        delta[bound.cors, 1] <- signs * 0.9333333 - k[bound.cors, iter]
-        hitBoundary <- TRUE
-        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-        constraintsUsed <- TRUE
-      }
-      
-      # Checking autocorrelations for boundaries:
-      if (any(kUpdate[autoCors, 1] > 0.99)) {
-        bound.autoCors <- autoCors[kUpdate[autoCors, 1] > 0.99]
-        boundary[bound.autoCors] <- boundary[bound.autoCors] + 1
-        delta[bound.autoCors, 1] <- 0.98 - k[bound.autoCors, iter]
-        hitBoundary <- TRUE
-        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-        constraintsUsed <- TRUE
-      }
-      if (any(kUpdate[autoCors, 1] < 0)) {
-        bound.autoCors <- autoCors[kUpdate[autoCors, 1] < 0]
-        boundary[bound.autoCors] <- boundary[bound.autoCors] + 1
-        delta[bound.autoCors, 1] <- 0 - k[bound.autoCors, iter]
-        hitBoundary <- TRUE
-        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-        constraintsUsed <- TRUE
-      }
-      
-      # Checking bandwidths for boundaries:
-      if (any(kUpdate[bws, 1] < 1e-3)) {
-        bound.bws <- bws[kUpdate[bws, 1] < 1e-3]
-        boundary[bound.bws] <- boundary[bound.bws] + 1
-        delta[bound.bws, 1] <- 1e-2 - k[bound.bws, iter]
-        hitBoundary <- TRUE
-        checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-        constraintsUsed <- TRUE
-      }
-      
-      # Recomputing the proposed update so we can check the loadings and whether all corg matrices are PD:
-      kUpdate <- k[, iter, drop = FALSE] + delta
-      
-      # Checking loadings ====
-      # Checking the loadings is a little bit more complicated. We check three things:
-      # (1) The mean magnitude of the changes cannot be larger than 10. If it is, deltas for loadings are shrunken so the mean magnitude is 10.
-      # (2) The magnitude of the change for any sign-flipped loading cannot be larger than 2. If any is, the delta for that loading is shrunken so the magnitude is 2.
-      # (3) The communalities for all features (environments) must be smaller than 1 - 1e-3. If any communality is larger than that threshold, all loadings for that feature i
-      #     are scaled back so that the communality becomes 1 - 1e-3, but the direction of the vector L[i,] in m-dimensional space does not change.
-      # See the checkLoadings() function for what checks are done in more detail.
-      for (re in 1:nU) {
-        if (any(u.isStack[[re]])) { # If there is a stack in the random effect.
-          # First we check any potential fa/exfa structures in the stack:
-          i.stack <- which(u.isStack[[re]])
-          for (i in which(struc[[re]][[i.stack]] %in% c("fa", "exfa"))) { # Check fa/exfa structures in the stack.
-            indices.stack.start <- 1 + c(0, cumsum(u.nparams.list[[re]][[1 + i.stack]]))[i]
-            indices.stack.end <- indices.stack.start - 1 + u.nparams.list[[re]][[1 + i.stack]][i]
-            indices.stack <- indices.stack.start:indices.stack.end # Indices of the parameters that belong to this layer of the stack.
-            loadingIndices <- indices[[re]][[1 + i.stack]][indices.stack] # Getting the indices for the loadings for this particular structure.
-            check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i.stack])
+      con <- c() # Vector to keep the total set of constrained parameters across cycles. We need this for recomputing delta for unconstrained params.
+      vars <- which(ur.types == "V") # Which of the parameters in k are variances?
+      cors <- which(ur.types == "R") # Which of the parameters in k are correlations?
+      autoCors <- which(ur.types == "AR") # Which of the parameters in k are autocorrelations?
+      bws <- which(ur.types == "B") # Which of the parameters in k are bandwidths?
+      checkConstraints <- TRUE # Control variable to break the loop after satisfying (1) or (2).
+      constraintsUsed <- FALSE # Variable that lets us print to the console if any params were constrained.
+      q <- 1 # If we can't get a good update after 10 cycles we stop.
+      while (checkConstraints) {
+        if (q > 10) {
+          stop("Cannot constrain to get a good update...")
+        }
+        checkConstraints <- FALSE # Assume everything is fine and we don't need to check again.
+        
+        constrained <- FALSE # Were any parameters constrained because the deltas were too large?
+        hitBoundary <- FALSE # Were any parameters constrained because the delta pushed them across a boundary?
+        nonPD <- FALSE # Were any correlations constrained because they resulted in a non-PD corg matrix?
+        con.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas being too large.
+        con.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas being too large.
+        con.autoCors <- c() # Vector with indices of autocorrelations that were constrained in the current cycle due to the deltas being too large.
+        con.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas being too large.
+        con.loadings <- c() # Vector with indices of loadings that were constrained in the current cycle due to the deltas being too large.
+        bound.vars <- c() # Vector with indices of variances that were constrained in the current cycle due to the deltas pushing them across boundaries.
+        bound.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas pushing them across boundaries.
+        bound.autoCors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the deltas pushing them across boundaries.
+        bound.bws <- c() # Vector with indices of bandwidths that were constrained in the current cycle due to the deltas pushing them across boundaries.
+        bound.loadings <- c() # Vector with indices of loadings that were constrained in the current cycle due to the deltas pushing the communalities over 1 - 1e-3.
+        npd.cors <- c() # Vector with indices of correlations that were constrained in the current cycle due to the presence of non-PD corg matrices.
+        
+        # Computing the proposed update so we can check for constraints:
+        kUpdate <- k[, iter, drop = FALSE] + delta
+        
+        # Checking variances for changes that result in an increase larger than a factor 15 or decrease larger than a factor 1/15:
+        # In other words, check that k.new >= 1/15 * k.old & k.new <= 15 * k.old
+        # deltaFactor <- delta[vars, 1] / k[vars, iter]
+        deltaFactor <- kUpdate[vars, 1] / k[vars, iter]
+        if (any(deltaFactor > 15 | deltaFactor < 1 / 15)) {
+          con.vars.up <- vars[deltaFactor > 15] # Indices of variances that go up with more than a factor 15
+          con.vars.down <- vars[deltaFactor < 1 / 15] # Indices of variances that go down with more than a factor 1 / 15
+          con.vars <- sort(c(con.vars.up, con.vars.down)) # All indices of constrained variances
+          # con.vars <- vars[deltaFactor > 15 | deltaFactor < 1 / 15]
+          delta[con.vars.up, 1] <- (14 - 1e-5) * k[con.vars.up, iter] # (k + d) / k = 15
+          delta[con.vars.down, 1] <- -(14 - 1e-5) / 15 * k[con.vars.down, iter] # (k + d) / k = 1 / 15
+          # delta[con.vars, 1] <- sign(delta[con.vars, 1]) * 15 * k[con.vars, iter]
+          constrained <- TRUE
+          checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+          constraintsUsed <- TRUE
+        }
+        
+        # Checking correlations for absolute changes larger than 0.3:
+        deltaChange <- delta[cors, 1]
+        if (any(abs(deltaChange) > 0.3)) {
+          con.cors <- cors[abs(deltaChange) > 0.3]
+          delta[con.cors, 1] <- sign(delta[con.cors, 1]) * 0.3
+          constrained <- TRUE
+          checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+          constraintsUsed <- TRUE
+        }
+        
+        # Checking autocorrelations for absolute changes larger than 0.2:
+        deltaChange <- delta[autoCors, 1]
+        if (any(abs(deltaChange) > 0.2)) {
+          con.autoCors <- autoCors[abs(deltaChange) > 0.2]
+          delta[con.autoCors, 1] <- sign(delta[con.autoCors, 1]) * 0.2
+          constrained <- TRUE
+          checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+          constraintsUsed <- TRUE
+        }
+        
+        # Checking bandwidths for absolute changes larger than 0.3:
+        deltaChange <- delta[bws, 1]
+        if (any(abs(deltaChange) > 0.3)) {
+          con.bws <- bws[abs(deltaChange) > 0.3]
+          delta[con.bws, 1] <- sign(delta[con.bws, 1]) * 0.3
+          constrained <- TRUE
+          checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+          constraintsUsed <- TRUE
+        }
+        
+        # Computing the proposed update so we can check for boundaries:
+        kUpdate <- k[, iter, drop = FALSE] + delta
+        
+        # Checking variances for boundaries:
+        if (any(kUpdate[vars, 1] < 1e-6)) {
+          bound.vars <- vars[kUpdate[vars, 1] < 1e-6]
+          boundary[bound.vars] <- boundary[bound.vars] + 1
+          delta[bound.vars, 1] <- 1e-5 - k[bound.vars, iter]
+          hitBoundary <- TRUE
+          checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+          constraintsUsed <- TRUE
+        }
+        
+        # Checking correlations for boundaries:
+        if (any(abs(kUpdate[cors, 1]) > 0.99)) {
+          bound.cors <- cors[abs(kUpdate[cors, 1]) > 0.99]
+          boundary[bound.cors] <- boundary[bound.cors] + 1
+          signs <- sign(kUpdate[bound.cors, 1])
+          delta[bound.cors, 1] <- signs * 0.9333333 - k[bound.cors, iter]
+          hitBoundary <- TRUE
+          checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+          constraintsUsed <- TRUE
+        }
+        
+        # Checking autocorrelations for boundaries:
+        if (any(abs(kUpdate[autoCors, 1]) > 0.99)) {
+          bound.autoCors <- autoCors[abs(kUpdate[autoCors, 1]) > 0.99]
+          boundary[bound.autoCors] <- boundary[bound.autoCors] + 1
+          signs <- sign(kUpdate[bound.autoCors, 1])
+          delta[bound.autoCors, 1] <- signs * 0.98 - k[bound.autoCors, iter]
+          hitBoundary <- TRUE
+          checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+          constraintsUsed <- TRUE
+        }
+        # if (any(kUpdate[autoCors, 1] < 0)) {
+        #   bound.autoCors <- autoCors[kUpdate[autoCors, 1] < 0]
+        #   boundary[bound.autoCors] <- boundary[bound.autoCors] + 1
+        #   delta[bound.autoCors, 1] <- 0 - k[bound.autoCors, iter]
+        #   hitBoundary <- TRUE
+        #   checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+        #   constraintsUsed <- TRUE
+        # }
+        
+        # Checking bandwidths for boundaries:
+        if (any(kUpdate[bws, 1] < 1e-3)) {
+          bound.bws <- bws[kUpdate[bws, 1] < 1e-3]
+          boundary[bound.bws] <- boundary[bound.bws] + 1
+          delta[bound.bws, 1] <- 1e-2 - k[bound.bws, iter]
+          hitBoundary <- TRUE
+          checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+          constraintsUsed <- TRUE
+        }
+        
+        # Recomputing the proposed update so we can check the loadings and whether all corg matrices are PD:
+        kUpdate <- k[, iter, drop = FALSE] + delta
+        
+        # Checking loadings ====
+        # Checking the loadings is a little bit more complicated. We check three things:
+        # (1) The mean magnitude of the changes cannot be larger than 10. If it is, deltas for loadings are shrunken so the mean magnitude is 10.
+        # (2) The magnitude of the change for any sign-flipped loading cannot be larger than 2. If any is, the delta for that loading is shrunken so the magnitude is 2.
+        # (3) The communalities for all features (environments) must be smaller than 1 - 1e-3. If any communality is larger than that threshold, all loadings for that feature i
+        #     are scaled back so that the communality becomes 1 - 1e-3, but the direction of the vector L[i,] in m-dimensional space does not change.
+        # See the checkLoadings() function for what checks are done in more detail.
+        for (re in 1:nU) {
+          if (any(u.isStack[[re]])) { # If there is a stack in the random effect.
+            # First we check any potential fa/exfa structures in the stack:
+            i.stack <- which(u.isStack[[re]])
+            for (i in which(struc[[re]][[i.stack]] %in% c("fa", "exfa"))) { # Check fa/exfa structures in the stack.
+              indices.stack.start <- 1 + c(0, cumsum(u.nparams.list[[re]][[1 + i.stack]]))[i]
+              indices.stack.end <- indices.stack.start - 1 + u.nparams.list[[re]][[1 + i.stack]][i]
+              indices.stack <- indices.stack.start:indices.stack.end # Indices of the parameters that belong to this layer of the stack.
+              loadingIndices <- indices[[re]][[1 + i.stack]][indices.stack] # Getting the indices for the loadings for this particular structure.
+              check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i.stack])
+              delta <- check$delta
+              constrained <- (constrained || check$constrained)
+              checkConstraints <- (checkConstraints || check$checkConstraints)
+              constraintsUsed <- (constraintsUsed || check$constraintsUsed)
+              hitBoundary <- (hitBoundary || check$hitBoundary)
+              con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
+              bound.loadings <- sort(unique(c(bound.loadings, check$bound.loadings)))
+            }
+          }
+          # Then we check potential fa or exfa structures in the remaining factors.
+          # Note that that block above never runs for non-stack random effects.
+          for (i in which(struc[[re]] %in% c("fa", "exfa"))) {
+            loadingIndices <- indices[[re]][[1 + i]] # Getting the indices for the loadings for this particular structure.
+            check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i])
             delta <- check$delta
             constrained <- (constrained || check$constrained)
             checkConstraints <- (checkConstraints || check$checkConstraints)
@@ -1573,163 +1588,160 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
             hitBoundary <- (hitBoundary || check$hitBoundary)
             con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
             bound.loadings <- sort(unique(c(bound.loadings, check$bound.loadings)))
-          }
-        }
-        # Then we check potential fa or exfa structures in the remaining factors.
-        # Note that that block above never runs for non-stack random effects.
-        for (i in which(struc[[re]] %in% c("fa", "exfa"))) {
-          loadingIndices <- indices[[re]][[1 + i]] # Getting the indices for the loadings for this particular structure.
-          check <- checkLoadings(currentParams = k[, iter, drop = FALSE], delta = delta, loadingIndices = loadingIndices, isFixed = isFixed, p = u.nlevels[[re]][i])
-          delta <- check$delta
-          constrained <- (constrained || check$constrained)
-          checkConstraints <- (checkConstraints || check$checkConstraints)
-          constraintsUsed <- (constraintsUsed || check$constraintsUsed)
-          hitBoundary <- (hitBoundary || check$hitBoundary)
-          con.loadings <- sort(unique(c(con.loadings, check$con.loadings)))
-          bound.loadings <- sort(unique(c(bound.loadings, check$bound.loadings)))
-        } # End of loop over fa/exfa structures for non-stack random effects.
-      } # End of loop over random effects.
-      boundary[bound.loadings] <- boundary[bound.loadings] + 1
-      
-      # Recomputing update:
-      kUpdate <- k[, iter, drop = FALSE] + delta
-      
-      # Checking whether all unstructured correlation matrices are PD:
-      for (re in 1:nUR) {
-        if (any(u.isStack[[re]])) {
-          i.stack <- which(u.isStack[[re]])
-          sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
-          
-          # First we check the stack:
-          if (any(struc[[re]][[i.stack]] == "corg")) {
-            s <- which(struc[[re]][[i.stack]] == "corg") # The stack can obviously only have a single unstructured correlation matrix, we just need to figure out where in the stack it is.
-            cormats[[re]][[i.stack]][[s]] <- Matrix(diag(nrow(cormats[[re]][[i.stack]][[s]])), sparse = FALSE, doDiag = FALSE)
-            if (s == 1) {
-              indices.start <- 1
-            } else {
-              indices.start <- sum(u.nparams.list[[re]][[1 + i.stack]][1:(s - 1)]) + 1
-            }
-            indices.stack <- (indices.start):(indices.start - 1 + u.nparams.list[[re]][[1 + i.stack]][s]) # We need to get the correct indices.
-            cormats[[re]][[i.stack]][[s]][lower.tri(cormats[[re]][[i.stack]][[s]])] <- kUpdate[indices[[re]][[1 + i.stack]][indices.stack], 1] # Now construct the proposed corg matrix.
-            cormats[[re]][[i.stack]][[s]] <- forceSymmetric(cormats[[re]][[i.stack]][[s]], uplo = "L") # Symmetrising.
-            ev <- eigen(cormats[[re]][[i.stack]][[s]], only.values = TRUE)$values
-            if (min(ev) <= 0) {
-              nonPD <- TRUE
-              checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-              constraintsUsed <- TRUE
-              npd <- indices[[re]][[1 + i.stack]][indices.stack]
-              npd.cors <- c(npd.cors, npd)
-              cormats[[re]][[i.stack]][[s]] <- nearPD(cormats[[re]][[i.stack]][[s]], corr = TRUE, posd.tol = 1e-3)$mat
-              delta[npd, 1] <- cormats[[re]][[i.stack]][[s]][lower.tri(cormats[[re]][[i.stack]][[s]])] - k[npd, iter]
-            }
-          }
-          
-          # Then we check the remaining structures:
-          if (any(struc[[re]] == "corg")) { # Note that the entry for the stack will always be FALSE: list(c("gk", "corg"), "cors", "lk") == "corg" -> FALSE FALSE FALSE
-            for (i in which(struc[[re]] == "corg")) { # Same thing here, i will never be the index of the stack.
-              cormats[[re]][[i]] <- Matrix(diag(nrow(cormats[[re]][[i]])), sparse = FALSE, doDiag = FALSE)
-              cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] <- kUpdate[indices[[re]][[1 + i]], 1]
-              cormats[[re]][[i]] <- forceSymmetric(cormats[[re]][[i]], uplo = "L")
-              ev <- eigen(cormats[[re]][[i]], only.values = TRUE)$values
+          } # End of loop over fa/exfa structures for non-stack random effects.
+        } # End of loop over random effects.
+        boundary[bound.loadings] <- boundary[bound.loadings] + 1
+        
+        # Recomputing update:
+        kUpdate <- k[, iter, drop = FALSE] + delta
+        
+        # Checking whether all unstructured correlation matrices are PD:
+        for (re in 1:nUR) {
+          if (any(u.isStack[[re]])) {
+            i.stack <- which(u.isStack[[re]])
+            sos <- length(u.nparams.list[[re]][[i.stack + 1]]) # + 1 due to the variances
+            
+            # First we check the stack:
+            if (any(struc[[re]][[i.stack]] == "corg")) {
+              s <- which(struc[[re]][[i.stack]] == "corg") # The stack can obviously only have a single unstructured correlation matrix, we just need to figure out where in the stack it is.
+              cormats[[re]][[i.stack]][[s]] <- Matrix(diag(nrow(cormats[[re]][[i.stack]][[s]])), sparse = FALSE, doDiag = FALSE)
+              if (s == 1) {
+                indices.start <- 1
+              } else {
+                indices.start <- sum(u.nparams.list[[re]][[1 + i.stack]][1:(s - 1)]) + 1
+              }
+              indices.stack <- (indices.start):(indices.start - 1 + u.nparams.list[[re]][[1 + i.stack]][s]) # We need to get the correct indices.
+              cormats[[re]][[i.stack]][[s]][lower.tri(cormats[[re]][[i.stack]][[s]])] <- kUpdate[indices[[re]][[1 + i.stack]][indices.stack], 1] # Now construct the proposed corg matrix.
+              cormats[[re]][[i.stack]][[s]] <- forceSymmetric(cormats[[re]][[i.stack]][[s]], uplo = "L") # Symmetrising.
+              ev <- eigen(cormats[[re]][[i.stack]][[s]], only.values = TRUE)$values
               if (min(ev) <= 0) {
                 nonPD <- TRUE
                 checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
                 constraintsUsed <- TRUE
-                npd <- indices[[re]][[1 + i]]
+                npd <- indices[[re]][[1 + i.stack]][indices.stack]
                 npd.cors <- c(npd.cors, npd)
-                cormats[[re]][[i]] <- nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat
-                delta[npd, 1] <- cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] - k[npd, iter]
+                cormats[[re]][[i.stack]][[s]] <- nearPD(cormats[[re]][[i.stack]][[s]], corr = TRUE, posd.tol = 1e-3)$mat
+                delta[npd, 1] <- cormats[[re]][[i.stack]][[s]][lower.tri(cormats[[re]][[i.stack]][[s]])] - k[npd, iter]
               }
             }
-          }
-        } else {
-          if (any(struc[[re]] == "corg")) {
-            for (i in which(struc[[re]] == "corg")) {
-              cormats[[re]][[i]] <- Matrix(diag(nrow(cormats[[re]][[i]])), sparse = FALSE, doDiag = FALSE)
-              cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] <- kUpdate[indices[[re]][[1 + i]], 1]
-              cormats[[re]][[i]] <- forceSymmetric(cormats[[re]][[i]], uplo = "L")
-              ev <- eigen(cormats[[re]][[i]], only.values = TRUE)$values
-              if (min(ev) <= 0) {
-                nonPD <- TRUE
-                checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
-                constraintsUsed <- TRUE
-                npd <- indices[[re]][[1 + i]]
-                npd.cors <- c(npd.cors, npd)
-                cormats[[re]][[i]] <- nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat
-                delta[npd, 1] <- cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] - k[npd, iter]
+            
+            # Then we check the remaining structures:
+            if (any(struc[[re]] == "corg")) { # Note that the entry for the stack will always be FALSE: list(c("gk", "corg"), "cors", "lk") == "corg" -> FALSE FALSE FALSE
+              for (i in which(struc[[re]] == "corg")) { # Same thing here, i will never be the index of the stack.
+                cormats[[re]][[i]] <- Matrix(diag(nrow(cormats[[re]][[i]])), sparse = FALSE, doDiag = FALSE)
+                cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] <- kUpdate[indices[[re]][[1 + i]], 1]
+                cormats[[re]][[i]] <- forceSymmetric(cormats[[re]][[i]], uplo = "L")
+                ev <- eigen(cormats[[re]][[i]], only.values = TRUE)$values
+                if (min(ev) <= 0) {
+                  nonPD <- TRUE
+                  checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+                  constraintsUsed <- TRUE
+                  npd <- indices[[re]][[1 + i]]
+                  npd.cors <- c(npd.cors, npd)
+                  cormats[[re]][[i]] <- nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat
+                  delta[npd, 1] <- cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] - k[npd, iter]
+                }
               }
             }
-          }
-        }
-      }
-      
-      # Now that we have (1) constrained for excessive changes, (2) constrained for boundary
-      # issues, and (3) constrained non-PD correlation matrices, we can recompute delta for any
-      # unconstrained parameters:
-      if (constrained || hitBoundary || nonPD) {
-        # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
-        con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.autoCors, bound.autoCors, con.bws, bound.bws, con.loadings, bound.loadings)))
-        noncon <- setdiff(1:nrow(delta), con)
-        nConstrained <- length(con)
-        if (length(setdiff(noncon, which(isFixed))) > 0) {
-          AIuu <- AI[noncon, noncon, drop = FALSE]
-          uuisFixed <- isFixed[noncon]
-          AIff <- AI[con, con, drop = FALSE]
-          AIuf <- AI[noncon, con, drop = FALSE]
-          scoresuu <- scores[noncon, 1, drop = FALSE]
-          scoresff <- scores[con, 1, drop = FALSE]
-          deltaff <- delta[con, 1, drop = FALSE]
-          if (any(uuisFixed)) { # If there are any fixed parameters in the unconstrained part, remove them from the AIuu matrix before inverting.
-            AIuui <- Matrix(0, nrow(AIuu), ncol(AIuu), sparse = FALSE, doDiag = FALSE)
-            uunotFixed <- which(!uuisFixed)
-            AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
-            deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
           } else {
-            deltauu <- solve(AIuu) %*% (scoresuu - AIuf %*% deltaff)
+            if (any(struc[[re]] == "corg")) {
+              for (i in which(struc[[re]] == "corg")) {
+                cormats[[re]][[i]] <- Matrix(diag(nrow(cormats[[re]][[i]])), sparse = FALSE, doDiag = FALSE)
+                cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] <- kUpdate[indices[[re]][[1 + i]], 1]
+                cormats[[re]][[i]] <- forceSymmetric(cormats[[re]][[i]], uplo = "L")
+                ev <- eigen(cormats[[re]][[i]], only.values = TRUE)$values
+                if (min(ev) <= 0) {
+                  nonPD <- TRUE
+                  checkConstraints <- TRUE # A new parameter was constrained, so we need to update delta and check again.
+                  constraintsUsed <- TRUE
+                  npd <- indices[[re]][[1 + i]]
+                  npd.cors <- c(npd.cors, npd)
+                  cormats[[re]][[i]] <- nearPD(cormats[[re]][[i]], corr = TRUE, posd.tol = 1e-3)$mat
+                  delta[npd, 1] <- cormats[[re]][[i]][lower.tri(cormats[[re]][[i]])] - k[npd, iter]
+                }
+              }
+            }
           }
-          delta[noncon, 1] <- deltauu
+        }
+        
+        # Now that we have (1) constrained for excessive changes, (2) constrained for boundary
+        # issues, and (3) constrained non-PD correlation matrices, we can recompute delta for any
+        # unconstrained parameters:
+        if (constrained || hitBoundary || nonPD) {
+          # con consists of indices of params that were constrained in the previous cycles, with the new constrained params added.
+          con <- sort(unique(c(con, con.vars, bound.vars, con.cors, bound.cors, npd.cors, con.autoCors, bound.autoCors, con.bws, bound.bws, con.loadings, bound.loadings)))
+          noncon <- setdiff(1:nrow(delta), con)
+          nConstrained <- length(con)
+          # cat(sprintf("\nConstrained params: %s\n", paste0(con, collapse = ", ")))
+          # cat(sprintf("Unconstrained params: %s\n", paste0(noncon, collapse = ", ")))
+          # cat(sprintf("Fixed params: %s\n", ifelse(any(isFixed), paste0(which(isFixed), collapse = ", "), "none")))
+          if (length(setdiff(noncon, which(isFixed))) > 0) {
+            AIuu <- AI[noncon, noncon, drop = FALSE]
+            uuisFixed <- isFixed[noncon]
+            AIff <- AI[con, con, drop = FALSE]
+            AIuf <- AI[noncon, con, drop = FALSE]
+            scoresuu <- scores[noncon, 1, drop = FALSE]
+            scoresff <- scores[con, 1, drop = FALSE]
+            deltaff <- delta[con, 1, drop = FALSE]
+            if (any(uuisFixed)) { # If there are any fixed parameters in the unconstrained part, remove them from the AIuu matrix before inverting.
+              AIuui <- Matrix(0, nrow(AIuu), ncol(AIuu), sparse = FALSE, doDiag = FALSE)
+              uunotFixed <- which(!uuisFixed)
+              AIuui[uunotFixed, uunotFixed] <- solve(AIuu[uunotFixed, uunotFixed])
+              deltauu <- AIuui %*% (scoresuu - AIuf %*% deltaff)
+            } else {
+              deltauu <- solve(AIuu) %*% (scoresuu - AIuf %*% deltaff)
+            }
+            delta[noncon, 1] <- deltauu
+          }
+        }
+        q <- q + 1
+      }
+      
+      # Fixing any parameters that have hit the boundary five times:
+      if (any(boundary == timesToBoundary)) {
+        isFixed[which(boundary == timesToBoundary)] <- TRUE
+      }
+      if (timing) {timer("stop")}
+      
+      # Printing:
+      ##tic("Printing info")
+      stop <- proc.time()[3]
+      duration <- as.numeric(stop - start)
+      duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
+      if (verbose) {
+        if (constraintsUsed) {
+          msg <- paste0("(", paste(c(
+            if (constraintsUsed) sprintf("%d constrained", nConstrained)
+          ), collapse = " and "), ")")
+          cat(sprintf("%-11d %-15.3f %-20s %-5s %-s\n", iter, LL[iter], duration, "", msg), sep = "")
+        } else {
+          cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
         }
       }
-      q <- q + 1
-    }
-    
-    # Fixing any parameters that have hit the boundary five times:
-    if (any(boundary == timesToBoundary)) {
-      isFixed[which(boundary == timesToBoundary)] <- TRUE
-    }
-    if (timing) {timer("stop")}
-    
-    # Printing:
-    ##tic("Printing info")
-    stop <- proc.time()[3]
-    duration <- as.numeric(stop - start)
-    duration <- sprintf("%02d:%02d:%06.3f", duration %/% 3600, (duration %% 3600) %/% 60, duration %% 60)
-    if (verbose) {
-      if (constraintsUsed) {
-        msg <- paste0("(", paste(c(
-          if (constraintsUsed) sprintf("%d constrained", nConstrained)
-        ), collapse = " and "), ")")
-        cat(sprintf("%-11d %-15.3f %-20s %-5s %-s\n", iter, LL[iter], duration, "", msg), sep = "")
-      } else {
-        cat(sprintf("%-11d %-15.3f %-20s\n", iter, LL[iter], duration))
+      ##toc()
+      
+      # Checking for convergence:
+      if (iter > 1) {
+        deltaLL <- LL[iter] - LL[iter - 1]
+        if (deltaLL > 0 & deltaLL <= tolConvLL & !(constraintsUsed)) {
+          LL <- LL[1:(iter + 1)]
+          k <- k[, 1:(iter + 1)]
+          LL[iter + 1] <- LL[iter]
+          k[, iter + 1] <- k[, iter, drop = FALSE] + delta
+          converged <- TRUE
+        }
       }
-    }
-    ##toc()
-    
-    # Checking for convergence:
-    if (iter > 1) {
-      deltaLL <- LL[iter] - LL[iter - 1]
-      if (deltaLL > 0 && deltaLL <= tolConvLL && !(constrained || hitBoundary)) {
-        LL <- LL[1:(iter + 1)]
-        k <- k[, 1:(iter + 1)]
-        LL[iter + 1] <- LL[iter]
+      
+      # Final update to parameters if not converged and not reached maxit:
+      if (iter <= maxit && !(converged)) {
         k[, iter + 1] <- k[, iter, drop = FALSE] + delta
-        converged <- TRUE
+        iter <- iter + 1
       }
-    }
-    
-    # Final update to parameters if not converged and not reached maxit:
-    if (iter <= maxit && !(converged)) {
+    } else {
+      # Retrying with smaller delta ====
+      cat(sprintf("Log-likelihood decreased. Retrying with smaller update...\n"))
+      iter <- iter - 1
+      delta <- delta / 2
       k[, iter + 1] <- k[, iter, drop = FALSE] + delta
       iter <- iter + 1
     }

@@ -47,10 +47,11 @@ d$Env <- as.factor(d$Env)
 
 # Now work on trial/environment specific random effects for single-stage analyses:
 dss <- droplevels(d[d$Man == "R" & d$Env %in% c("Gai12", "Cra12", "Gai13", "Gra13"),]) # , "Cam12"
-ggplot2::ggplot(dss, ggplot2::aes(x = as.numeric(as.character(Col)), y = as.numeric(as.character(Row)), shape = Rep, color = GY)) +
-  ggplot2::facet_wrap(ggplot2::vars(Env)) +
-  ggplot2::geom_point(size = 5) +
-  ggplot2::scale_color_continuous(palette = "viridis")
+dss <- droplevels(d[d$Man == "R",]) # , "Cam12"
+# ggplot2::ggplot(dss, ggplot2::aes(x = as.numeric(as.character(Col)), y = as.numeric(as.character(Row)), shape = Rep, color = GY)) +
+#   ggplot2::facet_wrap(ggplot2::vars(Env)) +
+#   ggplot2::geom_point(size = 5) +
+#   ggplot2::scale_color_continuous(palette = "viridis")
 
 # Rep is not really an appropriate name here as it doesn't identify a unique row for B73:
 # dss[dss$Env == "Gai12" & dss$Gen == "B73" & dss$Rep == 1,]
@@ -73,25 +74,33 @@ fit.asr <- asreml(GY ~ 1 + Env,
                   random = ~ at(Env):idv(compBlock) +
                              at(Env):idv(compBlock):id(incompBlock) +
                              at(Env):ar1v(Row):ar1(Col) +
-                             fa(Env, 1):vm(Gen, Ki.asr),
+                             fa(Env, 2):vm(Gen, Ki.asr),
                   residual = ~ dsum(~ units | Env),
                   data = dss,
-                  maxit = 30)
+                  maxit = 50)
 )
 
-system.time(
+# system.time(
   
-fit.kmmr <- kmmr(fixed = GY ~ 1 + Env,
+fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  random = ~ atEach("Env", ~ re(~ id(compBlock), vars = ~ 1)) +
                             atEach("Env", ~ re(~ id(compBlock):id(incompBlock), vars = ~ 1)) +
                             atEach("Env", ~ re(~ ar1(Row):ar1(Col), vars = ~ 1)) +
-                            re(~ exfa(Env, 1):lk(Gen, Ki.kmmr), vars = ~ Env),
+                            re(~ exfa(Env, 2):lk(Gen, Ki.kmmr), vars = ~ Env),
                  residual = ~ re(~ id(Env):id(Gen):id(Rep), vars = ~ Env),
                  data = dss,
                  stepSize = c(0.1, 0.2, 0.3, 0.4, 0.5),
-                 maxit = 30)
+                 avInfReg = rep(1.1, 50),
+                 maxit = 50)
 
-)
+# )
+
+u.asr <- fit.asr$coefficients$random[(nrow(fit.asr$coefficients$random) + 1 - (16 * 246)):(nrow(fit.asr$coefficients$random)),]
+u.kmr <- fit.kmmr$u[(nrow(fit.kmmr$u) + 1 - (16 * 246)):(nrow(fit.kmmr$u)),]
+plot(u.asr[1:(14 * 246)], u.kmr[1:(14 * 246)])
+
+
+
 
 # The last (nEnv + m) x 246 BLUPs should be for the GxE part:
 u.asr <- fit.asr$coefficients$random[(nrow(fit.asr$coefficients$random) - (length(levels(dss$Env)) * 246) + 1):(nrow(fit.asr$coefficients$random)), , drop = FALSE]
