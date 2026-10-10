@@ -1239,9 +1239,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       ### Computing the inverse of the coefficient matrix ====
       if (timing) {timer("start", "Inversion of C", iter)}
       if (Cmode == "mixed") { # If we have both dense and sparse equations.
-        #tic("Base SIS of Ciss")
+        if(timing) tic("Base SIS of Ciss")
         Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
-        #toc()
+        if(timing) toc()
         # Inverse of the dense Schur complement:
         if (!useGPU) {
           #tic("Inversion of SC")
@@ -1251,13 +1251,15 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
           Cidd <- gpuResult2$Ci
         }
         # Updated sparse block of the inverse of C:
-        #tic("Updating the SIS")
-        inplaceUpdateSIS(Ciss, tcrossprod(Cidd, Q), t(Q))
-        #toc()
+        if(timing) tic("Updating the SIS")
+        Qsparse <- as(Q, "CsparseMatrix")
+        CiddQt <- Cidd %*% t(Qsparse) # Fully dense result.
+        inplaceUpdateSIS(Ciss, CiddQt, as(t(Qsparse), "unpackedMatrix"))
+        if(timing) toc()
         # Off-diagonal (bottom left) block of the inverse of C:
-        #tic("Off-diagonal block of Ci")
-        Cisd <- -Q %*% Cidd
-        #toc()
+        if(timing) tic("Off-diagonal block of Ci")
+        Cids <- -CiddQt
+        if(timing) toc()
         
       } else if (Cmode == "sparse") { # If we only have sparse equations, so Ciss is the full inverse.
         Ciss <- SIS(Ccholss) # SIS() returns a lower triangular dsCMatrix!!!
@@ -1365,7 +1367,8 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
             RidRRi_Wdense  <- RidR %*% RiWdense
             RidRRi_Wsparse <- RidR %*% RiWsparse
             Mdd <- forceSymmetric(crossprod(Wdense, RidRRi_Wdense))
-            Msd <- crossprod(Wsparse, RidRRi_Wdense)
+            # Msd <- crossprod(Wsparse, RidRRi_Wdense)
+            Mds <- crossprod(Wdense, RidRRi_Wsparse)
             Mss <- forceSymmetric(crossprod(Wsparse, RidRRi_Wsparse))
             ddTrace <- sum(Mdd * Cidd)
             # ssTrace <- sum(diag(Mss %*% Ciss))
@@ -1374,8 +1377,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
             }
             ssTrace <- as.numeric(getBlockTracesSparseSparse(Mss@p, Mss@i, Mss@x,
                                                              Ciss@p, Ciss@i, Ciss@x, dimVar = 1, dimNvar = nrow(Ciss), offset = 0))
-            sdTrace <- 2 * sum(Msd * Cisd)
-            tr2 <- ssTrace + sdTrace + ddTrace
+            # sdTrace <- 2 * sum(Msd * Cisd)
+            dsTrace <- 2 * sum(Mds * Cids)
+            tr2 <- ssTrace + dsTrace + ddTrace
             
           } else if (Cmode == "sparse") {
             Wsparse_RidRRi_Wsparse <- forceSymmetric(crossprod(RiWsparse, dR %*% RiWsparse))
