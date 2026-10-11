@@ -23,7 +23,8 @@ d$Col <- factor(d$Col, sort(unique(d$Col)), sort(unique(d$Col))) # Make sure it'
 d$Block <- factor(d$Block, sort(unique(d$Block)), sort(unique(d$Block)))
 d$Gen <- as.factor(d$Gen)
 d$Env <- as.factor(d$Env)
-dss <- droplevels(d[d$Man == "R",])
+# dss <- droplevels(d[d$Man == "R",])
+dss <- d
 colnames(dss)[colnames(dss) == "Rep"] <- "compBlock"
 colnames(dss)[colnames(dss) == "Block"] <- "incompBlock"
 dss$Rep <- ave(numeric(nrow(dss)), dss$Env, dss$Gen, FUN = seq_along)
@@ -36,7 +37,21 @@ D <- D[levels(dss$Env), levels(dss$Env)]
 K <- K[levels(dss$Gen), levels(dss$Gen)]
 Ki <- solve(K)
 attr(Ki, "logDet") <- -1 * sum(log(eigen(Ki)$values))
+dss$ManEnv <- as.factor(paste(as.character(dss$Man), as.character(dss$Env), sep = ":"))
+dss$Man <- as.factor(dss$Man)
 }
+
+fit.kmmr <- kmmr(fixed = GY ~ -1 + ManEnv,
+                 random = ~ atEach("ManEnv", ~ re(~ id(compBlock), vars = ~ 1)) +
+                            atEach("ManEnv", ~ re(~ id(compBlock):id(incompBlock), vars = ~ 1)) +
+                            atEach("ManEnv", ~ re(~ ar1(Row):ar1(Col), vars = ~ 1)) +
+                            re(~ corg(Man):gk(Env, D):lk(Gen, Ki), vars = ~ Man:Env),
+                 residual = ~ re(~ id(Man):id(Env):id(Gen):id(Rep), vars = ~ Man:Env),
+                 data = dss,
+                 stepSize = c(0.1, 0.2, 0.3, 0.4, 0.5),
+                 avInfReg = rep(1.1, 30),
+                 maxit = 30, timing = T, useGPU = T)
+tcpu <- fit.kmmr$timings
 
 fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  random = ~ atEach("Env", ~ re(~ id(compBlock), vars = ~ 1)) +
@@ -48,4 +63,4 @@ fit.kmmr <- kmmr(fixed = GY ~ -1 + Env,
                  stepSize = c(0.1, 0.2),#, 0.3, 0.4, 0.5),
                  avInfReg = rep(1.1, 2),
                  maxit = 2, timing = TRUE, useGPU = TRUE)
-
+tgpu <- fit.kmmr$timings
