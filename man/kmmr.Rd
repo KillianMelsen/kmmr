@@ -21,7 +21,7 @@ kmmr(
   getStartingValues = FALSE,
   super = TRUE,
   useGPU = FALSE,
-  denseThreshold = 0.1,
+  denseThreshold = 0.001,
   debugging = FALSE,
   timing = FALSE
 )

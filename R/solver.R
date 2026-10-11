@@ -538,7 +538,12 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   ## Setup the GPU CUDA context ====
   ##tic("Initializing CUDA")
   if (useGPU && Cmode %in% c("dense", "mixed")) {
-    gpu_ctx <- cuSolverInit(N = ncol(Wdense), rhs_cols_1 = 1, rhs_cols_2 = nrow(k)) # N = dim of the dense block of C (Cdd) matrix, rhs_cols_2 is the number of parameters.
+    if (Cmode == "dense") {
+      # N = dim of the dense block of C (Cdd) matrix, rhs_cols_2 is the number of parameters.
+      gpu_ctx <- cuSolverInit(N = ncol(Wdense), rhs_cols_1 = 1, rhs_cols_2 = nrow(k))
+    } else { # Cmode == "mixed"
+      gpu_ctx <- cuSolverInit(N = ncol(Wdense), rhs_cols_1 = 1, rhs_cols_2 = nrow(k), M = ncol(Wsparse))
+    }
   } else if (useGPU && Cmode == "sparse") {
     stop("GPU cannot be used for a fully sparse model...")
   }
@@ -876,7 +881,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       #toc()
     }
     if (timing) {timer("stop")}
-    #browser()
     ### Cholesky decomposition of C and computing BLUEs/BLUPs ====
     if (timing) {timer("start", "CF of C and solves BLUEs/BLUPs", iter)}
     Riy <- Ri %*% y
@@ -885,8 +889,9 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       logDetCss <- as.numeric(determinant(Ccholss, sqrt = FALSE, logarithm = TRUE)$modulus)
       denseRHS <- crossprod(Wdense, Riy)
       sparseRHS <- crossprod(Wsparse, Riy)
-      ##tic("Solving for BLUEs and BLUPs")
-      Q <- solve(Ccholss, t(as(Cds, "unpackedMatrix")))
+      Csd <- t(Cds)
+      Q <- solve(Ccholss, Csd)
+      Qt <- t(Q) # Store both, cheap anyway because they are highly sparse.
       SC <- Cdd - forceSymmetric(Cds %*% Q)
       sparseTemp <- solve(Ccholss, sparseRHS)
       adjDenseRHS <- denseRHS - (Cds %*% sparseTemp)
@@ -904,8 +909,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         rownames(buDense) <- colnames(SC)
         buSparse <- sparseTemp - (Q %*% buDense)
       }
-      ##toc()
-      # logDetC <- as.numeric(determinant(Ccholss, sqrt = FALSE, logarithm = TRUE)$modulus + determinant(SC, logarithm = TRUE)$modulus)
       logDetC <- logDetCss + logDetSC
       yPy <- as.numeric(crossprod(y, Riy) - (crossprod(sparseRHS, buSparse) + crossprod(denseRHS, buDense)))
       
@@ -922,9 +925,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       RHS <- crossprod(Wdense, Riy)
       if (!useGPU) {
         Ccholdd <- Cholesky(Cdd, perm = FALSE)
-        ##tic("Solving for BLUEs and BLUPs")
         buDense <- solve(Ccholdd, RHS)
-        ##toc()
         # Looks strange because the 2 * is missing, but is correct as diag(Cholesky(Cdd, perm = FALSE))
         # returns the squared diagonal elements of the Cholesky factor, see ?Matrix::`Cholesky-class`
         logDetC <- sum(log(diag(Ccholdd)))
@@ -1199,7 +1200,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         if (!useGPU) {
           buWuDense <- solve(SCchol, adjDenseWuRHS)
         } else {
-          gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = adjDenseWuRHS)
+          gpuResult2 <- cuSolverPhase2(ctx_ptr = gpu_ctx, XWjxZWj_in = adjDenseWuRHS, Qt_in = Qt)
           buWuDense <- gpuResult2$buWu
         }
         buWuSparse <- sparseWuTemp - (Q %*% buWuDense)
@@ -1252,13 +1253,24 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
         }
         # Updated sparse block of the inverse of C:
         if(timing) tic("Updating the SIS")
-        Qsparse <- as(Q, "CsparseMatrix")
-        CiddQt <- Cidd %*% t(Qsparse) # Fully dense result.
-        inplaceUpdateSIS(Ciss, CiddQt, as(t(Qsparse), "unpackedMatrix"))
+        if (!useGPU) {
+          QCidd <- Q %*% Cidd
+          inplaceUpdateSIS(Ciss, QCidd, Q)
+        } else {
+          inplaceUpdateSIS(Ciss, gpuResult2$QCidd, Q)
+        }
         if(timing) toc()
         # Off-diagonal (bottom left) block of the inverse of C:
         if(timing) tic("Off-diagonal block of Ci")
-        Cids <- -CiddQt
+        # Replace this with something that replaces the non-zero elements of Csd
+        # with the corresponding elements of -Q %*% Cidd
+        # We computed Csd = t(Cds) before, now it's just a placeholder that will be overwritten with elements of Cisd as we no longer need it!
+        # replaceInplace(Csd, Qt, Cidd) # Compute only the elements of Cisd = -Q %*% Cidd that are non-zero in Csd = t(Cds)
+        if (!useGPU) {
+          Cisd <- -QCidd
+        } else {
+          Cisd <- -gpuResult2$QCidd
+        }
         if(timing) toc()
         
       } else if (Cmode == "sparse") { # If we only have sparse equations, so Ciss is the full inverse.
@@ -1349,8 +1361,8 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       re <- nUR
       Rie <- Ri %*% e
       if (Cmode == "mixed") {
-        RiWdense <- Ri %*% Wdense
-        RiWsparse <- Ri %*% Wsparse
+        RiWdense <- Ri %*% Wdense # We already have Ri_Wdense
+        RiWsparse <- Ri %*% Wsparse # We already have Ri_Wsparse
       } else if (Cmode == "sparse") {
         RiWsparse <- Ri %*% Wsparse
       } else {
@@ -1367,18 +1379,24 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
             RidRRi_Wdense  <- RidR %*% RiWdense
             RidRRi_Wsparse <- RidR %*% RiWsparse
             Mdd <- forceSymmetric(crossprod(Wdense, RidRRi_Wdense))
-            # Msd <- crossprod(Wsparse, RidRRi_Wdense)
-            Mds <- crossprod(Wdense, RidRRi_Wsparse)
+            Msd <- crossprod(Wsparse, RidRRi_Wdense)
             Mss <- forceSymmetric(crossprod(Wsparse, RidRRi_Wsparse))
-            ddTrace <- sum(Mdd * Cidd)
-            # ssTrace <- sum(diag(Mss %*% Ciss))
+            if (is(Mdd, "dsCMatrix")) {
+              ddTrace <- getTraceSparseDense(Mdd@p, Mdd@i, Mdd@x, Cidd@x, nrow(Mdd))
+            } else {
+              ddTrace <- sum(Mdd * Cidd)
+            }
             if (!is(Mss, "dsCMatrix")) {
               stop("Mss must be a dsCMatrix...")
             }
             ssTrace <- as.numeric(getBlockTracesSparseSparse(Mss@p, Mss@i, Mss@x,
                                                              Ciss@p, Ciss@i, Ciss@x, dimVar = 1, dimNvar = nrow(Ciss), offset = 0))
-            # sdTrace <- 2 * sum(Msd * Cisd)
-            dsTrace <- 2 * sum(Mds * Cids)
+            if (is(Msd, "dgCMatrix")) {
+              dsTrace <- 2 * getAccuSparseDense(Msd@p, Msd@i, Msd@x, Cisd@x, nrow(Msd))
+            } else {
+              dsTrace <- 2 * sum(Msd * Cisd)
+            }
+            
             tr2 <- ssTrace + dsTrace + ddTrace
             
           } else if (Cmode == "sparse") {

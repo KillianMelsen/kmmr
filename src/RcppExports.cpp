@@ -111,16 +111,32 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// getAccuSparseDense
+double getAccuSparseDense(IntegerVector p, IntegerVector i, NumericVector x, NumericVector dense_x, int n_rows);
+RcppExport SEXP _kmmr_getAccuSparseDense(SEXP pSEXP, SEXP iSEXP, SEXP xSEXP, SEXP dense_xSEXP, SEXP n_rowsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type p(pSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type i(iSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x(xSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type dense_x(dense_xSEXP);
+    Rcpp::traits::input_parameter< int >::type n_rows(n_rowsSEXP);
+    rcpp_result_gen = Rcpp::wrap(getAccuSparseDense(p, i, x, dense_x, n_rows));
+    return rcpp_result_gen;
+END_RCPP
+}
 // cuSolverInit
-SEXP cuSolverInit(int N, int rhs_cols_1, int rhs_cols_2);
-RcppExport SEXP _kmmr_cuSolverInit(SEXP NSEXP, SEXP rhs_cols_1SEXP, SEXP rhs_cols_2SEXP) {
+SEXP cuSolverInit(int N, int rhs_cols_1, int rhs_cols_2, int M);
+RcppExport SEXP _kmmr_cuSolverInit(SEXP NSEXP, SEXP rhs_cols_1SEXP, SEXP rhs_cols_2SEXP, SEXP MSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< int >::type N(NSEXP);
     Rcpp::traits::input_parameter< int >::type rhs_cols_1(rhs_cols_1SEXP);
     Rcpp::traits::input_parameter< int >::type rhs_cols_2(rhs_cols_2SEXP);
-    rcpp_result_gen = Rcpp::wrap(cuSolverInit(N, rhs_cols_1, rhs_cols_2));
+    Rcpp::traits::input_parameter< int >::type M(MSEXP);
+    rcpp_result_gen = Rcpp::wrap(cuSolverInit(N, rhs_cols_1, rhs_cols_2, M));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -160,26 +176,51 @@ BEGIN_RCPP
 END_RCPP
 }
 // cuSolverPhase2
-Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in);
-RcppExport SEXP _kmmr_cuSolverPhase2(SEXP ctx_ptrSEXP, SEXP XWjxZWj_inSEXP) {
+Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in, SEXP Qt_in);
+RcppExport SEXP _kmmr_cuSolverPhase2(SEXP ctx_ptrSEXP, SEXP XWjxZWj_inSEXP, SEXP Qt_inSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< SEXP >::type ctx_ptr(ctx_ptrSEXP);
     Rcpp::traits::input_parameter< SEXP >::type XWjxZWj_in(XWjxZWj_inSEXP);
-    rcpp_result_gen = Rcpp::wrap(cuSolverPhase2(ctx_ptr, XWjxZWj_in));
+    Rcpp::traits::input_parameter< SEXP >::type Qt_in(Qt_inSEXP);
+    rcpp_result_gen = Rcpp::wrap(cuSolverPhase2(ctx_ptr, XWjxZWj_in, Qt_in));
     return rcpp_result_gen;
 END_RCPP
 }
 // inplaceUpdateSIS
-void inplaceUpdateSIS(S4 Ciss, S4 tW_mat, S4 tQ_mat);
-RcppExport SEXP _kmmr_inplaceUpdateSIS(SEXP CissSEXP, SEXP tW_matSEXP, SEXP tQ_matSEXP) {
+void inplaceUpdateSIS(S4 Ciss, S4 QCidd, S4 Q);
+RcppExport SEXP _kmmr_inplaceUpdateSIS(SEXP CissSEXP, SEXP QCiddSEXP, SEXP QSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< S4 >::type Ciss(CissSEXP);
+    Rcpp::traits::input_parameter< S4 >::type QCidd(QCiddSEXP);
+    Rcpp::traits::input_parameter< S4 >::type Q(QSEXP);
+    inplaceUpdateSIS(Ciss, QCidd, Q);
+    return R_NilValue;
+END_RCPP
+}
+// inplaceUpdateSIS_Qt
+void inplaceUpdateSIS_Qt(S4 Ciss, S4 QCidd, S4 Qt);
+RcppExport SEXP _kmmr_inplaceUpdateSIS_Qt(SEXP CissSEXP, SEXP QCiddSEXP, SEXP QtSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< S4 >::type Ciss(CissSEXP);
+    Rcpp::traits::input_parameter< S4 >::type QCidd(QCiddSEXP);
+    Rcpp::traits::input_parameter< S4 >::type Qt(QtSEXP);
+    inplaceUpdateSIS_Qt(Ciss, QCidd, Qt);
+    return R_NilValue;
+END_RCPP
+}
+// inplaceUpdateSIS_old
+void inplaceUpdateSIS_old(S4 Ciss, S4 tW_mat, S4 tQ_mat);
+RcppExport SEXP _kmmr_inplaceUpdateSIS_old(SEXP CissSEXP, SEXP tW_matSEXP, SEXP tQ_matSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< S4 >::type Ciss(CissSEXP);
     Rcpp::traits::input_parameter< S4 >::type tW_mat(tW_matSEXP);
     Rcpp::traits::input_parameter< S4 >::type tQ_mat(tQ_matSEXP);
-    inplaceUpdateSIS(Ciss, tW_mat, tQ_mat);
+    inplaceUpdateSIS_old(Ciss, tW_mat, tQ_mat);
     return R_NilValue;
 END_RCPP
 }
@@ -216,12 +257,15 @@ static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_getBlockTracesSparseSparse", (DL_FUNC) &_kmmr_getBlockTracesSparseSparse, 9},
     {"_kmmr_getBlockTracesDenseDense", (DL_FUNC) &_kmmr_getBlockTracesDenseDense, 6},
     {"_kmmr_getTraceSparseDense", (DL_FUNC) &_kmmr_getTraceSparseDense, 5},
-    {"_kmmr_cuSolverInit", (DL_FUNC) &_kmmr_cuSolverInit, 3},
+    {"_kmmr_getAccuSparseDense", (DL_FUNC) &_kmmr_getAccuSparseDense, 5},
+    {"_kmmr_cuSolverInit", (DL_FUNC) &_kmmr_cuSolverInit, 4},
     {"_kmmr_cuSolverCleanup", (DL_FUNC) &_kmmr_cuSolverCleanup, 1},
     {"_kmmr_getDeviceProps", (DL_FUNC) &_kmmr_getDeviceProps, 1},
     {"_kmmr_cuSolverPhase1", (DL_FUNC) &_kmmr_cuSolverPhase1, 4},
-    {"_kmmr_cuSolverPhase2", (DL_FUNC) &_kmmr_cuSolverPhase2, 2},
+    {"_kmmr_cuSolverPhase2", (DL_FUNC) &_kmmr_cuSolverPhase2, 3},
     {"_kmmr_inplaceUpdateSIS", (DL_FUNC) &_kmmr_inplaceUpdateSIS, 3},
+    {"_kmmr_inplaceUpdateSIS_Qt", (DL_FUNC) &_kmmr_inplaceUpdateSIS_Qt, 3},
+    {"_kmmr_inplaceUpdateSIS_old", (DL_FUNC) &_kmmr_inplaceUpdateSIS_old, 3},
     {"_kmmr_batchedWorkingVariates", (DL_FUNC) &_kmmr_batchedWorkingVariates, 2},
     {"_kmmr_batchedScores", (DL_FUNC) &_kmmr_batchedScores, 2},
     {NULL, NULL, 0}

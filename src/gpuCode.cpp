@@ -3,18 +3,55 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cusolverDn.h>
+#include <cusparse.h> // NEW: remember to link with -lcusparse (PKG_LIBS in Makevars)
 
 #define CHECK_CUDA(call) {                                                                          \
-  cudaError_t err = call;                                                                           \
-  if (err != cudaSuccess) {                                                                         \
-    Rcpp::stop("CUDA error at line %d of /src/gpuCode.cpp: %s", __LINE__, cudaGetErrorString(err)); \
-  }                                                                                                 \
-}                                                                                                 
+cudaError_t err = call;                                                                             \
+if (err != cudaSuccess) {                                                                           \
+  Rcpp::stop("CUDA error at line %d of /src/gpuCode.cpp: %s", __LINE__, cudaGetErrorString(err));   \
+}                                                                                                   \
+}
+
+// NEW:
+#define CHECK_CUSPARSE(call) {                                                                                \
+cusparseStatus_t st_ = call;                                                                                  \
+if (st_ != CUSPARSE_STATUS_SUCCESS) {                                                                         \
+  Rcpp::stop("cuSPARSE error at line %d of /src/gpuCode.cpp: %s", __LINE__, cusparseGetErrorString(st_));     \
+}                                                                                                             \
+}
+
+// NEW:
+#define CHECK_CUBLAS(call) {                                                                                  \
+cublasStatus_t st_ = call;                                                                                    \
+if (st_ != CUBLAS_STATUS_SUCCESS) {                                                                           \
+  Rcpp::stop("cuBLAS error at line %d of /src/gpuCode.cpp: status code %d", __LINE__, static_cast<int>(st_)); \
+}                                                                                                             \
+}
+
+// NEW: Grow-only device buffer. Only used for the cuSPARSE workspace, whose size comes from cusparseSpMM_bufferSize.
+struct DevBuf {
+  void*  ptr = nullptr;
+  size_t cap = 0; // capacity in bytes
+  
+  void reserve(size_t bytes) {
+    if (bytes <= cap) return;
+    release();
+    CHECK_CUDA( cudaMalloc(&ptr, bytes) );
+    cap = bytes;
+  }
+  
+  void release() {
+    if (ptr) cudaFree(ptr);
+    ptr = nullptr;
+    cap = 0;
+  }
+};
 
 // The Persistent Context Structure:
 struct cuSolverContext {
   cublasHandle_t cublasH;
   cusolverDnHandle_t cusolverH;
+  cusparseHandle_t cusparseH; // NEW
   cudaStream_t stream;
   
   int N;
@@ -29,6 +66,21 @@ struct cuSolverContext {
   double *d_work;
   double *d_diag;
   int *d_info;
+  
+  // NEW: everything for QCidd = Q %*% Cidd. M == 0 means Q is not used.
+  // M is known at cuSolverInit, so d_Qp, d_QCidd, descB and descC are created there. The number of stored entries
+  // of Q is only known at the first phase 2 call with Q; from then on it is fixed (nnzQ != 0) and d_Qi, d_Qx and
+  // descA are created at that point.
+  int M;                      // rows of Q (= dimension of Ciss)
+  int nnzQ;                   // stored entries of Q; 0 until the first phase 2 call with Q, fixed afterwards
+  int *d_Qp;                  // row pointers of Q (= column pointers of Qt), M + 1 ints
+  int *d_Qi;                  // column indices of Q (= row indices of Qt), nnzQ ints
+  double *d_Qx;               // values of Q, nnzQ doubles
+  double *d_QCidd;            // dense M x N result, column-major
+  cusparseSpMatDescr_t descA; // Q: M x N CSR view of d_Qp / d_Qi / d_Qx
+  cusparseDnMatDescr_t descB; // Cidd: N x N view of d_C
+  cusparseDnMatDescr_t descC; // QCidd: M x N view of d_QCidd
+  DevBuf d_spmmBuf;           // cuSPARSE workspace (grow-only)
 };
 
 // The finalizer (safely tears down the struct and VRAM):
@@ -42,8 +94,17 @@ void context_finalizer_hook(SEXP ptr_in) {
       if (ctx->d_work) cudaFree(ctx->d_work);
       if (ctx->d_diag) cudaFree(ctx->d_diag);
       if (ctx->d_info) cudaFree(ctx->d_info);
+      if (ctx->d_Qp) cudaFree(ctx->d_Qp);                 // NEW
+      if (ctx->d_Qi) cudaFree(ctx->d_Qi);                 // NEW
+      if (ctx->d_Qx) cudaFree(ctx->d_Qx);                 // NEW
+      if (ctx->d_QCidd) cudaFree(ctx->d_QCidd);           // NEW
+      ctx->d_spmmBuf.release();                           // NEW
+      if (ctx->descA) cusparseDestroySpMat(ctx->descA);   // NEW
+      if (ctx->descB) cusparseDestroyDnMat(ctx->descB);   // NEW
+      if (ctx->descC) cusparseDestroyDnMat(ctx->descC);   // NEW
       if (ctx->cublasH) cublasDestroy(ctx->cublasH);
       if (ctx->cusolverH) cusolverDnDestroy(ctx->cusolverH);
+      if (ctx->cusparseH) cusparseDestroy(ctx->cusparseH); // NEW
       if (ctx->stream) cudaStreamDestroy(ctx->stream);
       
       delete ctx; // Free the struct itself
@@ -53,9 +114,11 @@ void context_finalizer_hook(SEXP ptr_in) {
 }
 
 // The initializer (called from R once before iterating):
+// CHANGED: optional M (= nrow(Q)) lets us allocate the dense QCidd buffer and its descriptors up front.
+// Leave it at 0 if Q is not used.
 // [[Rcpp::export(cuSolverInit)]]
-SEXP cuSolverInit(int N, int rhs_cols_1, int rhs_cols_2) {
-  cuSolverContext* ctx = new cuSolverContext();
+SEXP cuSolverInit(int N, int rhs_cols_1, int rhs_cols_2, int M = 0) {
+  cuSolverContext* ctx = new cuSolverContext(); // value-initialised: all raw pointers/handles start as nullptr
   ctx->N = N;
   ctx->rhs_cols_1 = rhs_cols_1; // always 1
   ctx->rhs_cols_2 = rhs_cols_2; // number of parameters (variance components)
@@ -65,6 +128,8 @@ SEXP cuSolverInit(int N, int rhs_cols_1, int rhs_cols_2) {
   CHECK_CUDA( cudaStreamCreateWithFlags(&(ctx->stream), cudaStreamNonBlocking) );
   cublasSetStream(ctx->cublasH, ctx->stream);
   cusolverDnSetStream(ctx->cusolverH, ctx->stream);
+  CHECK_CUSPARSE( cusparseCreate(&(ctx->cusparseH)) );          // NEW
+  CHECK_CUSPARSE( cusparseSetStream(ctx->cusparseH, ctx->stream) ); // NEW
   
   // Allocate all memory upfront:
   CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_C)), N * N * sizeof(double)) );
@@ -82,6 +147,16 @@ SEXP cuSolverInit(int N, int rhs_cols_1, int rhs_cols_2) {
   
   ctx->lwork = std::max(lwork_potrf, lwork_potri);
   CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_work)), ctx->lwork * sizeof(double)) );
+  
+  // NEW: what we can already allocate for QCidd = Q %*% Cidd. B (Cidd) lives in d_C and C (QCidd) in d_QCidd; both
+  // pointers never change, so their cuSPARSE descriptors are created once here and reused by every phase 2.
+  if (M > 0) {
+    ctx->M = M;
+    CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_Qp)), (static_cast<size_t>(M) + 1) * sizeof(int)) );
+    CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_QCidd)), static_cast<size_t>(M) * N * sizeof(double)) );
+    CHECK_CUSPARSE( cusparseCreateDnMat(&(ctx->descB), N, N, N, ctx->d_C, CUDA_R_64F, CUSPARSE_ORDER_COL) );
+    CHECK_CUSPARSE( cusparseCreateDnMat(&(ctx->descC), M, N, M, ctx->d_QCidd, CUDA_R_64F, CUSPARSE_ORDER_COL) );
+  }
   
   // Wrap and return to R
   Rcpp::XPtr<cuSolverContext> ptr_out(ctx, false);
@@ -129,6 +204,105 @@ arma::dmat convert_to_dmat(SEXP x) {
     }
   }
   Rcpp::stop("Input must be a dense Matrix object (dgeMatrix or dsyMatrix)...");
+}
+
+// NEW: Mirrors the upper triangle of the column-major n x n matrix d_A (on the device) into its lower triangle.
+// After potri only the upper triangle of d_C holds C^-1 (the lower triangle is leftover input), but cuSPARSE has no
+// notion of a symmetric / uplo dense operand, so SpMM needs the full matrix.
+// Element (r, c) lives at d_A[r + c * n]. For each column j: copy row j (columns j+1..n-1, stride n)
+// into column j (rows j+1..n-1, stride 1). Source and destination never overlap.
+static void mirrorUpperToLower(cuSolverContext* ctx, double* d_A, int n) {
+  for (int j = 0; j < n - 1; ++j) {
+    CHECK_CUBLAS( cublasDcopy(ctx->cublasH, n - 1 - j,
+                              d_A + j + static_cast<size_t>(j + 1) * n, n,
+                              d_A + (j + 1) + static_cast<size_t>(j) * n, 1) );
+  }
+}
+
+// NEW: QCidd = Q %*% Cidd on the GPU, where Cidd is the inverse currently stored (upper triangle) in ctx->d_C.
+//
+// Qt_in must be a dgCMatrix holding t(Q) (N x M). The CSC arrays of t(Q) are *exactly* the CSR arrays of Q
+// (M x N): column pointers <-> row pointers, row indices <-> column indices. So Qt's p / i / x slots are uploaded
+// as-is and described to cuSPARSE as a CSR matrix with M rows and N columns. No conversion or transposition needed.
+//
+// The number of stored entries of Q is taken from the first call and must stay the same afterwards (the values and
+// the pattern may change; only the count is fixed).
+//
+// Returns a dgeMatrix (M x N, column-major), i.e. the same thing `Q %*% Cidd` gives on the CPU.
+static Rcpp::S4 computeQCidd(cuSolverContext* ctx, SEXP Qt_in) {
+  if (ctx->d_QCidd == nullptr) {
+    Rcpp::stop("This context was created without Q: call cuSolverInit(N, rhs_cols_1, rhs_cols_2, M).");
+  }
+  if (!Rf_isS4(Qt_in)) {
+    Rcpp::stop("Qt must be a dgCMatrix, i.e. t(Q) where Q is a dgCMatrix.");
+  }
+  Rcpp::S4 Qt(Qt_in);
+  if (!Qt.is("dgCMatrix")) {
+    Rcpp::stop("Qt must be a dgCMatrix, i.e. t(Q) where Q is a dgCMatrix.");
+  }
+  Rcpp::IntegerVector Qp   = Qt.slot("p");
+  Rcpp::IntegerVector Qi   = Qt.slot("i");
+  Rcpp::NumericVector Qx   = Qt.slot("x");
+  Rcpp::IntegerVector Qdim = Qt.slot("Dim");
+  
+  const int N = ctx->N;     // dimension of Cidd = rows of Qt = columns of Q
+  const int M = ctx->M;     // columns of Qt = rows of Q
+  if (Qdim[0] != N || Qdim[1] != M) {
+    Rcpp::stop("Qt is %i x %i but cuSolverInit was told to expect %i x %i.", Qdim[0], Qdim[1], N, M);
+  }
+  const int nnz = static_cast<int>(Qx.size());
+  if (nnz == 0) {
+    Rcpp::stop("Qt has no stored entries.");
+  }
+  
+  if (ctx->nnzQ == 0) {
+    // First call with Q: now the number of stored entries is known. Allocate the arrays that depend on it and create
+    // the CSR descriptor of Q once; its pointers and nnz never change from here on.
+    if (ctx->d_Qi) { cudaFree(ctx->d_Qi); ctx->d_Qi = nullptr; }
+    if (ctx->d_Qx) { cudaFree(ctx->d_Qx); ctx->d_Qx = nullptr; }
+    CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_Qi)), static_cast<size_t>(nnz) * sizeof(int)) );
+    CHECK_CUDA( cudaMalloc(reinterpret_cast<void**>(&(ctx->d_Qx)), static_cast<size_t>(nnz) * sizeof(double)) );
+    CHECK_CUSPARSE( cusparseCreateCsr(&(ctx->descA), M, N, nnz, ctx->d_Qp, ctx->d_Qi, ctx->d_Qx,
+                                      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F) );
+    ctx->nnzQ = nnz; // set last, so a failed first call leaves the context in the "not yet initialised for Q" state
+  } else if (nnz != ctx->nnzQ) {
+    Rcpp::stop("Qt has %i stored entries but the first call had %i; the number of non-zeros must stay the same.",
+               nnz, ctx->nnzQ);
+  }
+  
+  // Upload Q:
+  CHECK_CUDA( cudaMemcpyAsync(ctx->d_Qp, Qp.begin(), (static_cast<size_t>(M) + 1) * sizeof(int), cudaMemcpyHostToDevice, ctx->stream) );
+  CHECK_CUDA( cudaMemcpyAsync(ctx->d_Qi, Qi.begin(), static_cast<size_t>(nnz) * sizeof(int), cudaMemcpyHostToDevice, ctx->stream) );
+  CHECK_CUDA( cudaMemcpyAsync(ctx->d_Qx, Qx.begin(), static_cast<size_t>(nnz) * sizeof(double), cudaMemcpyHostToDevice, ctx->stream) );
+  
+  // Fill the lower triangle of d_C so it holds the full symmetric Cidd.
+  // (Phase 1 re-uploads C into d_C next iteration, and potri already destroyed the Cholesky factor, so nothing is lost.)
+  mirrorUpperToLower(ctx, ctx->d_C, N);
+  
+  const double alpha = 1.0;
+  const double beta  = 0.0;
+  size_t bufSize = 0;
+  CHECK_CUSPARSE( cusparseSpMM_bufferSize(ctx->cusparseH,
+                                          CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                          &alpha, ctx->descA, ctx->descB, &beta, ctx->descC,
+                                          CUDA_R_64F, CUSPARSE_SPMM_ALG_DEFAULT, &bufSize) );
+  ctx->d_spmmBuf.reserve(std::max<size_t>(bufSize, 16)); // grow-only, so this only allocates the first time (or if it needs more)
+  CHECK_CUSPARSE( cusparseSpMM(ctx->cusparseH,
+                               CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                               &alpha, ctx->descA, ctx->descB, &beta, ctx->descC,
+                               CUDA_R_64F, CUSPARSE_SPMM_ALG_DEFAULT, ctx->d_spmmBuf.ptr) );
+  
+  // Copy the dense result back to R:
+  const R_xlen_t len = static_cast<R_xlen_t>(M) * N;
+  Rcpp::NumericVector QCidd_vec(Rcpp::no_init(len)); // no point zero-filling ~1 GB we are about to overwrite
+  CHECK_CUDA( cudaMemcpyAsync(REAL(QCidd_vec), ctx->d_QCidd, len * sizeof(double), cudaMemcpyDeviceToHost, ctx->stream) );
+  CHECK_CUDA( cudaStreamSynchronize(ctx->stream) );
+  
+  Rcpp::S4 QCidd_dge("dgeMatrix");
+  QCidd_dge.slot("x") = QCidd_vec;
+  QCidd_dge.slot("Dim") = Rcpp::IntegerVector::create(M, N);
+  QCidd_dge.slot("Dimnames") = Rcpp::List::create(R_NilValue, R_NilValue);
+  return QCidd_dge;
 }
 
 // [[Rcpp::export(cuSolverPhase1)]]
@@ -194,7 +368,8 @@ Rcpp::List cuSolverPhase1(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol
   logDetC *= 2.0;
   
   // Copy the full Cholesky factor back to R only after convergence so we can make predictions and PEVs:
-  SEXP chol_host = R_NilValue;
+  // CHANGED: was a raw SEXP, which is not protected from R's garbage collector while List::create() allocates below.
+  Rcpp::RObject chol_host = R_NilValue;
   if (returnCchol) {
     arma::dmat C_factor_host(N, N);
     CHECK_CUDA( cudaMemcpyAsync(C_factor_host.memptr(), ctx->d_C, N * N * sizeof(double), cudaMemcpyDeviceToHost, ctx->stream) );
@@ -211,8 +386,10 @@ Rcpp::List cuSolverPhase1(SEXP ctx_ptr, SEXP C_in, SEXP RHS_in, bool returnCchol
   );
 }
 
+// CHANGED: optional third argument Qt_in. If it is a dgCMatrix holding t(Q), the returned list also contains
+// QCidd = Q %*% Cidd (dgeMatrix, M x N); otherwise QCidd is NULL.
 // [[Rcpp::export(cuSolverPhase2)]]
-Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in) {
+Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in, SEXP Qt_in = R_NilValue) {
   
   // Unwrap the persistent context
   Rcpp::XPtr<cuSolverContext> ctx(ctx_ptr);
@@ -267,10 +444,16 @@ Rcpp::List cuSolverPhase2(SEXP ctx_ptr, SEXP XWjxZWj_in) {
   Ci_host.slot("uplo") = "U";
   Ci_host.slot("factors") = Rcpp::List::create(); // dpoMatrix strictly expects an empty list here by default
   
+  // NEW: Q %*% Cidd via cuSPARSE. This must come after the Ci copy above, because it mirrors the upper triangle of d_C
+  // into the lower triangle in place.
+  Rcpp::RObject QCidd = R_NilValue;
+  if (!Rf_isNull(Qt_in)) {
+    QCidd = computeQCidd(ctx.get(), Qt_in);
+  }
+  
   return Rcpp::List::create(
     Rcpp::Named("buWu") = buWu_dge,
-    Rcpp::Named("Ci") = Ci_host
+    Rcpp::Named("Ci") = Ci_host,
+    Rcpp::Named("QCidd") = QCidd
   );
 }
-
-

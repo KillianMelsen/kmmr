@@ -32,8 +32,12 @@ getTraceSparseDense <- function(p, i, x, dense_x, n_rows) {
     .Call(`_kmmr_getTraceSparseDense`, p, i, x, dense_x, n_rows)
 }
 
-cuSolverInit <- function(N, rhs_cols_1, rhs_cols_2) {
-    .Call(`_kmmr_cuSolverInit`, N, rhs_cols_1, rhs_cols_2)
+getAccuSparseDense <- function(p, i, x, dense_x, n_rows) {
+    .Call(`_kmmr_getAccuSparseDense`, p, i, x, dense_x, n_rows)
+}
+
+cuSolverInit <- function(N, rhs_cols_1, rhs_cols_2, M = 0L) {
+    .Call(`_kmmr_cuSolverInit`, N, rhs_cols_1, rhs_cols_2, M)
 }
 
 cuSolverCleanup <- function(ptr_in) {
@@ -48,12 +52,20 @@ cuSolverPhase1 <- function(ctx_ptr, C_in, RHS_in, returnCchol = FALSE) {
     .Call(`_kmmr_cuSolverPhase1`, ctx_ptr, C_in, RHS_in, returnCchol)
 }
 
-cuSolverPhase2 <- function(ctx_ptr, XWjxZWj_in) {
-    .Call(`_kmmr_cuSolverPhase2`, ctx_ptr, XWjxZWj_in)
+cuSolverPhase2 <- function(ctx_ptr, XWjxZWj_in, Qt_in = NULL) {
+    .Call(`_kmmr_cuSolverPhase2`, ctx_ptr, XWjxZWj_in, Qt_in)
 }
 
-inplaceUpdateSIS <- function(Ciss, tW_mat, tQ_mat) {
-    invisible(.Call(`_kmmr_inplaceUpdateSIS`, Ciss, tW_mat, tQ_mat))
+inplaceUpdateSIS <- function(Ciss, QCidd, Q) {
+    invisible(.Call(`_kmmr_inplaceUpdateSIS`, Ciss, QCidd, Q))
+}
+
+inplaceUpdateSIS_Qt <- function(Ciss, QCidd, Qt) {
+    invisible(.Call(`_kmmr_inplaceUpdateSIS_Qt`, Ciss, QCidd, Qt))
+}
+
+inplaceUpdateSIS_old <- function(Ciss, tW_mat, tQ_mat) {
+    invisible(.Call(`_kmmr_inplaceUpdateSIS_old`, Ciss, tW_mat, tQ_mat))
 }
 
 batchedWorkingVariates <- function(umat_sigmai, batchedDerivs) {

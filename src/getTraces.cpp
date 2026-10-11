@@ -323,5 +323,27 @@ double getTraceSparseDense(IntegerVector p, IntegerVector i, NumericVector x, Nu
   return tr;
 }
 
+// [[Rcpp::export]]
+double getAccuSparseDense(IntegerVector p, IntegerVector i, NumericVector x, NumericVector dense_x, int n_rows) {
+  double total = 0.0;
+  const R_xlen_t n_cols = p.size() - 1;
+  
+  if (dense_x.size() != static_cast<R_xlen_t>(n_rows) * n_cols) {
+    stop("Dimension mismatch between sparse and dense matrices");
+  }
+  
+  const int* p_ptr = INTEGER(p);
+  const int* i_ptr = INTEGER(i);
+  const double* x_ptr = REAL(x);
+  const double* dense_x_ptr = REAL(dense_x);
 
+  for (R_xlen_t col = 0; col < n_cols; ++col) {
+    const double* b_col = dense_x_ptr + col * n_rows;  // start of column in B
+    const int end = p_ptr[col + 1];
+    for (int idx = p_ptr[col]; idx < end; ++idx) {
+      total += x_ptr[idx] * b_col[i_ptr[idx]];
+    }
+  }
+  return total;
+}
 

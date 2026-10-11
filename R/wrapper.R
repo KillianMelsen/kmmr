@@ -687,7 +687,7 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
                  maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
                  timesToBoundary = 5, getStartingValues = FALSE, super = TRUE,
-                 useGPU = FALSE, denseThreshold = 0.1, debugging = FALSE, timing = FALSE) {
+                 useGPU = FALSE, denseThreshold = 0.001, debugging = FALSE, timing = FALSE) {
   
   # Basic argument checking:
   if (is.null(fixed)) {
