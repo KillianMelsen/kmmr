@@ -33,7 +33,7 @@
  *
  * Sparse matrix routines.
  *
- * cholmod_SIS sparse inverse (from simplicial or supernodal Cholesky factor)
+ * cholmod_spinv		sparse inverse (from simplicial Cholesky)
  *
  * Requires the Core module, and three packages: CHOLMOD, AMD and COLAMD.
  * Optionally uses the Supernodal and Partition modules.
