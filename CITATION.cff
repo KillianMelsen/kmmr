@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use or incorporate parts of this software in any of your projects, please cite our arXiv preprint."
+authors:
+  - family-names: "Melsen"
+    given-names: "Killian A.C."
+    website: "https://www.linkedin.com/in/killianmelsen/"
+
+title: "kmmr"
+
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Melsen"
+      given-names: "Killian A.C."
+    - family-names: "van Eeuwijk"
+      given-names: "Fred A."
+    - family-names: "Peeters"
+      given-names: "Carel F.W."
+  title: "A hybrid GPU/CPU implementation of the average information restricted maximum likelihood algorithm for fitting multivariate linear mixed models"
+  year: 2026
+  journal: "arXiv preprint"
+  doi: "10.48550/arXiv.2610.16671"
+  url: "https://arxiv.org/abs/2610.16671"
