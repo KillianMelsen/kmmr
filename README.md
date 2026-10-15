@@ -20,6 +20,7 @@ remotes::install_github("KillianMelsen/kmmr")
 ```
 
 ---
+If you use this software in your work, please cite the following pre-print.
 
 Melsen, K.A.C., van Eeuwijk, F.A. & Peeters, C.F.W. (2026).
 A hybrid GPU/CPU implementation of the average information restricted maximum likelihood algorithm for fitting multivariate linear mixed models.
