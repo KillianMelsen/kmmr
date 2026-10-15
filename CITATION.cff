@@ -11,11 +11,11 @@ preferred-citation:
   type: article
   authors:
     - family-names: "Melsen"
-      given-names: "Killian A.C."
+      given-names: "Killian A. C."
     - family-names: "van Eeuwijk"
       given-names: "Fred A."
     - family-names: "Peeters"
-      given-names: "Carel F.W."
+      given-names: "Carel F. W."
   title: "A hybrid GPU/CPU implementation of the average information restricted maximum likelihood algorithm for fitting multivariate linear mixed models"
   year: 2026
   journal: "arXiv preprint"
