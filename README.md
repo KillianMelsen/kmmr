@@ -2,6 +2,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![arXiv](https://img.shields.io/badge/arXiv-2610.16671-b31b1b.svg)](https://arxiv.org/abs/2610.16671)
+[![DOI](https://zenodo.org/badge/1178027814.svg)](https://doi.org/10.5281/zenodo.23398636)
 
 `kmmr` is an experimental R package for variance component estimation in multivariate linear mixed models (LMMs).
 It features an NVIDIA CUDA based hybrid GPU/CPU implementation of the Average Information Restricted Maximum Likelihood (AI-REML) algorithm.
