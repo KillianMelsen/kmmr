@@ -138,7 +138,7 @@ getCormat_cors <- function(p, params, doCormat = TRUE, doCormati = TRUE, doLogDe
     cormat[lower.tri(cormat)] <- params[1]
     cormat <- forceSymmetric(cormat, uplo = "L")
   }
-  if (doChol) {
+  if (doLogDet) {
     cormatChol <- chol(cormat)
     logDet <- 2 * sum(log(diag(cormatChol)))
   }
@@ -414,7 +414,8 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
                      timesToBoundary, super, useGPU, denseThreshold, debugging, timing) {
   ## Prelims ====
   start <- proc.time()[3]
-  k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
+  # k <- Matrix(0, length(init), maxit + 1, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
+  k <- Matrix(0, length(init), maxit, sparse = FALSE, doDiag = FALSE) # Matrix of parameter estimates.
   k[, 1] <- init # Filling with initial values.
   boundary <- numeric(length(init)) # Vector to hold how many times each parameter has crossed the boundary.
   n <- nrow(y)
@@ -550,7 +551,8 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   ##toc()
   
   ## Start iterating ====
-  LL <- numeric(maxit + 1)
+  # LL <- numeric(maxit + 1)
+  LL <- numeric(maxit)
   converged <- FALSE
   iter <- 1
   while (!(converged) && iter <= maxit) {
@@ -975,6 +977,7 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     LL[iter] <- -0.5 * (logDetC + logDetR + logDetG + yPy)
     if (timing) {timer("stop")}
     if (iter == 1 || LL[iter] >= LL[iter - 1]) {
+      nhalved <- 0 # Reset the counter for how many times the proposed update has been halved.
       ### Working variates ====
       #### Genetic working variates ====
       if (timing) {timer("start", "Random effect working variates", iter)}
@@ -1746,27 +1749,38 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       if (iter > 1) {
         deltaLL <- LL[iter] - LL[iter - 1]
         if (deltaLL > 0 & deltaLL <= tolConvLL & !(constraintsUsed)) {
-          LL <- LL[1:(iter + 1)]
-          k <- k[, 1:(iter + 1)]
-          LL[iter + 1] <- LL[iter]
-          k[, iter + 1] <- k[, iter, drop = FALSE] + delta
-          converged <- TRUE
+          LL <- LL[1:iter] # LL <- LL[1:(iter + 1)]
+          k <- k[, 1:iter, drop = FALSE] # k <- k[, 1:(iter + 1)]
+          # LL[iter + 1] <- LL[iter]
+          # k[, iter + 1] <- k[, iter, drop = FALSE] + delta
+          converged <- TRUE # While loop will break.
         }
       }
       
-      # Final update to parameters if not converged and not reached maxit:
-      if (iter <= maxit && !(converged)) {
+      # Final update to parameters if not converged and not reached maxit.
+      # None of this executes if we reached convergence.
+      if (iter < maxit && !(converged)) { # if (iter <= maxit && !(converged)) { # If we have not reached maxit and no convergence we update the parameters and increment iter.
         k[, iter + 1] <- k[, iter, drop = FALSE] + delta
+        iter <- iter + 1
+      } else if (iter == maxit && !(converged)) { # If we have reached maxit but no convergence we break the while loop but do not update parameters.
         iter <- iter + 1
       }
     } else {
+      nhalved <- nhalved + 1 # Incrementing the counter for how many times the proposed update has been halved.
+      if (nhalved > 5) {
+        stop("Log-likelihood still decreased after halving the proposed update 5 times...")
+      }
       # Retrying with smaller delta ====
-      cat(sprintf("Log-likelihood decreased. Retrying with smaller update...\n"))
+      cat(sprintf("Log-likelihood decreased. Retrying with smaller update (attempt %d / 5)...\n", nhalved))
       iter <- iter - 1
       delta <- delta / 2
       k[, iter + 1] <- k[, iter, drop = FALSE] + delta
       iter <- iter + 1
     }
+  }
+  
+  if (!converged) {
+    cat(sprintf("No convergence after reaching the maximum number of iterations.\n"))
   }
   
   # Now that when we have reached maxit or convergence, we need to compute Cchol one

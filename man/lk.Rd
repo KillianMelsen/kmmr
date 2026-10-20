@@ -9,7 +9,9 @@ lk(factor, base)
 \arguments{
 \item{factor}{Data factor.}
 
-\item{base}{Correlation matrix or kinship.}
+\item{base}{(Inverse) correlation matrix or kinship. If part of the non-variable structure
+of a random effect, the inverse must be supplied. If part of the variable structure, the original
+(correlation) matrix must be supplied.}
 }
 \value{
 List with all information on this correlation structure.

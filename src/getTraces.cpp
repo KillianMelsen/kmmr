@@ -231,6 +231,7 @@ NumericMatrix getBlockTracesDenseDense(NumericVector C, int C_rows,
 
 // C is the dense inverse of the coefficient matrix.
 // K is the sparse constant matrix (inverse pedigree based matrix).
+// [[Rcpp::export]]
 NumericMatrix getBlockTracesDenseSparse(NumericVector C, int C_rows,
                                         IntegerVector K_p, IntegerVector K_i, NumericVector K_x,
                                         int dimVar, int dimNvar, int offset) {

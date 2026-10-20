@@ -5,10 +5,10 @@
 \title{kmmr}
 \usage{
 kmmr(
-  fixed = NULL,
-  random = NULL,
+  fixed,
+  random,
   residual = ~units,
-  data = NULL,
+  data,
   maxit = 20,
   stepSize = NULL,
   avInfReg = NULL,
@@ -21,50 +21,50 @@ kmmr(
   getStartingValues = FALSE,
   super = TRUE,
   useGPU = FALSE,
-  denseThreshold = 0.001,
+  denseThreshold = 0,
   debugging = FALSE,
   timing = FALSE
 )
 }
 \arguments{
-\item{fixed}{Formular for the fixed effects.}
+\item{fixed}{Formula for the fixed effects.}
 
 \item{random}{Formula for the random effects.}
 
-\item{residual}{Formula for the residual effects.}
+\item{residual}{Formula for the residual structure.}
 
-\item{data}{Dataframe.}
+\item{data}{Dataframe containing factor colums for variables such as environments and genotypes, and numerical columns for the response and optionally weights.}
 
-\item{maxit}{Maximum number of iterations.}
+\item{maxit}{Integer determining the maximum number of iterations.}
 
 \item{stepSize}{Numeric vector indicating the step sizes for parameter updates in each iteration.}
 
-\item{avInfReg}{Numeric vector indicating the penalty to be applied to the average information matrix in each iteration. Using \code{1.1} inflates the diagonal
-elements of the AI matrix by 10\% before inverting.}
+\item{avInfReg}{Numeric vector indicating the penalty to be applied to the diagonal elements of the average information matrix corresponding to factor loadings in each iteration. Using \code{1.1} inflates the diagonal
+elements of the AI matrix corresponding to loadings by 10\% before inverting.}
 
-\item{weights}{Optional weights, i.e., standard errors or numbers of samples.}
+\item{weights}{Optional. Name of the column of \code{data} containing weights, i.e., reciprocals of variances of BLUEs or numbers of samples. Note that the residual variance should be fixed at \code{1.0} if reciprocals of variances are used.}
 
-\item{init}{Initial values.}
+\item{init}{Numeric vector of initial values.}
 
-\item{tolConvLL}{Tolerance for detecting convergence.}
+\item{tolConvLL}{Tolerance for detecting convergence. If the change in log-likelihood is smaller than \code{tolConvLL} and no parameters have been constrained in the current iteration, the model is assumed to have converged.}
 
-\item{isFixed}{Should any of the parameters be fixed?}
+\item{isFixed}{Logical vector denoting whether parameters should be fixed (\code{TRUE}) or estimated (\code{FALSE}).}
 
-\item{verbose}{Verbosity.}
+\item{verbose}{Logical indicating whether any output should be printed.}
 
-\item{timesToBoundary}{How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?}
+\item{timesToBoundary}{Integer determining how many times a parameter or set of loadings are allowed to cross the boundary before they are fixed.}
 
-\item{getStartingValues}{Should the model be fitted, or should suggested starting values be returned?}
+\item{getStartingValues}{Logical determining whether the model is actually fitted, or whether default starting values are returned.}
 
-\item{super}{Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?}
+\item{super}{Logical determining whether a supernodal (\code{super = TRUE}) or simplicial Cholesky factor is used for the sparse equations.}
 
-\item{useGPU}{Should the GPU be used for dense models?}
+\item{useGPU}{Logical indicating whether the GPU should be used for dense equations.}
 
-\item{denseThreshold}{Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.}
+\item{denseThreshold}{Numeric threshold for determining whether a fixed effect equation is dense based on the proportion of non-zeros in each column of \code{X}. Defaults to \code{0}, meaning that all fixed effect equations end up in the dense set.}
 
-\item{debugging}{If \code{TRUE}, additional information such as derivatives, log determinants, etc., is returned for debugging purposes.}
+\item{debugging}{Logical determining whether additional information such as derivatives, log determinants, etc., is returned for debugging purposes.}
 
-\item{timing}{Report runtimes for individual steps in the algorithm.}
+\item{timing}{Logical determining whether to report runtimes for individual steps in the algorithm. Useful for development.}
 }
 \value{
 A list with the results.

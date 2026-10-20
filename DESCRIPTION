@@ -11,7 +11,9 @@ Imports:
   Matrix,
   methods,
   Rcpp (>= 1.1.0),
-  stats
+  stats,
+  fad,
+  tictoc
 LinkingTo:
   Matrix (>= 1.6-2),
   Rcpp,

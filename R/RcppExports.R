@@ -28,6 +28,10 @@ getBlockTracesDenseDense <- function(C, C_rows, K, dimVar, dimNvar, offset) {
     .Call(`_kmmr_getBlockTracesDenseDense`, C, C_rows, K, dimVar, dimNvar, offset)
 }
 
+getBlockTracesDenseSparse <- function(C, C_rows, K_p, K_i, K_x, dimVar, dimNvar, offset) {
+    .Call(`_kmmr_getBlockTracesDenseSparse`, C, C_rows, K_p, K_i, K_x, dimVar, dimNvar, offset)
+}
+
 getTraceSparseDense <- function(p, i, x, dense_x, n_rows) {
     .Call(`_kmmr_getTraceSparseDense`, p, i, x, dense_x, n_rows)
 }

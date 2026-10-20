@@ -520,7 +520,9 @@ gk <- function(factor, base) {
 #' \code{lk} is for a linear kernel correlation structure.
 #'
 #' @param factor Data factor.
-#' @param base Correlation matrix or kinship.
+#' @param base (Inverse) correlation matrix or kinship. If part of the non-variable structure
+#' of a random effect, the inverse must be supplied. If part of the variable structure, the original
+#' (correlation) matrix must be supplied.
 #'
 #' @returns List with all information on this correlation structure.
 #' @keywords internal
@@ -660,45 +662,62 @@ atEach <- function(factor, formula, levels = NULL, ...) {
 
 #' kmmr
 #'
-#' @param fixed Formular for the fixed effects.
+#' @param fixed Formula for the fixed effects.
 #' @param random Formula for the random effects.
-#' @param residual Formula for the residual effects.
-#' @param data Dataframe.
-#' @param maxit Maximum number of iterations.
+#' @param residual Formula for the residual structure.
+#' @param data Dataframe containing factor colums for variables such as environments and genotypes, and numerical columns for the response and optionally weights.
+#' @param maxit Integer determining the maximum number of iterations.
 #' @param stepSize Numeric vector indicating the step sizes for parameter updates in each iteration.
-#' @param avInfReg Numeric vector indicating the penalty to be applied to the average information matrix in each iteration. Using \code{1.1} inflates the diagonal
-#' elements of the AI matrix by 10% before inverting.
-#' @param weights Optional weights, i.e., standard errors or numbers of samples.
-#' @param init Initial values.
-#' @param tolConvLL Tolerance for detecting convergence.
-#' @param isFixed Should any of the parameters be fixed?
-#' @param verbose Verbosity.
-#' @param timesToBoundary How many times is a parameter or set of loadings allowed to cross the boundary before it is fixed?
-#' @param getStartingValues Should the model be fitted, or should suggested starting values be returned?
-#' @param super Should a supernodal (\code{super = TRUE}) or simplicial Cholesky factor be computed?
-#' @param useGPU Should the GPU be used for dense models?
-#' @param denseThreshold Threshold for determining whether a fixed effect is dense based on the proportion of non-zeros in each column of \code{X}.
-#' @param debugging If \code{TRUE}, additional information such as derivatives, log determinants, etc., is returned for debugging purposes.
-#' @param timing Report runtimes for individual steps in the algorithm.
+#' @param avInfReg Numeric vector indicating the penalty to be applied to the diagonal elements of the average information matrix corresponding to factor loadings in each iteration. Using \code{1.1} inflates the diagonal
+#' elements of the AI matrix corresponding to loadings by 10% before inverting.
+#' @param weights Optional. Name of the column of \code{data} containing weights, i.e., reciprocals of variances of BLUEs or numbers of samples. Note that the residual variance should be fixed at \code{1.0} if reciprocals of variances are used.
+#' @param init Numeric vector of initial values.
+#' @param tolConvLL Tolerance for detecting convergence. If the change in log-likelihood is smaller than \code{tolConvLL} and no parameters have been constrained in the current iteration, the model is assumed to have converged.
+#' @param isFixed Logical vector denoting whether parameters should be fixed (\code{TRUE}) or estimated (\code{FALSE}).
+#' @param verbose Logical indicating whether any output should be printed.
+#' @param timesToBoundary Integer determining how many times a parameter or set of loadings are allowed to cross the boundary before they are fixed.
+#' @param getStartingValues Logical determining whether the model is actually fitted, or whether default starting values are returned.
+#' @param super Logical determining whether a supernodal (\code{super = TRUE}) or simplicial Cholesky factor is used for the sparse equations.
+#' @param useGPU Logical indicating whether the GPU should be used for dense equations.
+#' @param denseThreshold Numeric threshold for determining whether a fixed effect equation is dense based on the proportion of non-zeros in each column of \code{X}. Defaults to \code{0}, meaning that all fixed effect equations end up in the dense set.
+#' @param debugging Logical determining whether additional information such as derivatives, log determinants, etc., is returned for debugging purposes.
+#' @param timing Logical determining whether to report runtimes for individual steps in the algorithm. Useful for development.
 #'
 #' @returns A list with the results.
 #' @export
-kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
+kmmr <- function(fixed, random, residual = ~ units, data,
                  maxit = 20, stepSize = NULL, avInfReg = NULL,
                  weights = NULL, init = NULL, tolConvLL = 0.001, isFixed = NULL, verbose = TRUE,
                  timesToBoundary = 5, getStartingValues = FALSE, super = TRUE,
-                 useGPU = FALSE, denseThreshold = 0.001, debugging = FALSE, timing = FALSE) {
+                 useGPU = FALSE, denseThreshold = 0, debugging = FALSE, timing = FALSE) {
   
   # Basic argument checking:
+  stopifnot("'fixed' must be a formula" = class(fixed) == "formula", # No default value.
+            "'random' must be a formula" = class(random) == "formula", # No default value.
+            "'residual' must be a formula" = class(residual) == "formula", # Default is a formula.
+            "'data' must be a dataframe" = class(data) == "data.frame", # No default value.
+            "'maxit' must be an integer value" = is.integer(maxit) || maxit %% 1 == 0, # Default is an integer value.
+            "'stepSize' must be a numeric vector" = is.numeric(stepSize) || is.null(stepSize), # Default is NULL.
+            "'avInfReg' must be a numeric vector" = is.numeric(avInfReg) || is.null(avInfReg), # Default is NULL.
+            "'weights' must be a character value" = is.character(weights) || is.null(weights), # Default is NULL.
+            "'init' must be a numeric vector" = is.numeric(init) || is.null(init), # Default is NULL.
+            "'tolConvLL' must be a numeric value" = is.numeric(tolConvLL), # Default is a numeric value.
+            "'isFixed' must be a logical vector" = is.logical(isFixed) || is.null(isFixed), # Default is NULL.
+            "'verbose' must be a logical value" = is.logical(verbose), # Default value is a logical value.
+            "'timesToBoundary' must be an integer value" = is.integer(maxit) || maxit %% 1 == 0, # Default value is an integer value.
+            "'getStartingValues' must be a logical value" = is.logical(getStartingValues), # Default is a logical value.
+            "'super' must be a logical value" = is.logical(super), # Default is a logical value.
+            "'useGPU' must be a logical value" = is.logical(useGPU), # Default is a logical value.
+            "'denseThreshold' must be a numeric value" = is.numeric(denseThreshold), # Default is a numeric value.
+            "'debugging' must be a logical value" = is.logical(debugging), # Default is a logical value.
+            "'timing' must be a logical value" = is.logical(timing)) # Default is a logical value.
+  
   if (is.null(fixed)) {
     stop("At least one fixed effect must be specified.")
   }
   if (is.null(random)) {
     stop("At least one random effect must be specified.")
   }
-  # if (residual != ~ units) {
-  #   stop("Only the '~ units' residual structure has currently been implemented.")
-  # }
   if (is.null(data)) {
     stop("The 'data' argument must be specified.")
   }
@@ -714,8 +733,6 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   }
   if (!(is.character(weights) | is.null(weights))) {
     stop("The 'weights' argument must be NULL or a character.")
-  } else if (length(weights) > 1) {
-    stop("The 'weights' argument must be a character vector of length 1.")
   }
   if (!(is.null(init) | is.numeric(init))) {
     stop("The 'init' argument must be NULL or numeric.")
@@ -746,6 +763,9 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
   
   # Getting the name of the response column:
   response <- as.character(fixed[2])
+  if (!isTRUE(class(data[[response]]) == "numeric")) {
+    stop("The column of 'data' containing the response should be numeric.")
+  }
   
   # Getting rid of any missing values:
   data <- na.omit(data)
@@ -872,11 +892,13 @@ kmmr <- function(fixed = NULL, random = NULL, residual = ~ units, data = NULL,
     weights <- NA
   } else {
     useWeights <- TRUE
-    # For the diagonal approximation, 'weights' is the name of the column of the dataframe containing the diagonal elements of omega^-1, see Damesa et al. 2017, https://doi.org/10.2134/agronj2016.07.0395
+    # For the diagonal approximation, 'weights' is the name of the column of the dataframe containing the diagonal elements of omega^-1, see Damesa et al. 2017, https://doi.org/10.2134/agronj2016.07.0395.
+    # Or the sample size, i.e., number of plots.
+    # In other words, higher values for weights means a smaller residual variance.
     # In this case we can estimate the inverse residual correlation matrix Ri if needed, or just use an identity matrix for independent residuals so that Ri = I.
     # Then multiply on the left and right with a diagonal matrix of the square roots of the original weights: weights %*% Ri %*% weights.
-    # Note that any residual variances must be fixed to 1.0
-    weights <- Diagonal(nrow(data), sqrt(data[[weights]])) # Will be a ddiMatrix
+    # Note that any residual variances must be fixed to 1.0 if weights are the reciprocals of variances of BLUEs.
+    weights <- Diagonal(nrow(data), sqrt(1 / data[[weights]])) # Will be a ddiMatrix containing standard deviations of BLUEs, or reciprocals of sqrt(s) where s is the sample size, e.g., number of plots.
   }
   
   # Initial values:

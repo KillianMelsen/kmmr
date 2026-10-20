@@ -96,6 +96,24 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// getBlockTracesDenseSparse
+NumericMatrix getBlockTracesDenseSparse(NumericVector C, int C_rows, IntegerVector K_p, IntegerVector K_i, NumericVector K_x, int dimVar, int dimNvar, int offset);
+RcppExport SEXP _kmmr_getBlockTracesDenseSparse(SEXP CSEXP, SEXP C_rowsSEXP, SEXP K_pSEXP, SEXP K_iSEXP, SEXP K_xSEXP, SEXP dimVarSEXP, SEXP dimNvarSEXP, SEXP offsetSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type C(CSEXP);
+    Rcpp::traits::input_parameter< int >::type C_rows(C_rowsSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type K_p(K_pSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type K_i(K_iSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type K_x(K_xSEXP);
+    Rcpp::traits::input_parameter< int >::type dimVar(dimVarSEXP);
+    Rcpp::traits::input_parameter< int >::type dimNvar(dimNvarSEXP);
+    Rcpp::traits::input_parameter< int >::type offset(offsetSEXP);
+    rcpp_result_gen = Rcpp::wrap(getBlockTracesDenseSparse(C, C_rows, K_p, K_i, K_x, dimVar, dimNvar, offset));
+    return rcpp_result_gen;
+END_RCPP
+}
 // getTraceSparseDense
 double getTraceSparseDense(IntegerVector p, IntegerVector i, NumericVector x, NumericVector dense_x, int n_rows);
 RcppExport SEXP _kmmr_getTraceSparseDense(SEXP pSEXP, SEXP iSEXP, SEXP xSEXP, SEXP dense_xSEXP, SEXP n_rowsSEXP) {
@@ -256,6 +274,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_kmmr_getBlockTracesSparseDense", (DL_FUNC) &_kmmr_getBlockTracesSparseDense, 7},
     {"_kmmr_getBlockTracesSparseSparse", (DL_FUNC) &_kmmr_getBlockTracesSparseSparse, 9},
     {"_kmmr_getBlockTracesDenseDense", (DL_FUNC) &_kmmr_getBlockTracesDenseDense, 6},
+    {"_kmmr_getBlockTracesDenseSparse", (DL_FUNC) &_kmmr_getBlockTracesDenseSparse, 8},
     {"_kmmr_getTraceSparseDense", (DL_FUNC) &_kmmr_getTraceSparseDense, 5},
     {"_kmmr_getAccuSparseDense", (DL_FUNC) &_kmmr_getAccuSparseDense, 5},
     {"_kmmr_cuSolverInit", (DL_FUNC) &_kmmr_cuSolverInit, 4},

@@ -206,7 +206,7 @@ arma::dmat convert_to_dmat(SEXP x) {
   Rcpp::stop("Input must be a dense Matrix object (dgeMatrix or dsyMatrix)...");
 }
 
-// NEW: Mirrors the upper triangle of the column-major n x n matrix d_A (on the device) into its lower triangle.
+// Mirrors the upper triangle of the column-major n x n matrix d_A (on the device) into its lower triangle.
 // After potri only the upper triangle of d_C holds C^-1 (the lower triangle is leftover input), but cuSPARSE has no
 // notion of a symmetric / uplo dense operand, so SpMM needs the full matrix.
 // Element (r, c) lives at d_A[r + c * n]. For each column j: copy row j (columns j+1..n-1, stride n)
@@ -219,7 +219,7 @@ static void mirrorUpperToLower(cuSolverContext* ctx, double* d_A, int n) {
   }
 }
 
-// NEW: QCidd = Q %*% Cidd on the GPU, where Cidd is the inverse currently stored (upper triangle) in ctx->d_C.
+// QCidd = Q %*% Cidd on the GPU, where Cidd is the inverse currently stored (upper triangle) in ctx->d_C.
 //
 // Qt_in must be a dgCMatrix holding t(Q) (N x M). The CSC arrays of t(Q) are *exactly* the CSR arrays of Q
 // (M x N): column pointers <-> row pointers, row indices <-> column indices. So Qt's p / i / x slots are uploaded
