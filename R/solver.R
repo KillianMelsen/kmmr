@@ -1783,14 +1783,10 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
     cat(sprintf("No convergence after reaching the maximum number of iterations.\n"))
   }
   
-  # Now that when we have reached maxit or convergence, we need to compute Cchol one
-  # last time if we are using the GPU. This is because the Cholesky factor of C
-  # only ever existed on the GPU, and we don't want to copy it back in every
-  # single iteration.
-  if (useGPU && Cmode == "dense") {
-    gpuResult <- cuSolverPhase1(ctx_ptr = gpu_ctx, C_in = Cdd, RHS_in = RHS, returnCchol = TRUE)
+  # Now that when we have reached maxit or convergence, we clean up the CUDA
+  # context:
+  if (useGPU && Cmode %in% c("dense", "mixed")) {
     cuSolverCleanup(gpu_ctx)
-    Ccholdd <- gpuResult$Cchol
   }
   
   # Putting the BLUEs and BLUPs back into specified order:
@@ -1810,7 +1806,8 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   if (Cmode == "mixed") {
     infoPEV <- list(Cmode = "mixed",
                     Ccholss = Ccholss,
-                    Q = Q,
+                    Ciss = Ciss,
+                    Qt = Qt,
                     Cidd = Cidd,
                     dense.idx = dense.idx,
                     sparse.idx = sparse.idx)
@@ -1818,11 +1815,12 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   } else if (Cmode == "sparse") {
     infoPEV <- list(Cmode = "sparse",
                     Ccholss = Ccholss,
+                    Ciss = Ciss,
                     sparse.idx = sparse.idx)
     
   } else {
     infoPEV <- list(Cmode = "dense",
-                    Ccholdd = Ccholdd,
+                    Cidd = Cidd,
                     dense.idx = dense.idx)
   }
   
