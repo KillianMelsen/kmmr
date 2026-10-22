@@ -304,7 +304,7 @@ getDeriv_cor <- function(cormatIndex, p) {
 
 getDeriv_gk <- function(params, base) {
   deriv <- -base * exp(-params[1] * base)
-  return(deriv)
+  return(as(deriv, "generalMatrix"))
 }
 
 getDeriv_ar1 <- function(params, base) {
@@ -893,7 +893,15 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
       sparseRHS <- crossprod(Wsparse, Riy)
       Csd <- t(Cds)
       Q <- solve(Ccholss, Csd)
+      if (iter == 1 && nnzero(Q) / prod(dim(Q)) > 0.5) {
+        warning("For Q = solve(Ccholss, Csd), nnzero(Q) / prod(dim(Q)) > 0.5...")
+      }
       Qt <- t(Q) # Store both, cheap anyway because they are highly sparse.
+      # Not always though... See if we can avoid working with Qt: we only need it for cusolverPhase2() and infoPEV.
+      # Also consider the cusparseSpMM call. If Q is dense, we should probably use cublasDsymm, but that is out-of place meaning we need to allocate both Q as well as QCidd.
+      # Maybe replace the cusolverDnDpotri() of the Schur complement with computing the inverse of the triangular factor using cusolverDnXtrtri?
+      # Then two successive cublasDtrmm calls to compute QCidd in-place? That requires switching to the 64-bit cuSOLVER API for cusolverDnXtrtri.
+      # If we have a sparse Q we can use the current implementation because regardless of whether Q is sparse, QCidd is always dense.
       SC <- Cdd - forceSymmetric(Cds %*% Q)
       sparseTemp <- solve(Ccholss, sparseRHS)
       adjDenseRHS <- denseRHS - (Cds %*% sparseTemp)
@@ -1806,7 +1814,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   if (Cmode == "mixed") {
     infoPEV <- list(Cmode = "mixed",
                     Ccholss = Ccholss,
-                    Ciss = Ciss,
                     Qt = Qt,
                     Cidd = Cidd,
                     dense.idx = dense.idx,
@@ -1815,7 +1822,6 @@ solveLMM <- function(y, X, Z, init, weights, useWeights, maxit, stepSize, avInfR
   } else if (Cmode == "sparse") {
     infoPEV <- list(Cmode = "sparse",
                     Ccholss = Ccholss,
-                    Ciss = Ciss,
                     sparse.idx = sparse.idx)
     
   } else {

@@ -45,8 +45,8 @@ tr22 <- sum(Cire1[51:100, 51:100] * Ki)
 stopifnot(all.equal(Matrix(c(tr11, tr12, tr12, tr22), 2, 2), fit$traces[[1]])) # TRUE
 Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% Gi %*% fit$u
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi %*% fit$u
   param <- param + 1
 }
 for (i in 1:length(fit$derivs[[2]])) {
@@ -56,9 +56,9 @@ for (i in 1:length(fit$derivs[[2]])) {
 stopifnot(all.equal(Wu.check, fit$Wu)) # TRUE
 scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% Gi))
-  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  s1 <- sum(diag(kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi))
+  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi) %*% Cire1))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
@@ -118,8 +118,8 @@ traces <- forceSymmetric(traces)
 stopifnot(all.equal(traces, fit$traces[[1]])) # TRUE
 Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% Gi %*% fit$u
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi %*% fit$u
   param <- param + 1
 }
 for (i in 1:length(fit$derivs[[2]])) {
@@ -129,9 +129,9 @@ for (i in 1:length(fit$derivs[[2]])) {
 stopifnot(all.equal(Wu.check, fit$Wu)) # TRUE
 scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% Gi))
-  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  s1 <- sum(diag(kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi))
+  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi) %*% Cire1))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
@@ -155,7 +155,7 @@ dss$GY[sample(1:nrow(dss), floor(nrow(dss) / 4))] <- NA # Introducing missing va
 fit2 <- kmmr(fixed = GY ~ -1 + Env,
              random = ~ re(~ exfa(Env, 1):lk(Gen, Ki), vars = ~ Env),
              residual = ~ units,
-             data = dss, maxit = 1, debugging = TRUE, useGPU = FALSE, denseThreshold = 0.2)
+             data = dss, maxit = 1, debugging = TRUE, denseThreshold = 0.0, useGPU = useGPU)
 
 R <- Diagonal(nrow(fit2$y), fit2$k[21, 1])
 stopifnot(all.equal(sum(log(eigen(R, only.values = TRUE)$values)), fit2$logDetR)) # TRUE
@@ -193,8 +193,8 @@ traces <- forceSymmetric(traces)
 stopifnot(all.equal(traces[fit2$traces[[1]] != 0], fit2$traces[[1]][fit2$traces[[1]] != 0])) # TRUE
 Wu.check <- Matrix(0, nrow(fit2$y), ncol(fit2$Wu), sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit2$derivs[[1]])) {
-  Wu.check[, param] <- fit2$Z[[1]] %*% kronecker(fit2$derivs[[1]][[i]], K) %*% Gi %*% fit2$u
+for (i in 1:(ncol(fit2$derivs[[1]]) / nrow(fit2$derivs[[1]]))) {
+  Wu.check[, param] <- fit2$Z[[1]] %*% kronecker(fit2$derivs[[1]][1:nrow(fit2$derivs[[1]]), ((i - 1) * nrow(fit2$derivs[[1]]) + 1):(i * nrow(fit2$derivs[[1]]))], K) %*% Gi %*% fit2$u
   param <- param + 1
 }
 for (i in 1:length(fit2$derivs[[2]])) {
@@ -202,11 +202,12 @@ for (i in 1:length(fit2$derivs[[2]])) {
   param <- param + 1
 }
 stopifnot(all.equal(Wu.check, fit2$Wu)) # TRUE
+stopifnot(all.equal(Wu.check, fit$Wu)) # TRUE
 scores.check <- Matrix(0, nrow(fit2$scores), 1, sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit2$derivs[[1]])) {
-  s1 <- sum(diag(kronecker(fit2$derivs[[1]][[i]], K) %*% Gi))
-  s2 <- sum(diag(Gi %*% (kronecker(fit2$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
+for (i in 1:(ncol(fit2$derivs[[1]]) / nrow(fit2$derivs[[1]]))) {
+  s1 <- sum(diag(kronecker(fit2$derivs[[1]][1:nrow(fit2$derivs[[1]]), ((i - 1) * nrow(fit2$derivs[[1]]) + 1):(i * nrow(fit2$derivs[[1]]))], K) %*% Gi))
+  s2 <- sum(diag(Gi %*% (kronecker(fit2$derivs[[1]][1:nrow(fit2$derivs[[1]]), ((i - 1) * nrow(fit2$derivs[[1]]) + 1):(i * nrow(fit2$derivs[[1]]))], K) %*% Gi) %*% Cire1))
   s3 <- as.numeric(t(fit2$y) %*% P %*% fit2$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
@@ -218,6 +219,7 @@ for (i in 1:length(fit2$derivs[[2]])) {
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
 }
+stopifnot(all.equal(scores.check, fit2$scores)) # TRUE
 stopifnot(all.equal(scores.check, fit$scores)) # TRUE
 
 # gk for 10 environments ====
@@ -265,11 +267,11 @@ for (i in 1:nrow(sigma)) {
 }
 traces <- forceSymmetric(traces)
 stopifnot(all.equal(traces, fit$traces[[1]])) # TRUE
-stopifnot(all.equal(vars * -ED * exp(-fit$k[11, 1] * ED), fit$derivs[[1]][[11]], check.attributes = FALSE)) # TRUE
+stopifnot(all.equal(as(vars * -ED * exp(-fit$k[11, 1] * ED), "generalMatrix"), fit$derivs[[1]][1:10, 101:110], check.attributes = FALSE)) # TRUE
 Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% Gi %*% fit$u
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi %*% fit$u
   param <- param + 1
 }
 for (i in 1:length(fit$derivs[[2]])) {
@@ -279,9 +281,9 @@ for (i in 1:length(fit$derivs[[2]])) {
 stopifnot(all.equal(Wu.check, fit$Wu)) # TRUE
 scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% Gi))
-  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  s1 <- sum(diag(kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi))
+  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi) %*% Cire1))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
@@ -366,12 +368,12 @@ stopifnot(all.equal(traces2, fit$traces[[2]])) # TRUE
 
 Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% solve(G1) %*% fit$u[1:550, 1, drop = FALSE]
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% solve(G1) %*% fit$u[1:550, 1, drop = FALSE]
   param <- param + 1
 }
-for (i in 1:length(fit$derivs[[2]])) {
-  Wu.check[, param] <- fit$Z[[2]] %*% kronecker(fit$derivs[[2]][[i]], K) %*% solve(G2) %*% fit$u[551:1050, 1, drop = FALSE]
+for (i in 1:(ncol(fit$derivs[[2]]) / nrow(fit$derivs[[2]]))) {
+  Wu.check[, param] <- fit$Z[[2]] %*% kronecker(fit$derivs[[2]][1:nrow(fit$derivs[[2]]), ((i - 1) * nrow(fit$derivs[[2]]) + 1):(i * nrow(fit$derivs[[2]]))], K) %*% solve(G2) %*% fit$u[551:1050, 1, drop = FALSE]
   param <- param + 1
 }
 for (i in 1:length(fit$derivs[[3]])) {
@@ -381,16 +383,16 @@ for (i in 1:length(fit$derivs[[3]])) {
 stopifnot(all.equal(Wu.check, fit$Wu)) # TRUE
 scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% solve(G1)))
-  s2 <- sum(diag(solve(G1) %*% (kronecker(fit$derivs[[1]][[i]], K) %*% solve(G1)) %*% Cire1))
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  s1 <- sum(diag(kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% solve(G1)))
+  s2 <- sum(diag(solve(G1) %*% (kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% solve(G1)) %*% Cire1))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
 }
-for (i in 1:length(fit$derivs[[2]])) {
-  s1 <- sum(diag(kronecker(fit$derivs[[2]][[i]], K) %*% solve(G2)))
-  s2 <- sum(diag(solve(G2) %*% (kronecker(fit$derivs[[2]][[i]], K) %*% solve(G2)) %*% Cire2))
+for (i in 1:(ncol(fit$derivs[[2]]) / nrow(fit$derivs[[2]]))) {
+  s1 <- sum(diag(kronecker(fit$derivs[[2]][1:nrow(fit$derivs[[2]]), ((i - 1) * nrow(fit$derivs[[2]]) + 1):(i * nrow(fit$derivs[[2]]))], K) %*% solve(G2)))
+  s2 <- sum(diag(solve(G2) %*% (kronecker(fit$derivs[[2]][1:nrow(fit$derivs[[2]]), ((i - 1) * nrow(fit$derivs[[2]]) + 1):(i * nrow(fit$derivs[[2]]))], K) %*% solve(G2)) %*% Cire2))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
@@ -481,16 +483,16 @@ uCheck <- buCheck[3:nrow(buCheck), 1, drop = FALSE]
 
 Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  Wu.check[, param] <- fit$Z[[1]] %*% fit$derivs[[1]][[i]] %*% solve(G1) %*% fit$u[1:756, 1, drop = FALSE]
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  Wu.check[, param] <- fit$Z[[1]] %*% fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))] %*% solve(G1) %*% fit$u[1:756, 1, drop = FALSE]
   param <- param + 1
 }
-for (i in 1:length(fit$derivs[[2]])) {
-  Wu.check[, param] <- fit$Z[[2]] %*% fit$derivs[[2]][[i]] %*% solve(G2) %*% fit$u[757:1512, 1, drop = FALSE]
+for (i in 1:(ncol(fit$derivs[[2]]) / nrow(fit$derivs[[2]]))) {
+  Wu.check[, param] <- fit$Z[[2]] %*% fit$derivs[[2]][1:nrow(fit$derivs[[2]]), ((i - 1) * nrow(fit$derivs[[2]]) + 1):(i * nrow(fit$derivs[[2]]))] %*% solve(G2) %*% fit$u[757:1512, 1, drop = FALSE]
   param <- param + 1
 }
-for (i in 1:length(fit$derivs[[3]])) {
-  Wu.check[, param] <- fit$Z[[3]] %*% kronecker(fit$derivs[[3]][[i]], K) %*% solve(G3) %*% fit$u[1513:2002, 1, drop = FALSE]
+for (i in 1:(ncol(fit$derivs[[3]]) / nrow(fit$derivs[[3]]))) {
+  Wu.check[, param] <- fit$Z[[3]] %*% kronecker(fit$derivs[[3]][1:nrow(fit$derivs[[3]]), ((i - 1) * nrow(fit$derivs[[3]]) + 1):(i * nrow(fit$derivs[[3]]))], K) %*% solve(G3) %*% fit$u[1513:2002, 1, drop = FALSE]
   param <- param + 1
 }
 for (i in 1:length(fit$derivs[[4]])) {
@@ -500,23 +502,23 @@ for (i in 1:length(fit$derivs[[4]])) {
 stopifnot(all.equal(Wu.check, fit$Wu)) # TRUE
 scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  s1 <- sum(diag(fit$derivs[[1]][[i]] %*% solve(G1)))
-  s2 <- sum(diag(solve(G1) %*% fit$derivs[[1]][[i]] %*% solve(G1) %*% Cire1))
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  s1 <- sum(diag(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))] %*% solve(G1)))
+  s2 <- sum(diag(solve(G1) %*% fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))] %*% solve(G1) %*% Cire1))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
 }
-for (i in 1:length(fit$derivs[[2]])) {
-  s1 <- sum(diag(fit$derivs[[2]][[i]] %*% solve(G2)))
-  s2 <- sum(diag(solve(G2) %*% fit$derivs[[2]][[i]] %*% solve(G2) %*% Cire2))
+for (i in 1:(ncol(fit$derivs[[2]]) / nrow(fit$derivs[[2]]))) {
+  s1 <- sum(diag(fit$derivs[[2]][1:nrow(fit$derivs[[2]]), ((i - 1) * nrow(fit$derivs[[2]]) + 1):(i * nrow(fit$derivs[[2]]))] %*% solve(G2)))
+  s2 <- sum(diag(solve(G2) %*% fit$derivs[[2]][1:nrow(fit$derivs[[2]]), ((i - 1) * nrow(fit$derivs[[2]]) + 1):(i * nrow(fit$derivs[[2]]))] %*% solve(G2) %*% Cire2))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
 }
-for (i in 1:length(fit$derivs[[3]])) {
-  s1 <- sum(diag(kronecker(fit$derivs[[3]][[i]], K) %*% solve(G3)))
-  s2 <- sum(diag(solve(G3) %*% (kronecker(fit$derivs[[3]][[i]], K) %*% solve(G3)) %*% Cire3))
+for (i in 1:(ncol(fit$derivs[[3]]) / nrow(fit$derivs[[3]]))) {
+  s1 <- sum(diag(kronecker(fit$derivs[[3]][1:nrow(fit$derivs[[3]]), ((i - 1) * nrow(fit$derivs[[3]]) + 1):(i * nrow(fit$derivs[[3]]))], K) %*% solve(G3)))
+  s2 <- sum(diag(solve(G3) %*% (kronecker(fit$derivs[[3]][1:nrow(fit$derivs[[3]]), ((i - 1) * nrow(fit$derivs[[3]]) + 1):(i * nrow(fit$derivs[[3]]))], K) %*% solve(G3)) %*% Cire3))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
@@ -581,8 +583,8 @@ traces <- forceSymmetric(traces)
 stopifnot(all.equal(traces, fit$traces[[1]])) # TRUE
 Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% Gi %*% fit$u
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi %*% fit$u
   param <- param + 1
 }
 for (i in 1:length(fit$derivs[[2]])) {
@@ -592,9 +594,9 @@ for (i in 1:length(fit$derivs[[2]])) {
 stopifnot(all.equal(Wu.check, fit$Wu)) # TRUE
 scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% Gi))
-  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  s1 <- sum(diag(kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi))
+  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi) %*% Cire1))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
@@ -612,19 +614,18 @@ stopifnot(all.equal(scores.check, fit$scores)) # TRUE
 rm(list = setdiff(ls(), c("d", "K", "Ki", "fit", "useGPU")))
 set.seed(1997)
 dss <- droplevels(d[d$Man == "R" & d$Env %in% levels(d$Env)[1:10],])
-dss$weight.kmmr <- 1 / dss$weight
 dss <- dss[sample(1:nrow(dss), nrow(dss)),] # Shuffling data.
 dss$GY[sample(1:nrow(dss), floor(nrow(dss) / 4))] <- NA # Introducing missing values.
 
 fit <- kmmr(fixed = GY ~ 1 + Env,
             random = ~ re(~ exfa(Env, 2):lk(Gen, Ki), vars = ~ Env),
             residual = ~ units,
-            weights = "weight.kmmr",
+            weights = "weight",
             data = dss, maxit = 1, debugging = TRUE, useGPU = useGPU, denseThreshold = 0.2,
             getStartingValues = TRUE)
 
 old.var <- fit$Init[31]
-new.var <- mean(na.omit(dss)$weight.kmmr)
+new.var <- mean(1 / na.omit(dss)$weight)
 inc <- new.var / old.var
 fit$Init[31] <- 1
 fit$Fixed[31] <- TRUE
@@ -633,11 +634,11 @@ fit$Init[1:10] <- fit$Init[1:10] * inc
 fit <- kmmr(fixed = GY ~ 1 + Env,
             random = ~ re(~ exfa(Env, 2):lk(Gen, Ki), vars = ~ Env),
             residual = ~ units,
-            weights = "weight.kmmr",
+            weights = "weight",
             init = fit$Init, isFixed = fit$Fixed,
             data = dss, maxit = 1, debugging = TRUE, useGPU = useGPU, denseThreshold = 0.2)
 
-R <- Diagonal(nrow(fit$y), na.omit(dss)$weight.kmmr)
+R <- Diagonal(nrow(fit$y), 1 / na.omit(dss)$weight)
 stopifnot(all.equal(sum(log(eigen(R, only.values = TRUE)$values)), fit$logDetR)) # TRUE
 vars <- outer(sqrt(c(fit$k[1:10, 1], 1, 1)), sqrt(c(fit$k[1:10, 1], 1, 1)))
 stopifnot(all.equal(vars, as.matrix(fit$vars[[1]]))) # TRUE
@@ -672,10 +673,8 @@ traces <- forceSymmetric(traces)
 stopifnot(all.equal(traces[fit$traces[[1]] != 0], fit$traces[[1]][fit$traces[[1]] != 0])) # TRUE
 Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  if (!is.null(fit$derivs[[1]][[i]])) {
-    Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% Gi %*% fit$u
-  }
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi %*% fit$u
   param <- param + 1
 }
 for (i in 1:length(fit$derivs[[2]])) {
@@ -687,13 +686,11 @@ for (i in 1:length(fit$derivs[[2]])) {
 stopifnot(all.equal(Wu.check, fit$Wu)) # TRUE
 scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  if (!is.null(fit$derivs[[1]][[i]])) {
-    s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% Gi))
-    s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
-    s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
-    scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
-  }
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  s1 <- sum(diag(kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi))
+  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi) %*% Cire1))
+  s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
+  scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1
 }
 for (i in 1:length(fit$derivs[[2]])) {
@@ -769,8 +766,8 @@ traces <- forceSymmetric(traces)
 stopifnot(all.equal(traces, fit$traces[[1]])) # TRUE
 Wu.check <- Matrix(0, nrow(fit$y), ncol(fit$Wu), sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][[i]], K) %*% Gi %*% fit$u
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  Wu.check[, param] <- fit$Z[[1]] %*% kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi %*% fit$u
   param <- param + 1
 }
 for (i in 1:length(fit$derivs[[2]])) {
@@ -781,9 +778,9 @@ stopifnot(all.equal(Wu.check, fit$Wu)) # TRUE
 stopifnot(all.equal(Wu.check, fit2$Wu[, c(1:10, 12:21, 11, 22:32)])) # TRUE
 scores.check <- Matrix(0, nrow(fit$scores), 1, sparse = FALSE, doDiag = FALSE)
 param <- 1
-for (i in 1:length(fit$derivs[[1]])) {
-  s1 <- sum(diag(kronecker(fit$derivs[[1]][[i]], K) %*% Gi))
-  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][[i]], K) %*% Gi) %*% Cire1))
+for (i in 1:(ncol(fit$derivs[[1]]) / nrow(fit$derivs[[1]]))) {
+  s1 <- sum(diag(kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi))
+  s2 <- sum(diag(Gi %*% (kronecker(fit$derivs[[1]][1:nrow(fit$derivs[[1]]), ((i - 1) * nrow(fit$derivs[[1]]) + 1):(i * nrow(fit$derivs[[1]]))], K) %*% Gi) %*% Cire1))
   s3 <- as.numeric(t(fit$y) %*% P %*% fit$Wu[, param])
   scores.check[param, 1] <- -0.5 * (s1 - s2 - s3)
   param <- param + 1

@@ -4,7 +4,7 @@
 \alias{predict.kmmrFit}
 \title{predict.kmmrFit}
 \usage{
-\method{predict}{kmmrFit}(object, predictionMatrix, ...)
+\method{predict}{kmmrFit}(object, predictionMatrix, chunks = FALSE, chunkSize = 500, ...)
 }
 \arguments{
 \item{object}{kmmrFit object.}

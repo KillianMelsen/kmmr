@@ -39,6 +39,7 @@ predict.kmmrFit <- function(object, predictionMatrix, chunks = FALSE, chunkSize 
     # Sparse part:
     kSparsePermuted <- solve(object$infoPEV$Ccholss, kSparse, system = "P")
     
+    # Do the entire thing at once (needs more memory), or divide into chunks?
     if (!chunks) {
       gamma <- solve(object$infoPEV$Ccholss, as.matrix(kSparsePermuted), system = "L")
       pevSparse <- colSums(gamma * gamma) # diag(crossprod(gamma))
@@ -47,14 +48,8 @@ predict.kmmrFit <- function(object, predictionMatrix, chunks = FALSE, chunkSize 
       pevSparse <- numeric(n_preds)
       for (i in seq(1, n_preds, by = chunkSize)) {
         idx <- i:min(i + chunkSize - 1, n_preds)
-        
-        # Cast only the current chunk to dense
         k_chunk <- as.matrix(kSparsePermuted[, idx, drop = FALSE])
-        
-        # Solve against the dense chunk (fast Level 3 BLAS)
         gamma_chunk <- solve(object$infoPEV$Ccholss, k_chunk, system = "L")
-        
-        # Compute and store the diagonal elements
         pevSparse[idx] <- colSums(gamma_chunk * gamma_chunk)
       }
     }
@@ -67,13 +62,33 @@ predict.kmmrFit <- function(object, predictionMatrix, chunks = FALSE, chunkSize 
     
   } else if (Cmode == "sparse") {
     sparse.idx <- object$infoPEV$sparse.idx
-    tauSparse <- tau[Sparse.idx, 1, drop = FALSE]
+    tauSparse <- tau[sparse.idx, 1, drop = FALSE]
     kSparse <- predictionMatrix[sparse.idx, , drop = FALSE]
+    kSparsePermuted <- solve(object$infoPEV$Ccholss, kSparse, system = "P")
+    
+    # Do the entire thing at once (needs more memory), or divide into chunks?
+    if (!chunks) {
+      gamma <- solve(object$infoPEV$Ccholss, as.matrix(kSparsePermuted), system = "L")
+      pevSparse <- colSums(gamma * gamma) # diag(crossprod(gamma))
+    } else {
+      n_preds <- ncol(kSparsePermuted)
+      pevSparse <- numeric(n_preds)
+      for (i in seq(1, n_preds, by = chunkSize)) {
+        idx <- i:min(i + chunkSize - 1, n_preds)
+        k_chunk <- as.matrix(kSparsePermuted[, idx, drop = FALSE])
+        gamma_chunk <- solve(object$infoPEV$Ccholss, k_chunk, system = "L")
+        pevSparse[idx] <- colSums(gamma_chunk * gamma_chunk)
+      }
+    }
+    pev <- pevSparse
     
   } else if (Cmode == "dense") {
     dense.idx <- object$infoPEV$dense.idx
     tauDense <- tau[dense.idx, 1, drop = FALSE]
     kDense <- predictionMatrix[dense.idx, , drop = FALSE]
+    z <- object$infoPEV$Cidd %*% kDense
+    pevDense <- colSums(kDense * z)
+    pev <- pevDense
     
   }
   
